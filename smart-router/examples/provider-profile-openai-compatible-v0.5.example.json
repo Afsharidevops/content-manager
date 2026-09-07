@@ -1,0 +1,10 @@
+{
+  "name": "my-openai-compatible-gateway",
+  "upstream_base_url": "http://gateway:8000/v1",
+  "upstream_health_url": "http://gateway:8000/health",
+  "tiers": {
+    "fast": {"model": "replace-with-fast-model", "supports_tools": false, "supports_vision": false, "max_context": 32000, "max_tokens": 1024},
+    "standard": {"model": "replace-with-standard-model", "supports_tools": true, "supports_vision": false, "max_context": 128000, "max_tokens": 4096},
+    "strong": {"model": "replace-with-strong-model", "supports_tools": true, "supports_vision": true, "max_context": 200000, "max_tokens": 6144}
+  }
+}

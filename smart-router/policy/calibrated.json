@@ -1,0 +1,18 @@
+{
+  "fast_max_score": 0,
+  "standard_max_score": 5,
+  "weights": {
+    "complex_intent": 2,
+    "context_gt_25000": 2,
+    "context_gt_50000": 3,
+    "context_gt_8000": 2,
+    "failure_language": 2,
+    "large_tool_results": 1,
+    "large_tool_schema": 1,
+    "multiple_code_blocks": 1,
+    "multiple_files": 2,
+    "simple_intent": -2,
+    "structured_output": 1,
+    "tools_present": 1
+  }
+}

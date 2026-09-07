@@ -1,0 +1,21 @@
+{
+  "currency": "USD",
+  "note": "Fill these values with the actual provider/gateway prices for the models mapped to each tier, then save as /policy/pricing-v0.5.json. Null prices disable USD claims while real token totals continue to be measured.",
+  "tiers": {
+    "fast": {
+      "input_per_million": null,
+      "cached_input_per_million": null,
+      "output_per_million": null
+    },
+    "standard": {
+      "input_per_million": null,
+      "cached_input_per_million": null,
+      "output_per_million": null
+    },
+    "strong": {
+      "input_per_million": null,
+      "cached_input_per_million": null,
+      "output_per_million": null
+    }
+  }
+}

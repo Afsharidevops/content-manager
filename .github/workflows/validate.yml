@@ -1,0 +1,74 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell syntax
+        run: bash -n install.sh manage.sh
+      - name: Check provisioning script syntax
+        run: |
+          node --check scripts/bootstrap-openwebui.mjs
+          node --check scripts/bootstrap-n8n.mjs
+          node --check scripts/verify-n8n.mjs
+          python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("scripts").glob("*.py")]'
+          python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("plugins").rglob("*.py")]'
+          python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("smart-router/src").rglob("*.py")]'
+          python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("execution-broker/src").rglob("*.py")]'
+      - name: Test stack integrations
+        run: |
+          python3 -m unittest -v tests/test_stack_package_policy.py tests/test_stack_execution_policy.py tests/test_execution_broker.py
+          node --test tests/test-bootstrap-n8n.mjs
+          node --test tests/test-verify-n8n.mjs
+          tests/test-manage-n8n.sh
+      - name: Test Smart Router
+        run: |
+          python3 -m venv /tmp/smart-router-venv
+          /tmp/smart-router-venv/bin/pip install -r smart-router/requirements-dev.txt
+          PYTHONPATH=smart-router/src /tmp/smart-router-venv/bin/pytest -q smart-router/tests
+      - name: Build stack-owned images
+        run: |
+          docker build -t hermes-smart-router:test smart-router
+          docker build -t hermes-execution-broker:test execution-broker
+      - name: Validate Compose execution boundaries
+        run: |
+          cp .env.example .env
+          mkdir -p data/stack-secrets/execution/{docker-state,ssh-state,ssh} data/execution-workspace
+          touch data/stack-secrets/execution/{control-secret,users,ssh-profile-integrity-secret}
+          sed -i "s|EXECUTION_WORKSPACE_HOST_PATH=.*|EXECUTION_WORKSPACE_HOST_PATH=$PWD/data/execution-workspace|" .env
+          docker compose config --quiet
+          rendered="$(docker compose --profile execution-docker --profile execution-ssh config)"
+          test "$(grep -c '/var/run/docker.sock:/var/run/docker.sock' <<<"$rendered")" -eq 1
+          ! grep -A25 '^  hermes:' <<<"$rendered" | grep -q docker.sock
+          ! grep -A45 '^  execution-ssh-broker:' <<<"$rendered" | grep -q docker.sock
+          ! grep -A45 '^  execution-docker-broker:' <<<"$rendered" | grep -q 'published:'
+          ! grep -A45 '^  execution-ssh-broker:' <<<"$rendered" | grep -q 'published:'
+          # SSH profiles and the password integrity key belong to the SSH broker alone.
+          all="$(docker compose --profile execution-docker --profile execution-ssh --profile execution-approval config)"
+          test "$(grep -c 'target: /profiles$' <<<"$all")" -eq 1
+          test "$(grep -c 'execution-ssh-profile-integrity' <<<"$all")" -eq 2
+          ssh_broker="$(awk '/^  execution-ssh-broker:/,/^networks:/' <<<"$all")"
+          test "$(grep -c 'target: /profiles$' <<<"$ssh_broker")" -eq 1
+          test "$(grep -c 'execution-ssh-profile-integrity' <<<"$ssh_broker")" -eq 2
+      - name: Test SSH profiles against a disposable sshd
+        run: EXECUTION_BROKER_TEST_IMAGE=hermes-execution-broker:test tests/test-ssh-profiles.sh
+      - name: Test interactive installer
+        run: tests/smoke.sh
+      - name: Ensure secrets are ignored
+        run: |
+          test "$(git check-ignore .env)" = ".env"
+          test "$(git check-ignore data/hermes/.env)" = "data/hermes/.env"
+          test "$(git check-ignore data/open-webui/webui.db)" = "data/open-webui/webui.db"
+          test "$(git check-ignore data/caddy/Caddyfile)" = "data/caddy/Caddyfile"
+          test "$(git check-ignore data/smart-router/router.sqlite3)" = "data/smart-router/router.sqlite3"
+          test "$(git check-ignore data/n8n/config)" = "data/n8n/config"
+          test "$(git check-ignore data/stack-secrets/n8n-bootstrap.env)" = "data/stack-secrets/n8n-bootstrap.env"
+          test "$(git check-ignore data/stack-secrets/n8n-bootstrap-state.json)" = "data/stack-secrets/n8n-bootstrap-state.json"

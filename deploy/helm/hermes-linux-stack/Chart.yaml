@@ -1,0 +1,6 @@
+apiVersion: v2
+name: hermes-linux-stack
+version: 0.5.9
+appVersion: "0.5.9"
+description: Hermes Smart Router v0.5.9 HA foundation chart (router + PostgreSQL + Redis)
+type: application

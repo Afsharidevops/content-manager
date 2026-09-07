@@ -1,0 +1,47 @@
+name: Smart Router CI
+
+on:
+  push:
+    branches:
+      - main
+      - hermes-omniroute-linux-stack
+    paths:
+      - 'smart-router/**'
+      - '.github/workflows/smart-router-ci.yml'
+      - '.github/workflows/publish-smart-router.yml'
+  pull_request:
+    paths:
+      - 'smart-router/**'
+      - '.github/workflows/smart-router-ci.yml'
+      - '.github/workflows/publish-smart-router.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: smart-router/pyproject.toml
+      - name: Install test and benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './smart-router[dev,bench]'
+      - name: Python tests
+        run: python -m pytest smart-router/tests
+      - name: Benchmark pipeline smoke test
+        run: |
+          smart-router-benchmark \
+            smart-router/examples/benchmark-synthetic-v0.4.0.jsonl \
+            --output-dir /tmp/smart-router-benchmark-smoke \
+            --cost-config smart-router/examples/benchmark-costs-normalized.json \
+            --synthetic \
+            --min-rows 200
+      - name: Docker build
+        run: docker build --file smart-router/Dockerfile --tag hermes-smart-router:ci smart-router

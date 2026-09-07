@@ -1,0 +1,582 @@
+name: hermes-9router-stack
+
+services:
+  nine-router:
+    profiles: ["9router"]
+    image: ${NINEROUTER_IMAGE_REPOSITORY:-decolua/9router}:${NINEROUTER_IMAGE_TAG:-latest}
+    container_name: nine-router
+    restart: unless-stopped
+    ports:
+      - "${NINEROUTER_BIND_IP:-127.0.0.1}:${NINEROUTER_PORT:-20128}:20128"
+    volumes:
+      - ./data/9router:/app/data
+    environment:
+      DATA_DIR: /app/data
+      PORT: "20128"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      JWT_SECRET: ${NINEROUTER_JWT_SECRET}
+      INITIAL_PASSWORD: ${NINEROUTER_INITIAL_PASSWORD}
+      API_KEY_SECRET: ${NINEROUTER_API_KEY_SECRET}
+      MACHINE_ID_SALT: ${NINEROUTER_MACHINE_ID_SALT}
+      REQUIRE_API_KEY: ${NINEROUTER_REQUIRE_API_KEY:-false}
+      AUTH_COOKIE_SECURE: ${NINEROUTER_AUTH_COOKIE_SECURE:-false}
+      ENABLE_REQUEST_LOGS: ${NINEROUTER_ENABLE_REQUEST_LOGS:-false}
+      OBSERVABILITY_ENABLED: ${NINEROUTER_OBSERVABILITY_ENABLED:-true}
+      BASE_URL: http://nine-router:20128
+      NEXT_PUBLIC_BASE_URL: ${NINEROUTER_PUBLIC_BASE_URL:-http://localhost:20128}
+      CLOUD_URL: ${NINEROUTER_CLOUD_URL:-https://9router.com}
+      NEXT_PUBLIC_CLOUD_URL: ${NINEROUTER_CLOUD_URL:-https://9router.com}
+    networks: [agent-net]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:20128').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  smart-router-init:
+    profiles: ["smart-router"]
+    image: alpine:3.22
+    container_name: hermes-smart-router-init
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p /data && chown 10001:10001 /data && chmod 0700 /data"]
+    volumes:
+      - ./data/smart-router:/data
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
+  smart-router:
+    profiles: ["smart-router"]
+    image: ${SMART_ROUTER_IMAGE_REPOSITORY:-afsharidevops/hermes-smart-router}:${SMART_ROUTER_IMAGE_TAG:-0.5.9}
+    container_name: hermes-smart-router
+    restart: unless-stopped
+    ports:
+      - "${SMART_ROUTER_BIND_IP:-127.0.0.1}:${SMART_ROUTER_PORT:-8787}:8080"
+    environment:
+      SMART_ROUTER_LEARNED_ERROR_FALLBACK: ${SMART_ROUTER_LEARNED_ERROR_FALLBACK:-heuristic}
+      SMART_ROUTER_LEARNED_FALLBACK: ${SMART_ROUTER_LEARNED_FALLBACK:-standard}
+      SMART_ROUTER_LEARNED_MIN_CONFIDENCE: ${SMART_ROUTER_LEARNED_MIN_CONFIDENCE:-0.70}
+      SMART_ROUTER_LEARNED_METADATA_FILE: ${SMART_ROUTER_LEARNED_METADATA_FILE:-/policy/learned-v4.json}
+      SMART_ROUTER_LEARNED_MODEL_FILE: ${SMART_ROUTER_LEARNED_MODEL_FILE:-/policy/learned-v4.joblib}
+      SMART_ROUTER_STRONG_MAX_CONTEXT: ${SMART_ROUTER_STRONG_MAX_CONTEXT:-200000}
+      SMART_ROUTER_STANDARD_MAX_CONTEXT: ${SMART_ROUTER_STANDARD_MAX_CONTEXT:-128000}
+      SMART_ROUTER_FAST_MAX_CONTEXT: ${SMART_ROUTER_FAST_MAX_CONTEXT:-32000}
+      SMART_ROUTER_PREFERRED_TOKEN_FIELD: ${SMART_ROUTER_PREFERRED_TOKEN_FIELD:-max_tokens}
+      SMART_ROUTER_CONTEXT_TOKEN_SAFETY_FACTOR: ${SMART_ROUTER_CONTEXT_TOKEN_SAFETY_FACTOR:-1.15}
+      SMART_ROUTER_ALLOW_TIER_OVERRIDES: ${SMART_ROUTER_ALLOW_TIER_OVERRIDES:-false}
+      SMART_ROUTER_COST_LEDGER_ENABLED: ${SMART_ROUTER_COST_LEDGER_ENABLED:-true}
+      SMART_ROUTER_COST_DATABASE_PATH: ${SMART_ROUTER_COST_DATABASE_PATH:-/data/cost-ledger.sqlite3}
+      SMART_ROUTER_PRICING_FILE: ${SMART_ROUTER_PRICING_FILE:-/policy/pricing-v0.5.json}
+      SMART_ROUTER_DASHBOARD_ENABLED: ${SMART_ROUTER_DASHBOARD_ENABLED:-true}
+      SMART_ROUTER_CONTROL_PLANE_ENABLED: ${SMART_ROUTER_CONTROL_PLANE_ENABLED:-true}
+      SMART_ROUTER_CONTROL_DATABASE_URL: ${SMART_ROUTER_CONTROL_DATABASE_URL:-sqlite:////data/control-v0.5.2.sqlite3}
+      SMART_ROUTER_ADMIN_API_KEY: ${SMART_ROUTER_ADMIN_API_KEY:-}
+      SMART_ROUTER_ADMIN_API_KEY_FILE: ${SMART_ROUTER_ADMIN_API_KEY_FILE:-}
+      SMART_ROUTER_BOOTSTRAP_ADMIN_PASSWORD_FILE: ${SMART_ROUTER_BOOTSTRAP_ADMIN_PASSWORD_FILE:-}
+      SMART_ROUTER_PG_PASSWORD_FILE: ${SMART_ROUTER_PG_PASSWORD_FILE:-}
+      SMART_ROUTER_REDIS_URL: ${SMART_ROUTER_REDIS_URL:-}
+      SMART_ROUTER_REDIS_REQUIRED: ${SMART_ROUTER_REDIS_REQUIRED:-false}
+      SMART_ROUTER_STICKY_BACKEND: ${SMART_ROUTER_STICKY_BACKEND:-auto}
+      SMART_ROUTER_PROVIDER_HEALTH_ENABLED: ${SMART_ROUTER_PROVIDER_HEALTH_ENABLED:-true}
+      SMART_ROUTER_CIRCUIT_FAILURE_THRESHOLD: ${SMART_ROUTER_CIRCUIT_FAILURE_THRESHOLD:-5}
+      SMART_ROUTER_CIRCUIT_FAILURE_WINDOW_SECONDS: ${SMART_ROUTER_CIRCUIT_FAILURE_WINDOW_SECONDS:-60}
+      SMART_ROUTER_CIRCUIT_COOLDOWN_SECONDS: ${SMART_ROUTER_CIRCUIT_COOLDOWN_SECONDS:-30}
+      SMART_ROUTER_OIDC_ENABLED: ${SMART_ROUTER_OIDC_ENABLED:-false}
+      SMART_ROUTER_OIDC_ISSUER_URL: ${SMART_ROUTER_OIDC_ISSUER_URL:-}
+      SMART_ROUTER_OIDC_CLIENT_ID: ${SMART_ROUTER_OIDC_CLIENT_ID:-}
+      SMART_ROUTER_OIDC_CLIENT_SECRET: ${SMART_ROUTER_OIDC_CLIENT_SECRET:-}
+      SMART_ROUTER_OIDC_CLIENT_SECRET_FILE: ${SMART_ROUTER_OIDC_CLIENT_SECRET_FILE:-}
+      SMART_ROUTER_OIDC_REDIRECT_URI: ${SMART_ROUTER_OIDC_REDIRECT_URI:-}
+      SMART_ROUTER_OIDC_GROUP_ROLE_MAP: ${SMART_ROUTER_OIDC_GROUP_ROLE_MAP:-}
+      SMART_ROUTER_OIDC_DEFAULT_ROLE: ${SMART_ROUTER_OIDC_DEFAULT_ROLE:-user}
+      SMART_ROUTER_OIDC_AUTO_PROVISION: ${SMART_ROUTER_OIDC_AUTO_PROVISION:-true}
+      SMART_ROUTER_OIDC_LOCAL_LOGIN_ENABLED: ${SMART_ROUTER_OIDC_LOCAL_LOGIN_ENABLED:-true}
+      SMART_ROUTER_KNOWLEDGE_ACL_DEFAULT_DENY: ${SMART_ROUTER_KNOWLEDGE_ACL_DEFAULT_DENY:-false}
+      SMART_ROUTER_BOOTSTRAP_ADMIN_USER: ${SMART_ROUTER_BOOTSTRAP_ADMIN_USER:-admin}
+      SMART_ROUTER_BOOTSTRAP_ADMIN_PASSWORD: ${SMART_ROUTER_BOOTSTRAP_ADMIN_PASSWORD:-}
+      SMART_ROUTER_REQUIRE_AUTH: ${SMART_ROUTER_REQUIRE_AUTH:-true}
+      SMART_ROUTER_HA_MODE: ${SMART_ROUTER_HA_MODE:-false}
+      SMART_ROUTER_CODING_MODEL: ${SMART_ROUTER_CODING_MODEL:-combo-strong}
+      SMART_ROUTER_VISION_MODEL: ${SMART_ROUTER_VISION_MODEL:-combo-strong}
+      SMART_ROUTER_ANON_RPM: ${SMART_ROUTER_ANON_RPM:-30}
+      SMART_ROUTER_ANON_TPM: ${SMART_ROUTER_ANON_TPM:-200000}
+      SMART_ROUTER_ANON_DAILY_REQUESTS: ${SMART_ROUTER_ANON_DAILY_REQUESTS:-1000}
+      SMART_ROUTER_CLIENT_RPM: ${SMART_ROUTER_CLIENT_RPM:-120}
+      SMART_ROUTER_CLIENT_TPM: ${SMART_ROUTER_CLIENT_TPM:-2000000}
+      SMART_ROUTER_CLIENT_DAILY_REQUESTS: ${SMART_ROUTER_CLIENT_DAILY_REQUESTS:-10000}
+      SMART_ROUTER_VIRTUAL_KEY_DEFAULT_RPM: ${SMART_ROUTER_VIRTUAL_KEY_DEFAULT_RPM:-60}
+      SMART_ROUTER_VIRTUAL_KEY_DEFAULT_TPM: ${SMART_ROUTER_VIRTUAL_KEY_DEFAULT_TPM:-1000000}
+      SMART_ROUTER_VIRTUAL_KEY_DEFAULT_DAILY_REQUESTS: ${SMART_ROUTER_VIRTUAL_KEY_DEFAULT_DAILY_REQUESTS:-5000}
+      SMART_ROUTER_KNOWLEDGE_DATABASE_URL: ${SMART_ROUTER_KNOWLEDGE_DATABASE_URL:-}
+      SMART_ROUTER_RAG_MODE: ${SMART_ROUTER_RAG_MODE:-hybrid}
+      SMART_ROUTER_EMBEDDINGS_BASE_URL: ${SMART_ROUTER_EMBEDDINGS_BASE_URL:-}
+      SMART_ROUTER_EMBEDDINGS_MODEL: ${SMART_ROUTER_EMBEDDINGS_MODEL:-text-embedding-3-small}
+      SMART_ROUTER_EMBEDDINGS_API_KEY: ${SMART_ROUTER_EMBEDDINGS_API_KEY:-}
+      SMART_ROUTER_EMBEDDINGS_DIMENSIONS: ${SMART_ROUTER_EMBEDDINGS_DIMENSIONS:-384}
+      SMART_ROUTER_EMBEDDINGS_TIMEOUT_SECONDS: ${SMART_ROUTER_EMBEDDINGS_TIMEOUT_SECONDS:-20}
+      SMART_ROUTER_GUARDRAILS_MODE: ${SMART_ROUTER_GUARDRAILS_MODE:-audit}
+      SMART_ROUTER_ALLOWED_TOOLS: ${SMART_ROUTER_ALLOWED_TOOLS:-}
+      SMART_ROUTER_GUARDRAIL_DENY_PATTERNS: ${SMART_ROUTER_GUARDRAIL_DENY_PATTERNS:-}
+      SMART_ROUTER_SESSION_TTL_SECONDS_V51: ${SMART_ROUTER_SESSION_TTL_SECONDS_V51:-28800}
+      SMART_ROUTER_CLIENT_API_KEY: ${SMART_ROUTER_CLIENT_API_KEY:-}
+      SMART_ROUTER_UPSTREAM_API_KEY: ${SMART_ROUTER_UPSTREAM_API_KEY:-}
+      SMART_ROUTER_UPSTREAM_HEALTH_URL: ${SMART_ROUTER_UPSTREAM_HEALTH_URL:-http://nine-router:20128/api/health}
+      SMART_ROUTER_MODE: ${SMART_ROUTER_MODE:-observe}
+      SMART_ROUTER_POLICY: ${SMART_ROUTER_POLICY:-heuristic}
+      SMART_ROUTER_CALIBRATION_FILE: ${SMART_ROUTER_CALIBRATION_FILE:-/policy/calibrated.json}
+      SMART_ROUTER_UPSTREAM_BASE_URL: ${SMART_ROUTER_UPSTREAM_BASE_URL:-http://nine-router:20128/v1}
+      SMART_ROUTER_DATABASE_PATH: ${SMART_ROUTER_DATABASE_PATH:-/data/router.sqlite3}
+      SMART_ROUTER_HMAC_SECRET: ${SMART_ROUTER_HMAC_SECRET}
+      SMART_ROUTER_HMAC_SECRET_FILE: ${SMART_ROUTER_HMAC_SECRET_FILE:-}
+      SMART_ROUTER_UPSTREAM_API_KEY_FILE: ${SMART_ROUTER_UPSTREAM_API_KEY_FILE:-}
+      SMART_ROUTER_CLIENT_API_KEY_FILE: ${SMART_ROUTER_CLIENT_API_KEY_FILE:-}
+      SMART_ROUTER_POLICY_VERSION: ${SMART_ROUTER_POLICY_VERSION:-4}
+      SMART_ROUTER_OBSERVE_MODEL: ${SMART_ROUTER_OBSERVE_MODEL:-ai}
+      SMART_ROUTER_FAST_MODEL: ${SMART_ROUTER_FAST_MODEL:-combo-fast}
+      SMART_ROUTER_STANDARD_MODEL: ${SMART_ROUTER_STANDARD_MODEL:-combo-standard}
+      SMART_ROUTER_STRONG_MODEL: ${SMART_ROUTER_STRONG_MODEL:-combo-strong}
+      SMART_ROUTER_FAST_SUPPORTS_TOOLS: ${SMART_ROUTER_FAST_SUPPORTS_TOOLS:-false}
+      SMART_ROUTER_FAST_SUPPORTS_VISION: ${SMART_ROUTER_FAST_SUPPORTS_VISION:-false}
+      SMART_ROUTER_STANDARD_SUPPORTS_TOOLS: ${SMART_ROUTER_STANDARD_SUPPORTS_TOOLS:-true}
+      SMART_ROUTER_STANDARD_SUPPORTS_VISION: ${SMART_ROUTER_STANDARD_SUPPORTS_VISION:-false}
+      SMART_ROUTER_STRONG_SUPPORTS_TOOLS: ${SMART_ROUTER_STRONG_SUPPORTS_TOOLS:-true}
+      SMART_ROUTER_STRONG_SUPPORTS_VISION: ${SMART_ROUTER_STRONG_SUPPORTS_VISION:-true}
+      SMART_ROUTER_SESSION_TTL_SECONDS: ${SMART_ROUTER_SESSION_TTL_SECONDS:-2700}
+      SMART_ROUTER_MAX_SESSION_AGE_SECONDS: ${SMART_ROUTER_MAX_SESSION_AGE_SECONDS:-43200}
+      SMART_ROUTER_DEMOTION_TURNS: ${SMART_ROUTER_DEMOTION_TURNS:-5}
+      SMART_ROUTER_FAST_MAX_TOKENS: ${SMART_ROUTER_FAST_MAX_TOKENS:-1024}
+      SMART_ROUTER_STANDARD_MAX_TOKENS: ${SMART_ROUTER_STANDARD_MAX_TOKENS:-4096}
+      SMART_ROUTER_STRONG_MAX_TOKENS: ${SMART_ROUTER_STRONG_MAX_TOKENS:-6144}
+      SMART_ROUTER_CONNECT_TIMEOUT_SECONDS: ${SMART_ROUTER_CONNECT_TIMEOUT_SECONDS:-10}
+      SMART_ROUTER_READ_TIMEOUT_SECONDS: ${SMART_ROUTER_READ_TIMEOUT_SECONDS:-600}
+      SMART_ROUTER_MAX_REQUEST_BYTES: ${SMART_ROUTER_MAX_REQUEST_BYTES:-10485760}
+      SMART_ROUTER_OBSERVATION_FILE: ${SMART_ROUTER_OBSERVATION_FILE:-/data/observations-v4.jsonl}
+    volumes:
+      - ./data/smart-router:/data
+      - ./smart-router/policy:/policy:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    depends_on:
+      nine-router:
+        condition: service_healthy
+      smart-router-init:
+        condition: service_completed_successfully
+    networks: [agent-net]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Repairs ownership of the Hermes logs subtree before the gateway starts.
+  # On a warm volume, the upstream image's own UID-remap chown is skipped
+  # whenever the top-level data directory already belongs to the Hermes uid,
+  # so any previously root-created log files (e.g. from a manual `docker exec`
+  # run as root) stay root-owned forever and crash the gateway with
+  # PermissionError on every subsequent start. This stays scoped to
+  # data/hermes/logs only; it never touches the rest of the Hermes data mount.
+  hermes-init:
+    profiles: ["hermes"]
+    image: alpine:3.22
+    container_name: hermes-init
+    user: "0:0"
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        touch /logs/agent.log /logs/errors.log
+        find /logs -type d -exec chown "${HERMES_UID:-10000}:${HERMES_GID:-10000}" {} +
+        find /logs -type f -exec chown "${HERMES_UID:-10000}:${HERMES_GID:-10000}" {} +
+        find /logs -type d -exec chmod 0700 {} +
+        find /logs -type f -exec chmod 0600 {} +
+    volumes:
+      - ./data/hermes/logs:/logs
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
+  hermes:
+    profiles: ["hermes"]
+    image: ${HERMES_IMAGE_REPOSITORY:-nousresearch/hermes-agent}:${HERMES_IMAGE_TAG:-latest}
+    container_name: hermes-agent
+    restart: unless-stopped
+    command: gateway run
+    depends_on:
+      hermes-init:
+        condition: service_completed_successfully
+    shm_size: "1gb"
+    ports:
+      - "${HERMES_BIND_IP:-127.0.0.1}:${HERMES_API_PORT:-8642}:8642"
+      - "${HERMES_BIND_IP:-127.0.0.1}:${HERMES_DASHBOARD_PORT:-9119}:9119"
+    volumes:
+      - ./data/hermes:/opt/data
+      - ./plugins/stack-package-policy:/opt/data/plugins/stack-package-policy:ro
+      - ./plugins/stack-execution-policy:/opt/data/plugins/stack-execution-policy:ro
+      # Owned by the configured Hermes uid and broker group. Hermes gets only the
+      # control secret and user policy; never the Docker socket or an SSH key.
+      - ./data/stack-secrets/execution/control-secret:/run/secrets/execution-control:ro
+      - ./data/stack-secrets/execution/users:/run/secrets/execution-users:ro
+      - ./data/stack-secrets/execution/features:/run/secrets/execution-features:ro
+    environment:
+      HERMES_HOME: /opt/data
+      EXECUTION_FEATURES: ${EXECUTION_FEATURES:-}
+      EXECUTION_FEATURES_FILE: /run/secrets/execution-features
+      EXECUTION_USERS_FILE: /run/secrets/execution-users
+      EXECUTION_DOCKER_BROKER_URL: http://hermes-execution-docker-broker:8750
+      EXECUTION_SSH_BROKER_URL: http://hermes-execution-ssh-broker:8750
+      EXECUTION_CONTROL_SECRET_FILE: /run/secrets/execution-control
+      HERMES_DASHBOARD: ${HERMES_DASHBOARD:-0}
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH:-}
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}
+      HERMES_UID: ${HERMES_UID:-10000}
+      HERMES_GID: ${HERMES_GID:-10000}
+      HERMES_DISABLE_LAZY_INSTALLS: "1"
+      HERMES_LAZY_INSTALL_TARGET: /opt/data/lazy-packages
+      NPM_CONFIG_PREFIX: /opt/data/npm-packages
+      NODE_PATH: /opt/data/npm-packages/lib/node_modules
+      PATH: /opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/data/npm-packages/bin
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [agent-net, execution-control-net]
+
+  # The only service with the Docker socket. It has no published port and is
+  # reachable only from Hermes on the internal control network, with the secret.
+  execution-docker-broker:
+    profiles: ["execution-docker"]
+    image: ${EXECUTION_BROKER_IMAGE:-afsharidevops/hermes-execution-broker:0.1.3}
+    container_name: hermes-execution-docker-broker
+    restart: unless-stopped
+    # Runs as the local operator so mode-0600 broker state stays unreadable to
+    # every other uid, and joins the docker group only to reach the socket.
+    user: "${EXECUTION_RUN_AS:-10003:10003}"
+    group_add: ["${EXECUTION_DOCKER_GID:-65534}"]
+    environment:
+      BROKER_MODE: docker
+      BROKER_STATE: /state/capabilities.sqlite3
+      BROKER_CONTROL_SECRET_FILE: /run/secrets/execution-control
+      BROKER_APPROVAL_REQUEST_SECRET_FILE: /run/secrets/execution-approval-request
+      BROKER_APPROVAL_PUBLIC_KEY_FILE: /run/secrets/execution-approval-public-key
+      BROKER_APPROVER_URL: http://execution-approver:8751
+      EXECUTION_FEATURES: ${EXECUTION_FEATURES:-}
+      EXECUTION_FEATURES_FILE: /run/config/execution-features
+      EXECUTION_POLICY_GENERATION: ${EXECUTION_POLICY_GENERATION:-0}
+      EXECUTION_POLICY_GENERATION_FILE: /run/config/execution-policy-generation
+      EXECUTION_WORKSPACE: ${EXECUTION_WORKSPACE_HOST_PATH:-}
+      EXECUTION_WORKSPACE_GENERATION: ${EXECUTION_WORKSPACE_GENERATION:-0}
+      EXECUTION_EGRESS_NETWORK: hermes-execution-egress
+      SANDBOX_IMAGE: ${EXECUTION_SANDBOX_IMAGE:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/stack-secrets/execution/docker-state:/state
+      - ./data/stack-secrets/execution/control-secret:/run/secrets/execution-control:ro
+      - ./data/stack-secrets/execution/approval-request-secret:/run/secrets/execution-approval-request:ro
+      - ./data/stack-secrets/execution/approval-public-key.pem:/run/secrets/execution-approval-public-key:ro
+      - ./data/stack-secrets/execution/features:/run/config/execution-features:ro
+      - ./data/stack-secrets/execution/policy-generation:/run/config/execution-policy-generation:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=0700,uid=10003,gid=10003
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    networks: [execution-control-net]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8750/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # No Docker socket. The only service that can read SSH private keys.
+  execution-ssh-broker:
+    profiles: ["execution-ssh"]
+    image: ${EXECUTION_BROKER_IMAGE:-afsharidevops/hermes-execution-broker:0.1.3}
+    container_name: hermes-execution-ssh-broker
+    restart: unless-stopped
+    user: "${EXECUTION_RUN_AS:-10003:10003}"
+    environment:
+      BROKER_MODE: ssh
+      BROKER_STATE: /state/capabilities.sqlite3
+      BROKER_CONTROL_SECRET_FILE: /run/secrets/execution-control
+      BROKER_APPROVAL_REQUEST_SECRET_FILE: /run/secrets/execution-approval-request
+      BROKER_APPROVAL_PUBLIC_KEY_FILE: /run/secrets/execution-approval-public-key
+      BROKER_SSH_PROFILE_INTEGRITY_SECRET_FILE: /run/secrets/execution-ssh-profile-integrity
+      BROKER_APPROVER_URL: http://execution-approver:8751
+      EXECUTION_FEATURES: ${EXECUTION_FEATURES:-}
+      EXECUTION_FEATURES_FILE: /run/config/execution-features
+      EXECUTION_POLICY_GENERATION: ${EXECUTION_POLICY_GENERATION:-0}
+      EXECUTION_POLICY_GENERATION_FILE: /run/config/execution-policy-generation
+    volumes:
+      - ./data/stack-secrets/execution/ssh:/profiles:ro
+      - ./data/stack-secrets/execution/ssh-state:/state
+      - ./data/stack-secrets/execution/control-secret:/run/secrets/execution-control:ro
+      - ./data/stack-secrets/execution/approval-request-secret:/run/secrets/execution-approval-request:ro
+      - ./data/stack-secrets/execution/approval-public-key.pem:/run/secrets/execution-approval-public-key:ro
+      - ./data/stack-secrets/execution/ssh-profile-integrity-secret:/run/secrets/execution-ssh-profile-integrity:ro
+      - ./data/stack-secrets/execution/features:/run/config/execution-features:ro
+      - ./data/stack-secrets/execution/policy-generation:/run/config/execution-policy-generation:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=0700,uid=10003,gid=10003
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    networks: [execution-control-net, execution-egress-net]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8750/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Independent boundary: only this service has the dedicated approval bot token.
+  # It can send exact summaries and sign grants, but has no Docker socket, SSH key,
+  # Hermes control secret, or execution capability database.
+  execution-approver:
+    profiles: ["execution-approval"]
+    image: ${EXECUTION_BROKER_IMAGE:-afsharidevops/hermes-execution-broker:0.1.3}
+    container_name: hermes-execution-approver
+    restart: unless-stopped
+    user: "${EXECUTION_RUN_AS:-10003:10003}"
+    environment:
+      BROKER_MODE: approver
+      BROKER_PORT: "8751"
+      BROKER_STATE: /state/approvals.sqlite3
+      BROKER_APPROVAL_REQUEST_SECRET_FILE: /run/secrets/execution-approval-request
+      APPROVER_SIGNING_KEY_FILE: /run/secrets/execution-approval-signing-key
+      EXECUTION_APPROVAL_BOT_TOKEN_FILE: /run/secrets/execution-approval-bot-token
+      EXECUTION_APPROVAL_USERS_FILE: /run/secrets/execution-approval-users
+      EXECUTION_POLICY_GENERATION: ${EXECUTION_POLICY_GENERATION:-0}
+      EXECUTION_POLICY_GENERATION_FILE: /run/config/execution-policy-generation
+    volumes:
+      - ./data/stack-secrets/execution/approver-state:/state
+      - ./data/stack-secrets/execution/approval-request-secret:/run/secrets/execution-approval-request:ro
+      - ./data/stack-secrets/execution/approval-signing-key.pem:/run/secrets/execution-approval-signing-key:ro
+      - ./data/stack-secrets/execution/approval-bot-token:/run/secrets/execution-approval-bot-token:ro
+      - ./data/stack-secrets/execution/users:/run/secrets/execution-approval-users:ro
+      - ./data/stack-secrets/execution/policy-generation:/run/config/execution-policy-generation:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=0700,uid=10003,gid=10003
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    networks: [execution-control-net, execution-approval-egress-net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8751/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+
+  # Optional browser-facing execution administration boundary. Operations Center
+  # calls this service directly with a separate admin key; Smart Router never
+  # receives that key, the approval signing key, Docker socket, or SSH secrets.
+  execution-admin:
+    profiles: ["execution-admin"]
+    image: ${EXECUTION_BROKER_IMAGE:-afsharidevops/hermes-execution-broker:0.1.3}
+    container_name: hermes-execution-admin
+    restart: unless-stopped
+    user: "${EXECUTION_RUN_AS:-10003:10003}"
+    ports:
+      - "${EXECUTION_ADMIN_BIND_IP:-127.0.0.1}:${EXECUTION_ADMIN_PORT:-8752}:8752"
+    environment:
+      BROKER_MODE: admin
+      BROKER_PORT: "8752"
+      BROKER_STATE: /state/admin.sqlite3
+      EXECUTION_ADMIN_KEY_FILE: /run/secrets/execution-admin-key
+      EXECUTION_FEATURES_FILE: /run/config/execution-features
+      EXECUTION_POLICY_GENERATION_FILE: /run/config/execution-policy-generation
+      EXECUTION_APPROVAL_USERS_FILE: /run/config/execution-users
+      EXECUTION_ALLOWED_USERS_FILE: /run/config/telegram-allowed-users
+      EXECUTION_HERMES_BOT_TOKEN_HASH_FILE: /run/config/hermes-bot-token.sha256
+      EXECUTION_APPROVAL_BOT_TOKEN_FILE: /run/secrets/execution-approval-bot-token
+      BROKER_CONTROL_SECRET_FILE: /run/config/execution-control
+      EXECUTION_SSH_PROFILES_DIR: /profiles
+      EXECUTION_ADMIN_AUDIT_FILE: /state/admin-audit.jsonl
+      EXECUTION_ADMIN_ALLOWED_ORIGINS: ${EXECUTION_ADMIN_ALLOWED_ORIGINS:-http://127.0.0.1:8787,http://localhost:8787}
+      EXECUTION_APPROVER_URL: http://execution-approver:8751
+      EXECUTION_DOCKER_BROKER_URL: http://execution-docker-broker:8750
+      EXECUTION_SSH_BROKER_URL: http://execution-ssh-broker:8750
+    volumes:
+      - ./data/stack-secrets/execution/admin-state:/state
+      - ./data/stack-secrets/execution/admin-key:/run/secrets/execution-admin-key:ro
+      - ./data/stack-secrets/execution/features:/run/config/execution-features
+      - ./data/stack-secrets/execution/policy-generation:/run/config/execution-policy-generation
+      - ./data/stack-secrets/execution/users:/run/config/execution-users
+      - ./data/stack-secrets/execution/telegram-allowed-users:/run/config/telegram-allowed-users:ro
+      - ./data/stack-secrets/execution/hermes-bot-token.sha256:/run/config/hermes-bot-token.sha256:ro
+      - ./data/stack-secrets/execution/approval-bot-token:/run/secrets/execution-approval-bot-token
+      - ./data/stack-secrets/execution/control-secret:/run/config/execution-control
+      - ./data/stack-secrets/execution/ssh:/profiles:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=0700,uid=10003,gid=10003
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    networks:
+      - execution-control-net
+      - execution-admin-ingress-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8752/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  open-webui:
+    profiles: ["open-webui"]
+    image: ${OPENWEBUI_IMAGE_REPOSITORY:-ghcr.io/open-webui/open-webui}:${OPENWEBUI_IMAGE_TAG:-main}
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "${OPENWEBUI_BIND_IP:-127.0.0.1}:${OPENWEBUI_PORT:-3000}:8080"
+    volumes:
+      - ./data/open-webui:/app/backend/data
+    environment:
+      WEBUI_URL: ${OPENWEBUI_URL:-http://localhost:3000}
+      WEBUI_SECRET_KEY: ${OPENWEBUI_SECRET_KEY}
+      ENABLE_SIGNUP: ${OPENWEBUI_ENABLE_SIGNUP:-false}
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URL: ${OPENWEBUI_OPENAI_BASE_URL}
+      OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY}
+      ENABLE_OLLAMA_API: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [agent-net]
+
+  n8n-init:
+    profiles: ["n8n"]
+    image: ${N8N_IMAGE_REPOSITORY:-n8nio/n8n}:${N8N_IMAGE_TAG:-latest}
+    container_name: hermes-n8n-init
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["install -d -m 0700 -o 1000 -g 1000 /home/node/.n8n"]
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
+  n8n:
+    profiles: ["n8n"]
+    image: ${N8N_IMAGE_REPOSITORY:-n8nio/n8n}:${N8N_IMAGE_TAG:-latest}
+    container_name: hermes-n8n
+    restart: unless-stopped
+    ports:
+      - "${N8N_BIND_IP:-127.0.0.1}:${N8N_PORT:-5678}:5678"
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+    environment:
+      N8N_HOST: ${N8N_HOSTNAME:-localhost}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_LISTEN_ADDRESS: 0.0.0.0
+      N8N_EDITOR_BASE_URL: ${N8N_PUBLIC_URL:-http://localhost:5678}
+      WEBHOOK_URL: ${N8N_PUBLIC_URL:-http://localhost:5678}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+      N8N_PROXY_HOPS: ${N8N_PROXY_HOPS:-0}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      N8N_DIAGNOSTICS_ENABLED: ${N8N_DIAGNOSTICS_ENABLED:-false}
+      N8N_VERSION_NOTIFICATIONS_ENABLED: ${N8N_VERSION_NOTIFICATIONS_ENABLED:-false}
+      N8N_PERSONALIZATION_SURVEY_ENABLED: "false"
+      GENERIC_TIMEZONE: ${N8N_TIMEZONE:-UTC}
+      TZ: ${N8N_TIMEZONE:-UTC}
+      NODE_ENV: production
+    depends_on:
+      n8n-init:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [agent-net]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  caddy:
+    profiles: ["caddy"]
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    container_name: hermes-stack-caddy
+    restart: unless-stopped
+    ports:
+      - "${CADDY_BIND_IP:-0.0.0.0}:80:80"
+      - "${CADDY_BIND_IP:-0.0.0.0}:443:443"
+      - "${CADDY_BIND_IP:-0.0.0.0}:443:443/udp"
+    volumes:
+      - ./data/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    networks: [agent-net]
+
+networks:
+  agent-net:
+    name: hermes-9router-net
+    driver: bridge
+  # Internal: the brokers cannot reach, and cannot be reached from, the internet
+  # or the rest of the stack. Only Hermes and the brokers are attached.
+  execution-control-net:
+    name: hermes-execution-control
+    driver: bridge
+    internal: true
+  # Outbound only, for SSH to reach configured hosts. Sandboxes join
+  # hermes-execution-egress, which the Docker broker creates on demand; neither
+  # network is attached to agent-net.
+  # Dedicated host-ingress bridge for Execution Admin only. The execution-control
+  # network remains internal; bind this service only to a trusted private address.
+  execution-admin-ingress-net:
+    name: hermes-execution-admin-ingress
+    driver: bridge
+
+  execution-egress-net:
+    name: hermes-execution-egress
+    driver: bridge
+  # Approver-only outbound path for Telegram Bot API polling. Brokers are absent.
+  execution-approval-egress-net:
+    name: hermes-execution-approval-egress
+    driver: bridge

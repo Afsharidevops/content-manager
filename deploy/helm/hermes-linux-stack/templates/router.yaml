@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hermes.name" . }}
+  labels:
+    {{- include "hermes.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "hermes.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "hermes.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "hermes.name" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "hermes.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      containers:
+        - name: smart-router
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - {name: SMART_ROUTER_MODE, value: {{ .Values.router.mode | quote }}}
+            - {name: SMART_ROUTER_POLICY, value: {{ .Values.router.policy | quote }}}
+            - {name: SMART_ROUTER_REQUIRE_AUTH, value: {{ .Values.router.requireAuth | quote }}}
+            - {name: SMART_ROUTER_UPSTREAM_BASE_URL, value: {{ .Values.upstream.baseUrl | quote }}}
+            - {name: SMART_ROUTER_UPSTREAM_HEALTH_URL, value: {{ .Values.upstream.healthUrl | quote }}}
+            - {name: SMART_ROUTER_FAST_MODEL, value: {{ .Values.router.fastModel | quote }}}
+            - {name: SMART_ROUTER_STANDARD_MODEL, value: {{ .Values.router.standardModel | quote }}}
+            - {name: SMART_ROUTER_STRONG_MODEL, value: {{ .Values.router.strongModel | quote }}}
+            - {name: SMART_ROUTER_HA_MODE, value: "true"}
+            - {name: SMART_ROUTER_STICKY_BACKEND, value: {{ .Values.router.stickyBackend | quote }}}
+            - name: SMART_ROUTER_HMAC_SECRET
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: hmac-secret}}
+            - name: SMART_ROUTER_ADMIN_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: admin-api-key}}
+            - name: SMART_ROUTER_CLIENT_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: client-api-key}}
+            - name: SMART_ROUTER_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: bootstrap-admin-password}}
+            - name: SMART_ROUTER_PG_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: postgres-password}}
+            - name: SMART_ROUTER_CONTROL_DATABASE_URL
+              value: "postgresql+psycopg://{{ .Values.postgres.user }}:$(SMART_ROUTER_PG_PASSWORD)@{{ include \"hermes.name\" . }}-postgres:5432/{{ .Values.postgres.database }}"
+            - name: SMART_ROUTER_REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: redis-password}}
+            - name: SMART_ROUTER_REDIS_URL
+              value: "redis://:$(SMART_ROUTER_REDIS_PASSWORD)@{{ include \"hermes.name\" . }}-redis:6379/0"
+            - {name: SMART_ROUTER_REDIS_REQUIRED, value: "true"}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+            runAsUser: 10001
+            runAsGroup: 10001
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hermes.name" . }}
+  labels:
+    {{- include "hermes.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "hermes.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - {name: http, port: {{ .Values.service.port }}, targetPort: http}

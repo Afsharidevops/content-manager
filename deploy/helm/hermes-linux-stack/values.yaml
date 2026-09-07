@@ -1,0 +1,62 @@
+replicaCount: 2
+
+image:
+  repository: afsharidevops/hermes-smart-router
+  tag: "0.5.9"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+upstream:
+  baseUrl: http://nine-router:20128/v1
+  healthUrl: http://nine-router:20128/api/health
+
+router:
+  mode: observe
+  policy: heuristic
+  requireAuth: true
+  stickyBackend: redis
+  fastModel: combo-fast
+  standardModel: combo-standard
+  strongModel: combo-strong
+
+secrets:
+  # Create this Secret before install. Required keys:
+  # hmac-secret, admin-api-key, client-api-key, bootstrap-admin-password,
+  # postgres-password, redis-password
+  existingSecret: hermes-smart-router-secrets
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  database: hermes_router
+  user: hermes_router
+  storage: 10Gi
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  storage: 2Gi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+
+hpa:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

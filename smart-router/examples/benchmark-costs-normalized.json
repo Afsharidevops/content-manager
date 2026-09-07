@@ -1,0 +1,9 @@
+{
+  "kind": "normalized_tier_weight",
+  "costs": {
+    "fast": 1.0,
+    "standard": 3.0,
+    "strong": 10.0
+  },
+  "note": "Example normalized weights only. Replace with your actual blended provider/model costs for public cost claims."
+}

@@ -1,0 +1,13 @@
+name: stack-package-policy
+version: 0.1.0
+description: "Approval-gated Python and npm package installation into persistent unprivileged targets. Blocks raw package-manager execution."
+author: hermes-linux-stack
+kind: standalone
+provides_tools:
+  - stack_prepare_python_package
+  - stack_install_python_package
+  - stack_prepare_npm_package
+  - stack_install_npm_package
+provides_hooks:
+  - pre_tool_call
+  - post_approval_response

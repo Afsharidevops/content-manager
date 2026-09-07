@@ -1,0 +1,17 @@
+name: stack-execution-policy
+version: 0.1.0
+description: "Sealed, one-time-approved execution: local sandbox commands, host-key-pinned SSH profiles, and structured Docker operations executed by isolated brokers. Hermes never holds the Docker socket or an SSH key."
+author: hermes-linux-stack
+kind: standalone
+provides_tools:
+  - stack_prepare_local_command
+  - stack_execute_local_command
+  - stack_prepare_ssh_command
+  - stack_execute_ssh_command
+  - stack_list_ssh_profiles
+  - stack_prepare_docker_operation
+  - stack_execute_docker_operation
+  - stack_list_docker_containers
+provides_hooks:
+  - pre_tool_call
+  - post_approval_response

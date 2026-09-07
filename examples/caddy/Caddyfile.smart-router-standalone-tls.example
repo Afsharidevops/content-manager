@@ -1,0 +1,13 @@
+# Standalone public TLS on the stack VM. Branch: main
+api.example.com {
+    encode zstd gzip
+    @metrics path /metrics
+    respond @metrics 404
+    reverse_proxy smart-router:8080
+}
+
+# Optional Open WebUI:
+# chat.example.com {
+#     encode zstd gzip
+#     reverse_proxy open-webui:8080
+# }

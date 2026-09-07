@@ -1,0 +1,5 @@
+# Separate edge VM running Caddy. TLS terminates here.
+api.example.com {
+    encode zstd gzip
+    reverse_proxy http://10.20.0.20:8088
+}

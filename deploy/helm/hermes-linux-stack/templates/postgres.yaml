@@ -1,0 +1,42 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hermes.name" . }}-postgres
+spec:
+  selector: {app.kubernetes.io/component: router-postgres, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports: [{name: postgres, port: 5432, targetPort: postgres}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "hermes.name" . }}-postgres
+spec:
+  serviceName: {{ include "hermes.name" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/component: router-postgres, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/component: router-postgres, app.kubernetes.io/instance: {{ .Release.Name }}}
+    spec:
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image | quote }}
+          ports: [{name: postgres, containerPort: 5432}]
+          env:
+            - {name: POSTGRES_DB, value: {{ .Values.postgres.database | quote }}}
+            - {name: POSTGRES_USER, value: {{ .Values.postgres.user | quote }}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: postgres-password}}
+          readinessProbe:
+            exec: {command: ["sh","-c","pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: {requests: {storage: {{ .Values.postgres.storage }}}}
+{{- end }}

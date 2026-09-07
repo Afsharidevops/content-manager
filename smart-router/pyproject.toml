@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-smart-router"
+version = "0.5.9"
+description = "OpenAI-compatible privacy-safe three-tier Smart Router for Hermes Linux Stack"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27,<1",
+  "joblib>=1.4,<2",
+  "prometheus-client>=0.20,<1",
+  "scikit-learn>=1.5,<2",
+  "starlette>=0.38,<1",
+  "uvicorn>=0.30,<1",
+"SQLAlchemy>=2.0,<3",
+"psycopg[binary]>=3.2,<4",
+  "redis>=5,<7",
+  "authlib>=1.4,<2",
+  "itsdangerous>=2.2,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "PyYAML>=6,<7",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<1",
+]
+
+bench = [
+  "matplotlib>=3.9,<4",
+]
+
+[project.scripts]
+smart-router = "smart_router.main:run"
+smart-router-replay = "smart_router.eval.replay:main"
+smart-router-calibrate = "smart_router.eval.calibrate:main"
+smart-router-report = "smart_router.eval.report:main"
+smart-router-train = "smart_router.learned.train:main"
+smart-router-benchmark = "smart_router.eval.benchmark:main"
+smart-router-cost-report = "smart_router.costs:main"
+smart-router-provider-profile = "smart_router.provider_registry:main"
+smart-router-preference-build = "smart_router.eval.preference_data:main"
+smart-router-benchmark-v51 = "smart_router.benchmark_v51:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"

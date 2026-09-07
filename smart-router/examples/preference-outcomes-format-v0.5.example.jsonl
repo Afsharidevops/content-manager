@@ -1,0 +1,2 @@
+{"schema_version":1,"features":{"example_only":1.0},"minimum_tier":"fast","quality_by_tier":{"fast":0.94,"standard":0.96,"strong":0.97}}
+{"schema_version":1,"features":{"example_only":2.0},"minimum_tier":"standard","quality_by_tier":{"fast":0.55,"standard":0.94,"strong":0.98}}

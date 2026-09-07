@@ -1,0 +1,4 @@
+# Optional example. Telegram polling does not need Caddy or a domain.
+# 9router.example.com { reverse_proxy nine-router:20128 }
+# hermes.example.com { reverse_proxy hermes:9119 }
+# chat.example.com { reverse_proxy open-webui:8080 }

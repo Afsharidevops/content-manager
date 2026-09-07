@@ -1,0 +1,17 @@
+services:
+  smart-router:
+    image: afsharidevops/hermes-smart-router:0.5.8
+    restart: unless-stopped
+    ports: ["127.0.0.1:8787:8080"]
+    environment:
+      SMART_ROUTER_UPSTREAM_BASE_URL: ${SMART_ROUTER_UPSTREAM_BASE_URL}
+      SMART_ROUTER_HMAC_SECRET: ${SMART_ROUTER_HMAC_SECRET}
+      SMART_ROUTER_ADMIN_API_KEY: ${SMART_ROUTER_ADMIN_API_KEY}
+      SMART_ROUTER_CLIENT_API_KEY: ${SMART_ROUTER_CLIENT_API_KEY}
+      SMART_ROUTER_REQUIRE_AUTH: "true"
+      SMART_ROUTER_CONTROL_PLANE_ENABLED: "true"
+      SMART_ROUTER_DASHBOARD_ENABLED: "true"
+      SMART_ROUTER_RAG_MODE: hybrid
+      SMART_ROUTER_GUARDRAILS_MODE: audit
+    volumes:
+      - ./data:/data

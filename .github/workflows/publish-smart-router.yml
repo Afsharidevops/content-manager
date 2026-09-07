@@ -1,0 +1,137 @@
+name: Publish Smart Router
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image version without a leading v
+        required: true
+        default: 0.5.9
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smart-router-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: dockerhub-release
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce canonical release source and branch parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main hermes-omniroute-linux-stack --force
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF_NAME}" != "main" ]]; then
+            echo "Manual Smart Router releases are allowed only from main; got ${GITHUB_REF_NAME}." >&2
+            exit 2
+          fi
+
+          git diff --exit-code origin/main..origin/hermes-omniroute-linux-stack -- smart-router/ || {
+            echo "smart-router/ differs between main and hermes-omniroute-linux-stack. Sync both branches before publishing a shared image." >&2
+            exit 2
+          }
+
+      - name: Resolve and validate version
+        id: release
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION}"
+
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+            printf 'Invalid semantic version: %s\n' "$version" >&2
+            exit 2
+          }
+
+          package_version="$(python3 - <<'PY'
+          import tomllib
+          with open('smart-router/pyproject.toml', 'rb') as handle:
+              print(tomllib.load(handle)['project']['version'])
+          PY
+          )"
+          if [[ "$version" != "$package_version" ]]; then
+            echo "Release version $version does not match smart-router package version $package_version." >&2
+            exit 2
+          fi
+
+          if [[ -z "${DOCKERHUB_USERNAME:-}" ]]; then
+            echo "Repository variable DOCKERHUB_USERNAME is required." >&2
+            exit 2
+          fi
+
+          image="${DOCKERHUB_USERNAME}/hermes-smart-router"
+          {
+            echo "value=$version"
+            echo "image=$image"
+            echo 'tags<<EOF'
+            echo "$image:$version"
+            if [[ "$version" != *-* ]]; then
+              echo "$image:latest"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: smart-router/pyproject.toml
+
+      - name: Test Smart Router and benchmark pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e './smart-router[dev,bench]'
+          python -m pytest smart-router/tests
+          smart-router-benchmark \
+            smart-router/examples/benchmark-synthetic-v0.4.0.jsonl \
+            --output-dir /tmp/smart-router-benchmark-smoke \
+            --cost-config smart-router/examples/benchmark-costs-normalized.json \
+            --synthetic \
+            --min-rows 200
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Docker Hub login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push multi-platform image
+        uses: docker/build-push-action@v6
+        with:
+          context: smart-router
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.release.outputs.tags }}
+
+      - name: Verify published multi-platform manifest
+        shell: bash
+        env:
+          IMAGE: ${{ steps.release.outputs.image }}
+          VERSION: ${{ steps.release.outputs.value }}
+        run: |
+          set -euo pipefail
+          inspect="$(docker buildx imagetools inspect "$IMAGE:$VERSION")"
+          printf '%s\n' "$inspect"
+          grep -q 'linux/amd64' <<<"$inspect"
+          grep -q 'linux/arm64' <<<"$inspect"

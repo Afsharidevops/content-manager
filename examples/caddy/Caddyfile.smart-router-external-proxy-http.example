@@ -1,0 +1,15 @@
+# HTTP-only origin behind a separate TLS reverse proxy. Branch: main
+# Replace 10.20.0.10/32 with the edge proxy private IP/CIDR.
+{
+    servers {
+        trusted_proxies static 10.20.0.10/32
+        trusted_proxies_strict
+    }
+}
+
+http://api.example.com {
+    encode zstd gzip
+    @metrics path /metrics
+    respond @metrics 404
+    reverse_proxy smart-router:8080
+}

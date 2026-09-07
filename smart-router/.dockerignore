@@ -1,0 +1,10 @@
+.git
+.pytest_cache
+__pycache__
+*.pyc
+*.joblib
+router.sqlite3
+observations*.jsonl
+
+.venv
+*.egg-info

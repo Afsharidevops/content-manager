@@ -1,0 +1,5 @@
+[
+  {"name":"github-mcp","kind":"mcp","description":"GitHub MCP server registration template","endpoint":"","risk":"medium","enabled":false,"manifest":{"transport":"stdio-or-http","capabilities":["repositories","issues","pull_requests"]}},
+  {"name":"postgres-readonly","kind":"mcp","description":"Read-only PostgreSQL MCP registration template","endpoint":"","risk":"medium","enabled":false,"manifest":{"required_policy":"read_only"}},
+  {"name":"kubernetes-observer","kind":"mcp","description":"Kubernetes observation tools; keep mutations approval-gated outside Smart Router","endpoint":"","risk":"high","enabled":false,"manifest":{"recommended_permissions":["get","list","logs"]}}
+]

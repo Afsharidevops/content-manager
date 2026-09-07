@@ -1,0 +1,95 @@
+# Hermes Smart Router v0.5.6 HA + pgvector example.
+# Copy to a private deployment directory, provide secrets via .env / Docker secrets,
+# and pin the image digest before production use.
+name: hermes-smart-router-v056-ha
+
+x-router-common: &router-common
+  image: afsharidevops/hermes-smart-router:0.5.6
+  restart: unless-stopped
+  environment: &router-env
+    SMART_ROUTER_UPSTREAM_BASE_URL: ${SMART_ROUTER_UPSTREAM_BASE_URL}
+    SMART_ROUTER_UPSTREAM_API_KEY: ${SMART_ROUTER_UPSTREAM_API_KEY:-}
+    SMART_ROUTER_HMAC_SECRET: ${SMART_ROUTER_HMAC_SECRET}
+    SMART_ROUTER_ADMIN_API_KEY: ${SMART_ROUTER_ADMIN_API_KEY}
+    SMART_ROUTER_CLIENT_API_KEY: ${SMART_ROUTER_CLIENT_API_KEY}
+    SMART_ROUTER_REQUIRE_AUTH: "true"
+    SMART_ROUTER_CONTROL_PLANE_ENABLED: "true"
+    SMART_ROUTER_DASHBOARD_ENABLED: "true"
+    SMART_ROUTER_MODE: ${SMART_ROUTER_MODE:-route}
+    SMART_ROUTER_POLICY: ${SMART_ROUTER_POLICY:-heuristic}
+    SMART_ROUTER_HA_MODE: "true"
+    SMART_ROUTER_CONTROL_DATABASE_URL: postgresql+psycopg://${SMART_ROUTER_PG_USER:-hermes_router}:${SMART_ROUTER_PG_PASSWORD}@postgres:5432/${SMART_ROUTER_PG_DB:-hermes_router}
+    SMART_ROUTER_KNOWLEDGE_DATABASE_URL: ""
+    SMART_ROUTER_RAG_MODE: ${SMART_ROUTER_RAG_MODE:-hybrid}
+    SMART_ROUTER_EMBEDDINGS_BASE_URL: ${SMART_ROUTER_EMBEDDINGS_BASE_URL:-}
+    SMART_ROUTER_EMBEDDINGS_MODEL: ${SMART_ROUTER_EMBEDDINGS_MODEL:-text-embedding-3-small}
+    SMART_ROUTER_EMBEDDINGS_API_KEY: ${SMART_ROUTER_EMBEDDINGS_API_KEY:-}
+    SMART_ROUTER_EMBEDDINGS_DIMENSIONS: ${SMART_ROUTER_EMBEDDINGS_DIMENSIONS:-384}
+    SMART_ROUTER_GUARDRAILS_MODE: ${SMART_ROUTER_GUARDRAILS_MODE:-audit}
+    SMART_ROUTER_ALLOWED_TOOLS: ${SMART_ROUTER_ALLOWED_TOOLS:-}
+    SMART_ROUTER_REDIS_URL: redis://:${SMART_ROUTER_REDIS_PASSWORD}@redis:6379/0
+    SMART_ROUTER_REDIS_REQUIRED: "true"
+    SMART_ROUTER_STICKY_BACKEND: redis
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks: [router-ha]
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SMART_ROUTER_PG_DB:-hermes_router}
+      POSTGRES_USER: ${SMART_ROUTER_PG_USER:-hermes_router}
+      POSTGRES_PASSWORD: ${SMART_ROUTER_PG_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SMART_ROUTER_PG_USER:-hermes_router} -d ${SMART_ROUTER_PG_DB:-hermes_router}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [router-ha]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$SMART_ROUTER_REDIS_PASSWORD\""]
+    environment:
+      SMART_ROUTER_REDIS_PASSWORD: ${SMART_ROUTER_REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$SMART_ROUTER_REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [router-ha]
+
+  router-a:
+    <<: *router-common
+
+  router-b:
+    <<: *router-common
+
+  load-balancer:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - router-a
+      - router-b
+    ports:
+      - "127.0.0.1:${SMART_ROUTER_HA_PORT:-8787}:8080"
+    volumes:
+      - ./ha-v0.5.6/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks: [router-ha]
+
+networks:
+  router-ha: {}
+
+volumes:
+  postgres-data: {}
+  redis-data: {}

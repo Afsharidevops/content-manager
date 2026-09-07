@@ -1,0 +1,52 @@
+_config_version: 33
+
+model:
+  provider: __PROVIDER_ID__
+  default: __MODEL_NAME__
+
+custom_providers:
+  - name: __PROVIDER_NAME__
+    base_url: __PROVIDER_BASE_URL__
+    key_env: NINEROUTER_API_KEY
+
+__MCP_SERVERS_BLOCK__
+agent:
+  # Upstream's recommended general budget. Reaching it stops the turn safely and
+  # asks for a summary; ./manage.sh set-agent-max-turns adjusts it locally.
+  max_turns: 90
+  # Upstream terminal and code_execution are enabled by local operator decision.
+  # They run as the gateway uid inside hermes-agent, which holds /opt/data/.env
+  # (Telegram token, 9router key, API server key, n8n Instance token). Every call
+  # still passes approval.py's hardline floor and the manual approval prompt
+  # below, but an approved command can read those secrets. The stack execution
+  # tools remain the isolated path: sandbox container, SSH, and Docker, each
+  # sealed and approved exactly once.
+  disabled_toolsets: []
+
+terminal:
+  backend: local
+
+approvals:
+  mode: manual
+  timeout: 300
+  cron_mode: deny
+
+skills:
+  write_approval: true
+
+plugins:
+  enabled:
+    - stack-package-policy
+    - stack-execution-policy
+
+tool_loop_guardrails:
+  hard_stop_enabled: true
+  hard_stop_after:
+    exact_failure: 5
+    idempotent_no_progress: 5
+
+gateway:
+  platforms:
+    telegram:
+      extra:
+        disable_link_previews: true

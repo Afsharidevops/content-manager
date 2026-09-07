@@ -1,0 +1,14 @@
+# Optional inner HTTP-only Caddy when TLS terminates on another VM.
+services:
+  caddy-http:
+    profiles: ["caddy-http"]
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    container_name: hermes-stack-caddy-http
+    restart: unless-stopped
+    ports:
+      - "${CADDY_HTTP_BIND_IP:-127.0.0.1}:${CADDY_HTTP_PORT:-8088}:80"
+    volumes:
+      - ./data/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    networks: [agent-net]

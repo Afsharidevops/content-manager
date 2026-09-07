@@ -1,0 +1,25 @@
+services:
+  smart-router-postgres:
+    image: postgres:16-alpine
+    profiles: ["smart-router-ha"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SMART_ROUTER_PG_DB:-hermes_router}
+      POSTGRES_USER: ${SMART_ROUTER_PG_USER:-hermes_router}
+      POSTGRES_PASSWORD: ${SMART_ROUTER_PG_PASSWORD}
+    volumes:
+      - ./data/smart-router-postgres:/var/lib/postgresql/data
+    networks: [agent-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SMART_ROUTER_PG_USER:-hermes_router} -d ${SMART_ROUTER_PG_DB:-hermes_router}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  smart-router:
+    environment:
+      SMART_ROUTER_HA_MODE: "true"
+      SMART_ROUTER_CONTROL_DATABASE_URL: postgresql+psycopg://${SMART_ROUTER_PG_USER:-hermes_router}:${SMART_ROUTER_PG_PASSWORD}@smart-router-postgres:5432/${SMART_ROUTER_PG_DB:-hermes_router}
+    depends_on:
+      smart-router-postgres:
+        condition: service_healthy

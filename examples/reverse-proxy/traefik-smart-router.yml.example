@@ -1,0 +1,14 @@
+# Traefik dynamic-file example on the edge VM.
+http:
+  routers:
+    smart-router:
+      rule: Host(`api.example.com`)
+      entryPoints: [websecure]
+      tls: {}
+      service: smart-router-origin
+  services:
+    smart-router-origin:
+      loadBalancer:
+        servers:
+          - url: http://10.20.0.20:8088
+        passHostHeader: true

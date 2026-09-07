@@ -1,0 +1,8 @@
+{
+  "tiers": {
+    "fast": {"input_per_1m": 0.0, "output_per_1m": 0.0},
+    "standard": {"input_per_1m": 0.0, "output_per_1m": 0.0},
+    "strong": {"input_per_1m": 0.0, "output_per_1m": 0.0}
+  },
+  "models": {}
+}
