@@ -79,6 +79,25 @@ class StateStore:
         drafts[draft_id] = payload
         self.save()
 
+    def update_draft(self, draft_id: str, payload: dict) -> None:
+        data = self.load()
+        drafts = data.setdefault("drafts", {})
+        if draft_id not in drafts:
+            raise KeyError(draft_id)
+        drafts[draft_id].update(payload)
+        self.save()
+
+    def draft_for_message(self, chat_id, message_id: int) -> dict | None:
+        """Return the pending draft attached to one chat message, if any."""
+        for draft in self.load().get("drafts", {}).values():
+            if (
+                isinstance(draft, dict)
+                and draft.get("chat_id") == chat_id
+                and int(draft.get("message_id") or -1) == int(message_id)
+            ):
+                return dict(draft)
+        return None
+
     def get_draft(self, draft_id: str) -> dict | None:
         draft = self.load().get("drafts", {}).get(draft_id)
         return dict(draft) if isinstance(draft, dict) else None

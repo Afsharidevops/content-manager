@@ -60,6 +60,10 @@ class TelegramApi:
             params["reply_markup"] = reply_markup
         return self._call("editMessageText", params)
 
+    def delete_message(self, chat_id, message_id: int) -> bool:
+        result = self._call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+        return result is True
+
     def answer_callback_query(self, query_id: str, text: str | None = None) -> bool:
         params: dict = {"callback_query_id": query_id}
         if text is not None:

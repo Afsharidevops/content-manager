@@ -19,7 +19,7 @@ class HttpError(RuntimeError):
 def request_bytes(
     url: str,
     *,
-    method: str = "GET",
+    method: str | None = None,
     headers: dict | None = None,
     payload: dict | None = None,
     timeout: int = 30,
@@ -32,6 +32,8 @@ def request_bytes(
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         request_headers["Content-Type"] = "application/json"
+    if method is None:
+        method = "POST" if data is not None else "GET"
     request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -49,10 +51,11 @@ def request_json(
     url: str,
     *,
     payload: dict | None = None,
+    headers: dict | None = None,
     timeout: int = 30,
 ) -> object:
     """Perform one HTTP request and parse the JSON response body."""
-    status, body = request_bytes(url, payload=payload, timeout=timeout)
+    status, body = request_bytes(url, headers=headers, payload=payload, timeout=timeout)
     if status >= 400:
         raise HttpError(status, body[:2048])
     return json.loads(body.decode("utf-8", "replace"))

@@ -131,6 +131,26 @@ class ContentBot:
         text = str(message.get("text") or "").strip()
         if not text:
             return
+        reply_to = message.get("reply_to_message")
+        if isinstance(reply_to, dict) and chat_id is not None:
+            reply_from = reply_to.get("from") or {}
+            reply_id = reply_to.get("message_id")
+            if reply_id is not None and reply_from.get("is_bot") is True:
+                draft = self.state.draft_for_message(chat_id, reply_id)
+                if draft is not None:
+                    self._save_feedback(draft, text)
+                    self.api.send_message(
+                        chat_id,
+                        "Feedback saved. Press Reject to get a revised version, "
+                        "or Approve to publish the post as it is.",
+                    )
+                    return
+                self.api.send_message(
+                    chat_id,
+                    "This message is not an active proposal. Reply to a "
+                    "proposal message to leave revision feedback.",
+                )
+                return
         if text in {"/start", "/help"}:
             self.api.send_message(chat_id, self.help_text())
             return
@@ -152,7 +172,9 @@ class ContentBot:
             "/start or /help - this message\n"
             "/status - configuration and counters\n"
             "Send any http(s) link - draft a post with Approve/Reject buttons\n"
-            "Approved drafts are published to the configured Telegram channel."
+            "Reply to a proposal with edit notes, then press Reject to revise;\n"
+            "press Reject without notes to discard. Approved drafts are\n"
+            "published to the configured Telegram channel."
         )
 
     def status_text(self) -> str:
@@ -194,7 +216,12 @@ class ContentBot:
             "tags": [],
         }
         policy = workflow.load_policy(self.settings.policy_dir)
-        item, rejection = workflow.evaluate_single(raw_item, policy, now=self.now_fn())
+        item, rejection = workflow.evaluate_single(
+            raw_item,
+            policy,
+            now=self.now_fn(),
+            enforce_freshness=False,
+        )
         if item is None:
             label = workflow.rejection_label(rejection or {})
             self.api.send_message(chat_id, f"Rejected before drafting: {label}")
@@ -239,6 +266,11 @@ class ContentBot:
         record["message_id"] = sent.get("message_id")
         self.state.add_draft(draft_id, record)
 
+    def _save_feedback(self, draft: dict, text: str) -> None:
+        feedback = list(draft.get("feedback") or [])
+        feedback.append(text)
+        self.state.update_draft(str(draft["id"]), {"feedback": feedback})
+
     def preview_text(self, record: dict) -> str:
         label = "Daily proposal" if record.get("kind") == "daily" else "Draft proposal"
         channel = self.settings.telegram_channel or "(no channel configured)"
@@ -247,7 +279,8 @@ class ContentBot:
             f"{record['title']}\n\n"
             f"{record['body']}\n\n"
             f"Source: {record['source_url']}\n"
-            f"Publish to {channel} or reject."
+            f"Publish to {channel}; reply with edit notes and press Reject to "
+            f"revise; press Reject alone to discard."
         )
 
     @staticmethod
@@ -277,6 +310,9 @@ class ContentBot:
             self._approve(query_id, record, chat_id, message_id)
             return
         if action == "reject":
+            if record.get("feedback"):
+                self._revise_draft(query_id, record, chat_id, message_id)
+                return
             self.state.drop_draft(draft_id)
             if chat_id is not None and message_id is not None:
                 try:
@@ -286,6 +322,47 @@ class ContentBot:
             self.api.answer_callback_query(query_id, "Draft rejected.")
             return
         self.api.answer_callback_query(query_id, "Unknown action.")
+
+    def _revise_draft(self, query_id: str, record: dict, chat_id, message_id) -> None:
+        if self.writer is None:
+            self.api.answer_callback_query(
+                query_id,
+                "No writer endpoint is configured; cannot revise.",
+            )
+            return
+        feedback = "\n".join(f"- {line}" for line in (record.get("feedback") or []))
+        try:
+            post = self.writer.revise_post(
+                title=str(record.get("title") or ""),
+                body=str(record.get("body") or ""),
+                feedback=feedback,
+                source_url=str(record.get("source_url") or ""),
+            )
+        except writer_mod.WriterError as error:
+            self.api.answer_callback_query(query_id, f"Revision failed: {error}")
+            return
+        draft_id = str(record.get("id") or "")
+        updated = {
+            "title": post["title"],
+            "body": post["body"],
+            "source_url": post["source_url"] or str(record.get("source_url") or ""),
+            "updated_at": self.now_fn().isoformat(),
+            "feedback": [],
+        }
+        self.state.update_draft(draft_id, updated)
+        preview = self.preview_text({**record, **updated})
+        keyboard = telegram_mod.approval_keyboard(draft_id)
+        try:
+            if chat_id is None or message_id is None:
+                raise telegram_mod.TelegramError("no anchor message to edit")
+            self.api.edit_message_text(chat_id, int(message_id), preview, keyboard)
+        except telegram_mod.TelegramError:
+            sent = self.api.send_message(chat_id, preview, keyboard)
+            self.state.update_draft(draft_id, {"message_id": sent.get("message_id")})
+        self.api.answer_callback_query(
+            query_id,
+            "Revised. Approve, add more feedback, or reject to discard.",
+        )
 
     def _approve(self, query_id: str, record: dict, chat_id, message_id) -> None:
         channel = self.settings.telegram_channel

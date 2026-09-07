@@ -130,7 +130,13 @@ def topic_hit(item: dict, policy: dict) -> tuple | None:
     return None
 
 
-def filter_items(policy: dict, items, *, now: datetime | None = None):
+def filter_items(
+    policy: dict,
+    items,
+    *,
+    now: datetime | None = None,
+    enforce_freshness: bool = True,
+):
     """Return ``(kept, rejected)``.
 
     ``rejected`` is a list of ``{"item", "reason", "detail"}`` records so that
@@ -145,7 +151,7 @@ def filter_items(policy: dict, items, *, now: datetime | None = None):
     low_value = exclusions.get("low_value_title_keywords") or []
 
     for item in items:
-        if not is_fresh(item, freshness_hours=freshness_hours, now=now):
+        if enforce_freshness and not is_fresh(item, freshness_hours=freshness_hours, now=now):
             age = item_age_hours(item, now=now)
             rejected.append(
                 {"item": item, "reason": FRESHNESS_REASON, "detail": f"age_hours={age:.1f}"}

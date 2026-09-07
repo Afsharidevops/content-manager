@@ -43,8 +43,14 @@ The token and key are stored in `.env` with mode `0600` and are never printed.
 3. The writer model turns the source into a fresh Persian draft (title + body)
    and sends you a preview with **Approve** and **Reject** buttons.
 4. **Approve** publishes the post to the configured channel and records the
-   source hash so the same link is never posted twice. **Reject** discards the
-   draft. A daily publish cap (default 3, `max_approved_per_day`) is enforced.
+   source hash so the same link is never posted twice. A daily publish cap
+   (default 3, `max_approved_per_day`) is enforced.
+5. **Revise before approving**: reply to the proposal message with edit notes
+   (for example, "make the intro shorter") and then press **Reject**. The bot
+   asks the writer to revise the draft from your notes and updates the same
+   proposal in place. You can repeat the reply-then-Reject cycle any number of
+   times until the post reads the way you want.
+6. **Reject** without a reply comment discards the draft entirely.
 
 Commands in the bot chat: `/start`, `/help`, `/status`.
 

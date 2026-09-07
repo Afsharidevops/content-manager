@@ -27,6 +27,7 @@ HTML_PAGE = """<html><head>
 class FakeWriter:
     def __init__(self):
         self.calls = []
+        self.revisions = []
 
     def generate_post(self, item):
         self.calls.append(item)
@@ -34,6 +35,16 @@ class FakeWriter:
             "title": "Generated title",
             "body": "Generated body text.",
             "source_url": "https://example.com/layers",
+        }
+
+    def revise_post(self, *, title, body, feedback, source_url):
+        self.revisions.append(
+            {"title": title, "body": body, "feedback": feedback, "source_url": source_url}
+        )
+        return {
+            "title": "Revised title",
+            "body": "Revised body text.",
+            "source_url": source_url,
         }
 
 
@@ -126,6 +137,88 @@ class BotTestCase(unittest.TestCase):
         self.assertIsNone(self.bot.state.get_draft(draft_id))
         answers = [payload for method, payload in self.api.calls if method == "answerCallbackQuery"]
         self.assertIn("Draft rejected.", answers[0]["text"])
+
+    def test_reply_comment_then_reject_revises_draft(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        message_id = self.bot.state.get_draft(draft_id)["message_id"]
+        self.api.calls.clear()
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "Make the intro shorter",
+                "reply_to_message": {"message_id": message_id, "from": {"is_bot": True}},
+            }
+        )
+        self.assertEqual(
+            self.bot.state.get_draft(draft_id)["feedback"], ["Make the intro shorter"]
+        )
+        self.api.calls.clear()
+        self.bot.handle_callback(
+            {
+                "id": "q3",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": message_id},
+                "data": f"reject:{draft_id}",
+            }
+        )
+        draft = self.bot.state.get_draft(draft_id)
+        self.assertIsNotNone(draft)
+        self.assertEqual(draft["title"], "Revised title")
+        self.assertEqual(draft["body"], "Revised body text.")
+        self.assertEqual(draft["feedback"], [])
+        self.assertEqual(len(self.writer.revisions), 1)
+        self.assertEqual(self.writer.revisions[0]["feedback"], "- Make the intro shorter")
+        edits = [payload for method, payload in self.api.calls if method == "editMessageText"]
+        self.assertTrue(edits)
+        self.assertIn("Revised title", edits[0]["text"])
+        answers = [payload for method, payload in self.api.calls if method == "answerCallbackQuery"]
+        self.assertTrue(answers)
+
+    def test_comment_then_reject_can_iterate_twice(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        message_id = self.bot.state.get_draft(draft_id)["message_id"]
+        for note in ("Make the intro shorter", "Now simplify the ending"):
+            self.api.calls.clear()
+            self.bot.handle_message(
+                {
+                    "chat": {"id": 11},
+                    "from": {"id": 11},
+                    "text": note,
+                    "reply_to_message": {"message_id": message_id, "from": {"is_bot": True}},
+                }
+            )
+            self.bot.handle_callback(
+                {
+                    "id": "q9",
+                    "from": {"id": 11},
+                    "message": {"chat": {"id": 11}, "message_id": message_id},
+                    "data": f"reject:{draft_id}",
+                }
+            )
+        self.assertEqual(len(self.writer.revisions), 2)
+        self.assertEqual(self.writer.revisions[0]["feedback"], "- Make the intro shorter")
+        self.assertEqual(
+            self.writer.revisions[1]["feedback"], "- Now simplify the ending"
+        )
+        draft = self.bot.state.get_draft(draft_id)
+        self.assertIsNotNone(draft)
+        self.assertEqual(draft["title"], "Revised title")
+        self.assertEqual(draft["feedback"], [])
 
     def test_disallowed_user_is_ignored(self):
         self.bot.handle_message(

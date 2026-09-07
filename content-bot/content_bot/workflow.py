@@ -51,13 +51,18 @@ def rejection_label(record: dict) -> str:
     return template.format(detail=record.get("detail", ""))
 
 
-def evaluate_single(item: dict, policy: dict, *, now=None):
+def evaluate_single(item: dict, policy: dict, *, now=None, enforce_freshness: bool = True):
     """Run normalization plus filtering on one raw item.
 
     Returns ``(item, None)`` when accepted or ``(None, rejection)`` otherwise.
     """
     normalized = normalize_items([item])[0]
-    kept, rejected = filter_items(policy, [normalized], now=now)
+    kept, rejected = filter_items(
+        policy,
+        [normalized],
+        now=now,
+        enforce_freshness=enforce_freshness,
+    )
     if rejected:
         return None, rejected[0]
     return kept[0], None

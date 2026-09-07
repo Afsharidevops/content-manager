@@ -28,6 +28,9 @@ Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0
 - **Approval-gated publishing** - only approved drafts are published to the
   Telegram channel. Daily caps, duplicate protection, and same-category streak
   limits are enforced by policy.
+- **Comment-driven revision** - reply to a proposal with edit notes and press
+  Reject; the bot revises the draft in place and lets you iterate until it is
+  right. Reject without notes discards the draft.
 - **Platform adapters** - the pipeline is platform-agnostic; publishing
   currently supports Telegram.
 
@@ -124,7 +127,8 @@ Then:
 
 1. Open the Content Bot in Telegram and send `/start`.
 2. Send any link - the bot replies with a draft and Approve/Reject buttons.
-3. Approve to publish to the channel.
+3. Approve to publish to the channel, or reply to the draft with edit notes
+   and press Reject to request a revised version.
 
 ## Configuration
 
