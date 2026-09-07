@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import bindparam, select, text
 
 from .control_db import KnowledgeEmbedding
 
@@ -106,10 +106,14 @@ class VectorIndex:
             self._enable_pgvector()
 
     def _enable_pgvector(self) -> None:
-        dim = self.provider.dimensions
+        dim = int(self.provider.dimensions)
         try:
             with self.store.engine.begin() as conn:
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                # dim comes from the embedding provider configuration, never
+                # from user input; PostgreSQL does not accept bind parameters
+                # in DDL, so the validated integer is formatted directly.
+                # nosemgrep: avoid-sqlalchemy-text
                 conn.execute(text(f"ALTER TABLE v56_knowledge_embeddings ADD COLUMN IF NOT EXISTS embedding_vector vector({dim})"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_v56_knowledge_embeddings_kb ON v56_knowledge_embeddings (kb_id)"))
             self.pgvector_enabled = True
@@ -165,14 +169,19 @@ class VectorIndex:
         if self.pgvector_enabled and len(qv) == self.provider.dimensions:
             try:
                 vec = "[" + ",".join(f"{x:.9g}" for x in qv) + "]"
-                ids = ",".join(str(int(x)) for x in sorted(set(kb_ids)))
+                ids = sorted({int(x) for x in kb_ids})
                 stmt = text(
-                    f"SELECT chunk_id, 1 - (embedding_vector <=> CAST(:vector AS vector)) AS score "
-                    f"FROM v56_knowledge_embeddings WHERE kb_id IN ({ids}) AND embedding_vector IS NOT NULL "
-                    f"ORDER BY embedding_vector <=> CAST(:vector AS vector) LIMIT :limit"
+                    "SELECT chunk_id, 1 - (embedding_vector <=> CAST(:vector AS vector)) AS score "
+                    "FROM v56_knowledge_embeddings WHERE kb_id IN :kb_ids "
+                    "AND embedding_vector IS NOT NULL "
+                    "ORDER BY embedding_vector <=> CAST(:vector AS vector) LIMIT :limit",
+                    bindparams=[bindparam("kb_ids", expanding=True)],
                 )
                 with self.store.engine.connect() as conn:
-                    rows = conn.execute(stmt, {"vector": vec, "limit": max(1, min(limit, 200))}).all()
+                    rows = conn.execute(
+                        stmt,
+                        {"vector": vec, "kb_ids": ids, "limit": max(1, min(limit, 200))},
+                    ).all()
                 return {int(chunk_id): float(score or 0.0) for chunk_id, score in rows}
             except Exception as exc:
                 self.provider.last_error = f"pgvector search failed: {type(exc).__name__}: {exc}"[:500]

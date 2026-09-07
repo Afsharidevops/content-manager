@@ -107,6 +107,9 @@ def _install(kind: str, payload: dict[str, Any]) -> str:
     # Consume before invoking a package manager so replay is impossible even on failure.
     item["state"] = "consumed"; _operations.pop(pending_id, None)
     destination = Path(item["destination"]); destination.mkdir(parents=True, exist_ok=True)
+    if item["kind"] == "npm":
+        # npm 11 resolves the global prefix layout before creating it.
+        (destination / "lib").mkdir(parents=True, exist_ok=True)
     try:
         completed = subprocess.run(item["command"], shell=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300, env=_clean_env(kind), check=False)
     except (OSError, subprocess.SubprocessError) as exc:

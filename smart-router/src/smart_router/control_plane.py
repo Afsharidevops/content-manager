@@ -580,7 +580,11 @@ class ControlPlane:
             subject, username, groups, role = self.oidc.identity(claims)
             _, token = self.security.provision_external("oidc", subject, username, groups, role, self.oidc.auto_provision)
             SSO_LOGINS.labels(provider="oidc", status="success").inc()
-            safe_token = json.dumps(token)
+            # The token is server-issued for this login and is embedded as a
+            # JSON string literal with "<" escaped to \u003c, which keeps the
+            # script body intact even if a provider sends unsafe characters.
+            safe_token = json.dumps(token).replace("<", "\\u003c")
+            # nosemgrep: python.django.security.injection.raw-html-format.raw-html-format
             return HTMLResponse(f"""<!doctype html><meta charset='utf-8'><title>OIDC login</title><script>localStorage.setItem('hermes_v52_token',{safe_token});localStorage.setItem('hermes_v51_token',{safe_token});location.href='/control/';</script>Signed in. <a href='/control/'>Continue</a>""")
         except PermissionError:
             SSO_LOGINS.labels(provider="oidc", status="denied").inc()

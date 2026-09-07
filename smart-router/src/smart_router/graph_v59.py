@@ -199,7 +199,7 @@ def _resolve_ports(
 
 def _edge_id(source_node: str, source_port: str, target_node: str, target_port: str) -> str:
     raw = f"{source_node}\0{source_port}\0{target_node}\0{target_port}".encode()
-    return "edge-" + hashlib.sha1(raw).hexdigest()[:16]
+    return "edge-" + hashlib.sha256(raw).hexdigest()[:16]
 
 
 def _has_cycle(nodes: set[str], edges: list[tuple[str, str]]) -> bool:

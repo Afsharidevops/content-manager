@@ -239,6 +239,7 @@ class PackagePolicyTest(unittest.TestCase):
             "NPM_CONFIG_FUND": "false",
         })
         with tempfile.TemporaryDirectory() as prefix:
+            Path(prefix, "lib").mkdir(parents=True, exist_ok=True)
             env["HOME"] = prefix
             completed = subprocess.run(
                 [
