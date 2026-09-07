@@ -25,15 +25,17 @@ SYSTEM_PROMPT = (
 REVISE_PROMPT = (
     "You revise an existing Persian (Farsi) Telegram post based on feedback "
     "from the channel owner. Reply with exactly one JSON object with two keys: "
-    "'title' (at most 120 characters) and 'body' (600 to 1400 characters). "
+    "'title' (at most 120 characters) and 'body' (at most 1400 characters). "
     "Keep the warm, slightly informal tone of the current post and stay "
-    "faithful to the same source article. Apply the feedback carefully; when "
-    "it is vague, make a sensible improvement. Never mention the feedback, the "
-    "revision process, or the source record inside the post. Do not invent "
-    "facts. Do not use Markdown, hashtags, labels, quotes, or backslash "
-    "characters. Keep paragraphs short and separate them with single blank "
-    "lines. End the body with one final line containing only the full source "
-    "URL."
+    "faithful to the same source article. Apply the feedback faithfully and "
+    "make the revision clearly visible: when the owner asks for a shorter "
+    "text, cut the body down noticeably; when they ask to reword a part, "
+    "rewrite that part. The revised title and body must differ from the "
+    "current version. Never mention the feedback, the revision process, or "
+    "the source record inside the post. Do not invent facts. Do not use "
+    "Markdown, hashtags, labels, quotes, or backslash characters. Keep "
+    "paragraphs short and separate them with single blank lines. End the body "
+    "with one final line containing only the full source URL."
 )
 
 
@@ -81,7 +83,10 @@ class Writer:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
             raise WriterError("writer returned no message content") from error
-        return str(content)
+        content = str(content)
+        if not content.strip():
+            raise WriterError("writer returned empty content")
+        return content
 
     @staticmethod
     def _parse_json_object(content: str) -> dict | None:
@@ -133,12 +138,11 @@ class Writer:
                 {"role": "user", "content": user_message},
             ]
         )
-        return self._finalize(
-            content,
-            fallback_title=str(item.get("title") or ""),
-            fallback_body=content,
-            source_url=str(source["url"] or ""),
-        )
+        post = self._parse_post(content)
+        if post is None:
+            title = str(item.get("title") or "").strip()[:120] or "Untitled"
+            post = {"title": title, "body": self._clean_body(content)}
+        return self._with_source_url(post, str(source["url"] or ""))
 
     def revise_post(
         self,
@@ -148,7 +152,12 @@ class Writer:
         feedback: str,
         source_url: str,
     ) -> dict:
-        """Return a revised ``{"title", "body", "source_url"}`` applying feedback."""
+        """Return a revised ``{"title", "body", "source_url"}`` applying feedback.
+
+        Raises ``WriterError`` when the model returns no usable JSON or when
+        the revised post is identical to the current one, so callers never
+        silently re-publish unchanged copy.
+        """
         current = json.dumps(
             {"title": title, "body": body, "source_url": source_url},
             ensure_ascii=True,
@@ -158,36 +167,66 @@ class Writer:
             f"Current post:\n{current}\n\n"
             f"Feedback from the channel owner:\n{feedback}"
         )
-        content = self._chat(
-            [
-                {"role": "system", "content": REVISE_PROMPT},
-                {"role": "user", "content": user_message},
-            ]
-        )
-        return self._finalize(
-            content,
-            fallback_title=title,
-            fallback_body=body,
-            source_url=source_url,
-        )
+        messages = [
+            {"role": "system", "content": REVISE_PROMPT},
+            {"role": "user", "content": user_message},
+        ]
+        previous_title = str(title).strip()[:120]
+        previous_body = Writer._strip_source_url(self._clean_body(str(body)), source_url)
+        last_error: WriterError | None = None
+        unchanged = False
+        for _attempt in range(2):
+            try:
+                content = self._chat(messages)
+            except WriterError as error:
+                last_error = error
+                continue
+            post = self._parse_post(content)
+            if post is None:
+                last_error = WriterError("revision returned no usable JSON output")
+                continue
+            revised_body = Writer._strip_source_url(post["body"], source_url)
+            if post["title"] == previous_title and revised_body == previous_body:
+                unchanged = True
+                continue
+            return self._with_source_url(post, source_url)
+        if unchanged:
+            raise WriterError(
+                "revision produced no changes; make the feedback more specific"
+            )
+        if last_error is not None:
+            raise last_error
+        raise WriterError("revision returned no usable JSON output")
 
     @staticmethod
-    def _finalize(
-        content: str, *, fallback_title: str, fallback_body: str, source_url: str
-    ) -> dict:
-        """Parse one LLM reply into a clean ``{"title", "body", "source_url"}``."""
+    def _parse_post(content: str) -> dict | None:
+        """Parse one LLM reply into ``{"title", "body"}`` or ``None``."""
         parsed = Writer._parse_json_object(content)
-        if parsed and str(parsed.get("title", "")).strip() and str(parsed.get("body", "")).strip():
-            title = str(parsed["title"]).strip()[:120]
-            body = Writer._clean_body(str(parsed["body"]))
-        else:
-            title = str(fallback_title).strip()[:120] or "Untitled"
-            body = Writer._clean_body(fallback_body)
+        if not parsed:
+            return None
+        title = str(parsed.get("title", "")).strip()
+        body_text = str(parsed.get("body", "")).strip()
+        if not title or not body_text:
+            return None
+        return {"title": title[:120], "body": Writer._clean_body(body_text)}
+
+    @staticmethod
+    def _strip_source_url(body: str, source_url: str) -> str:
+        body = body.strip()
+        if source_url:
+            body = body.replace(source_url, "").strip()
+        while "\n\n\n" in body:
+            body = body.replace("\n\n\n", "\n\n")
+        return body.strip()
+
+    @staticmethod
+    def _with_source_url(post: dict, source_url: str) -> dict:
         source_url = str(source_url or "").strip()
+        body = post["body"]
         if source_url and source_url not in body:
             body = f"{body}\n\n{source_url}" if body else source_url
         return {
-            "title": title,
+            "title": post["title"],
             "body": body,
             "source_url": source_url,
         }

@@ -330,6 +330,7 @@ class ContentBot:
                 "No writer endpoint is configured; cannot revise.",
             )
             return
+        draft_id = str(record.get("id") or "")
         feedback = "\n".join(f"- {line}" for line in (record.get("feedback") or []))
         try:
             post = self.writer.revise_post(
@@ -339,9 +340,9 @@ class ContentBot:
                 source_url=str(record.get("source_url") or ""),
             )
         except writer_mod.WriterError as error:
-            self.api.answer_callback_query(query_id, f"Revision failed: {error}")
+            log.warning("revision failed for draft %s: %s", draft_id, error)
+            self._safe_answer(query_id, f"Revision failed: {error}")
             return
-        draft_id = str(record.get("id") or "")
         updated = {
             "title": post["title"],
             "body": post["body"],
@@ -359,10 +360,17 @@ class ContentBot:
         except telegram_mod.TelegramError:
             sent = self.api.send_message(chat_id, preview, keyboard)
             self.state.update_draft(draft_id, {"message_id": sent.get("message_id")})
-        self.api.answer_callback_query(
+        self._safe_answer(
             query_id,
             "Revised. Approve, add more feedback, or reject to discard.",
         )
+
+    def _safe_answer(self, query_id: str, text: str) -> None:
+        """Answer a callback query, ignoring failures on stale query ids."""
+        try:
+            self.api.answer_callback_query(query_id, text)
+        except telegram_mod.TelegramError as error:
+            log.debug("callback answer skipped: %s", error)
 
     def _approve(self, query_id: str, record: dict, chat_id, message_id) -> None:
         channel = self.settings.telegram_channel
