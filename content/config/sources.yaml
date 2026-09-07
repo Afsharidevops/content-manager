@@ -1,0 +1,10 @@
+# Discovery sources for the daily content pipeline.
+# This file is seeded once into data/content-manager/config/sources.yaml; edit
+# the working copy (not this tracked template) so local changes survive
+# re-installs.  The Content Bot reads the working copy on every daily run.
+#
+# Add RSS/Atom feeds as list entries:
+#   - name: "Example Tech Feed"
+#     url: "https://example.com/feed.xml"
+# A discovery source is skipped when its URL is missing or is not http(s).
+sources: []

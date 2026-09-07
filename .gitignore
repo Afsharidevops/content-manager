@@ -15,6 +15,8 @@ data/stack-secrets/*
 !data/stack-secrets/.gitkeep
 data/content-manager/*
 !data/content-manager/.gitkeep
+data/content-bot/*
+!data/content-bot/.gitkeep
 *.backup-*
 *.log
 __pycache__/

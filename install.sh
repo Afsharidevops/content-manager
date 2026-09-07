@@ -515,9 +515,11 @@ configure_webui=false
 configure_smart_router=false
 configure_n8n=false
 configure_caddy=false
+configure_content=false
 existing_install=false
 smart_router_was_enabled=false
 n8n_was_enabled=false
+content_was_enabled=false
 change_bind_ips=false
 n8n_ready=false
 
@@ -530,6 +532,8 @@ if [[ -f "$ENV_FILE" ]]; then
   smart_router_was_enabled="$install_smart_router"
   install_n8n=false; profile_enabled n8n && install_n8n=true
   n8n_was_enabled="$install_n8n"
+  install_content=false; profile_enabled content && install_content=true
+  content_was_enabled="$install_content"
   install_caddy=false; profile_enabled caddy && install_caddy=true
 
   printf 'Existing components: %s\n' "$(existing_env_value COMPOSE_PROFILES)"
@@ -573,6 +577,18 @@ if [[ -f "$ENV_FILE" ]]; then
     install_n8n=true
     configure_n8n=true
   fi
+  if [[ "$install_content" == true ]]; then
+    if ! confirm "Keep the Content Bot (Telegram approve/publish bot) enabled?" y; then
+      install_content=false
+      configure_content=true
+    elif confirm "Reconfigure Content Bot settings?" n; then
+      configure_content=true
+    fi
+  elif [[ "$install_nine" == true || "$install_smart_router" == true ]] \
+    && confirm "Add the Content Bot (Telegram approve/publish bot with Approve/Reject buttons)?" n; then
+    install_content=true
+    configure_content=true
+  fi
   confirm "Change published container bind IPs only?" n && change_bind_ips=true
 else
   printf '%s\n' '1) Install both 9router and Hermes Agent (recommended)'
@@ -607,6 +623,13 @@ else
     install_n8n=true
     configure_n8n=true
   fi
+  install_content=false
+  if [[ "$install_nine" == true || "$install_smart_router" == true ]] \
+    && confirm "Add the Content Bot (Telegram approve/publish bot with Approve/Reject buttons)?" \
+      "$([[ "$install_smart_router" == true ]] && printf y || printf n)"; then
+    install_content=true
+    configure_content=true
+  fi
   install_caddy=false
 fi
 
@@ -616,8 +639,10 @@ profiles=""
 [[ "$install_hermes" == true ]] && profiles="${profiles:+$profiles,}hermes"
 [[ "$install_webui" == true ]] && profiles="${profiles:+$profiles,}open-webui"
 [[ "$install_n8n" == true ]] && profiles="${profiles:+$profiles,}n8n"
+[[ "$install_content" == true ]] && profiles="${profiles:+$profiles,}content"
 
-mkdir -p "$HERMES_DIR" "$NINEROUTER_DIR" "$OPENWEBUI_DIR" "$SMART_ROUTER_DIR" "$N8N_DIR" "$CADDY_DIR"
+mkdir -p "$HERMES_DIR" "$NINEROUTER_DIR" "$OPENWEBUI_DIR" "$SMART_ROUTER_DIR" "$N8N_DIR" "$CADDY_DIR" \
+  "$ROOT_DIR/data/content-bot"
 mkdir -p "$HERMES_DIR/lazy-packages" "$HERMES_DIR/npm-packages" "$ROOT_DIR/data/stack-secrets"
 chmod 700 "$ROOT_DIR/data/stack-secrets"
 # Empty execution policy files keep the normal Compose profile renderable while
@@ -1148,6 +1173,52 @@ fi
 
 [[ "$install_caddy" == true ]] && profiles="${profiles:+$profiles,}caddy"
 
+# Content Bot settings. The writer defaults to the Smart Router client API when
+# the router is installed, or to 9router directly otherwise; install.sh later
+# synchronizes the real client key for the Smart Router path.
+content_bot_token="$(existing_env_value CONTENT_BOT_TOKEN)"
+content_channel="$(existing_env_value CONTENT_TELEGRAM_CHANNEL)"
+content_users="$(existing_env_value CONTENT_TELEGRAM_USERS)"
+content_writer_url="$(existing_env_value CONTENT_WRITER_BASE_URL)"
+content_writer_key="$(existing_env_value CONTENT_WRITER_API_KEY)"
+content_writer_model="$(existing_env_value CONTENT_WRITER_MODEL)"
+content_scheduler_enabled="$(existing_env_value CONTENT_SCHEDULER_ENABLED)"
+content_scheduler_enabled="${content_scheduler_enabled:-true}"
+if [[ "$install_content" == true && "$configure_content" == true ]]; then
+  printf '\nContent Bot settings\n'
+  printf '%s\n' '---------------------'
+  while true; do
+    content_bot_token="$(prompt_secret "Content Bot Telegram token (create one with @BotFather)")"
+    [[ "$content_bot_token" =~ ^[0-9]+:[A-Za-z0-9_-]{20,}$ ]] && break
+    warn "The token format does not look valid. Expected digits, a colon, then the token."
+  done
+  content_channel="$(prompt "Telegram channel ID or @username to publish to")"
+  content_users_default="$content_users"
+  [[ -n "$content_users_default" ]] || content_users_default="$telegram_ids"
+  while true; do
+    content_users="$(prompt "Allowed numeric Telegram user IDs, comma-separated" "$content_users_default")"
+    content_users="${content_users//[[:space:]]/}"
+    valid_ids "$content_users" && break
+    warn "Use numeric IDs separated by commas, without usernames."
+  done
+  content_writer_default="$content_writer_url"
+  if [[ -z "$content_writer_default" ]]; then
+    if [[ "$install_smart_router" == true ]]; then
+      content_writer_default="http://smart-router:8080/v1"
+    elif [[ "$install_nine" == true ]]; then
+      content_writer_default="http://nine-router:20128/v1"
+    fi
+  fi
+  content_writer_url="$(prompt "Writer OpenAI-compatible API base URL (include /v1)" "$content_writer_default")"
+  content_writer_key="$(prompt_secret "Writer API key (Enter for no-auth local endpoints)" true)"
+  content_writer_model="$(prompt "Writer model/combo" "${content_writer_model:-auto}")"
+  if confirm "Enable the daily editorial proposal scheduler?" "$([[ "$content_scheduler_enabled" == true ]] && printf y || printf n)"; then
+    content_scheduler_enabled=true
+  else
+    content_scheduler_enabled=false
+  fi
+fi
+
 invoking_uid="${SUDO_UID:-$(id -u)}"
 invoking_gid="${SUDO_GID:-$(id -g)}"
 # The Hermes image refuses to run its gateway as root. A direct-root install has
@@ -1163,6 +1234,23 @@ if [[ "$invoking_uid" == 0 ]]; then
 else
   hermes_uid="$invoking_uid"
   hermes_gid="$invoking_gid"
+fi
+
+# The Content Bot container runs unprivileged; root installs map it to the
+# isolated 10004:10004 identity so it can write its own state directory.
+if [[ "$install_content" == true ]]; then
+  if [[ "$invoking_uid" == 0 ]]; then
+    content_bot_uid=10004
+    content_bot_gid=10004
+    content_bot_run_as="10004:10004"
+  else
+    content_bot_uid="$invoking_uid"
+    content_bot_gid="$invoking_gid"
+    content_bot_run_as="$invoking_uid:$invoking_gid"
+  fi
+else
+  content_bot_run_as="$(existing_env_value CONTENT_BOT_RUN_AS)"
+  content_bot_run_as="${content_bot_run_as:-10004:10004}"
 fi
 
 if [[ "$hermes_dashboard" == 1 ]]; then
@@ -1255,6 +1343,14 @@ replace_env_value "$tmp_env" N8N_DIAGNOSTICS_ENABLED "$n8n_diagnostics"
 replace_env_value "$tmp_env" N8N_VERSION_NOTIFICATIONS_ENABLED "$n8n_version_notifications"
 replace_env_value "$tmp_env" N8N_ENCRYPTION_KEY "$n8n_encryption_key"
 replace_env_value "$tmp_env" CADDY_BIND_IP "$caddy_bind"
+replace_env_value "$tmp_env" CONTENT_BOT_RUN_AS "$content_bot_run_as"
+replace_env_value "$tmp_env" CONTENT_BOT_TOKEN "$(dotenv_quote "$content_bot_token")"
+replace_env_value "$tmp_env" CONTENT_TELEGRAM_CHANNEL "$(dotenv_quote "$content_channel")"
+replace_env_value "$tmp_env" CONTENT_TELEGRAM_USERS "$(dotenv_quote "$content_users")"
+replace_env_value "$tmp_env" CONTENT_WRITER_BASE_URL "$(dotenv_quote "$content_writer_url")"
+replace_env_value "$tmp_env" CONTENT_WRITER_API_KEY "$(dotenv_quote "$content_writer_key")"
+replace_env_value "$tmp_env" CONTENT_WRITER_MODEL "$(dotenv_quote "$content_writer_model")"
+replace_env_value "$tmp_env" CONTENT_SCHEDULER_ENABLED "$content_scheduler_enabled"
 mv "$tmp_env" "$ENV_FILE"
 
 # Generate any v0.5.x placeholder secrets without rotating existing values.
@@ -1283,6 +1379,10 @@ client_key="$(existing_env_value SMART_ROUTER_CLIENT_API_KEY)"
 if [[ "$install_smart_router" == true ]]; then
   # Trusted local clients authenticate to Smart Router, not directly to 9router.
   replace_env_value "$ENV_FILE" OPENWEBUI_OPENAI_API_KEY "$client_key"
+fi
+if [[ "$install_content" == true && "$install_smart_router" == true ]]; then
+  # The Content Bot writer authenticates with the trusted Smart Router client key.
+  replace_env_value "$ENV_FILE" CONTENT_WRITER_API_KEY "$(dotenv_quote "$client_key")"
 fi
 
 hermes_backend_key="$provider_key"
@@ -1481,13 +1581,17 @@ ok "Configuration generated."
 if [[ "$DRY_RUN" != true ]] && [[ -d "$ROOT_DIR/content/config" ]]; then
   mkdir -p "$ROOT_DIR/data/content-manager/config"
   seeded_content_config=false
-  for policy_file in editorial-policy.yaml categories.yaml; do
+  for policy_file in editorial-policy.yaml categories.yaml sources.yaml; do
     if [[ -f "$ROOT_DIR/content/config/$policy_file" \
       && ! -f "$ROOT_DIR/data/content-manager/config/$policy_file" ]]; then
       cp "$ROOT_DIR/content/config/$policy_file" "$ROOT_DIR/data/content-manager/config/$policy_file"
       seeded_content_config=true
     fi
   done
+  if [[ "$install_content" == true ]]; then
+    install -d -m 0700 -o "$content_bot_uid" -g "$content_bot_gid" \
+      "$ROOT_DIR/data/content-bot"
+  fi
   if [[ "$seeded_content_config" == true ]]; then
     info "Content Manager: seeded policy working copy under data/content-manager/config"
   fi
@@ -1608,6 +1712,13 @@ if [[ "$n8n_was_enabled" == true && "$install_n8n" != true ]]; then
   COMPOSE_PROFILES=n8n "${DOCKER[@]}" compose \
     -f "$ROOT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
     rm -sf n8n n8n-init
+fi
+
+if [[ "$content_was_enabled" == true && "$install_content" != true ]]; then
+  info "Stopping disabled Content Bot (data/content-bot is preserved)..."
+  COMPOSE_PROFILES=content "${DOCKER[@]}" compose \
+    -f "$ROOT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
+    rm -sf content-bot
 fi
 
 info "Starting selected services..."
@@ -1794,6 +1905,13 @@ fi
 if [[ -d "$ROOT_DIR/content/config" ]]; then
   printf '%s\n' 'Content Manager: editorial policy working copy -> data/content-manager/config'
   printf '%s\n' 'Content Manager: pipeline source, policy, and operations notes -> content/README.md'
+fi
+if [[ "$install_content" == true ]]; then
+  printf '%s\n' 'Content Bot: Telegram approve/publish bot enabled'
+  printf '%s\n' 'Content Bot: send a link to the bot in Telegram to draft an approved post'
+  printf '%s\n' 'Content Bot guide: docs/CONTENT-PRODUCTION-GUIDE.md'
+  printf '%s\n' 'Instagram/Meta setup (optional, pending): docs/INSTAGRAM-SETUP.md'
+  printf '%s\n' 'Content Bot status: ./manage.sh content-status'
 fi
 printf '%s\n' 'Status: ./manage.sh status'
 printf '%s\n' 'Logs:   ./manage.sh logs'

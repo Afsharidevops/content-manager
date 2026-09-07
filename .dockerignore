@@ -1,0 +1,17 @@
+.git
+.venv
+data
+docs-site
+examples
+deploy
+plugins
+scripts
+smart-router
+execution-broker
+templates
+tests
+*.pyc
+__pycache__
+.pytest_cache
+.env
+stack.lock.json

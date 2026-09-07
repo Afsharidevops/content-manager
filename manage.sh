@@ -32,6 +32,7 @@ Interactive groups:
   router                      Smart Router dashboard, routing, health, policy
   hermes                      Hermes Agent, Telegram, API and agent settings
   n8n                         n8n provisioning and MCP integration
+  content                     Content Bot status, publishing docs and platform setup
   execution                   Sandbox, Docker execution, SSH and approvals
   maintenance                 Update, backups, restore and rollback
   security                    Diagnostics, image integrity and access info
@@ -72,6 +73,10 @@ n8n automation:
   reconcile-n8n               Reconcile managed n8n objects
   verify-n8n                  Verify hosted chat and MCP integration
   rotate-n8n-trigger-token    Rotate Trigger-mode bearer token
+
+Content Bot automation:
+  content-status              Content Bot configuration summary (no secrets)
+  content-connect-instagram   Print the pending Instagram/Meta setup checklist
 
 Advanced commands remain backward compatible. Use the interactive groups for
 normal administration; use direct commands for automation and scripts.
@@ -528,10 +533,11 @@ interactive_menu() {
     printf '%s\n'   '4) Hermes Agent & Telegram    Agent and messaging settings'
     printf '%s\n'   '5) n8n & MCP                  Provisioning, Instance MCP, Trigger MCP'
     printf '%s\n'   '6) Execution & SSH            Sandbox, Docker, SSH profiles, approvals'
-    printf '%s\n'   '7) Maintenance & recovery     Updates, backup, restore, rollback'
-    printf '%s\n'   '8) Security & integrity       Doctor, image pins, access credentials'
-    printf '%s\n'   '9) Reconfigure installation   Run the v0.5.9 wizard again'
-    printf '%s\n'   '10) Uninstall                 Safe remove or explicit purge'
+    printf '%s\n'   '7) Content Bot                Status, publishing docs, platform setup'
+    printf '%s\n'   '8) Maintenance & recovery     Updates, backup, restore, rollback'
+    printf '%s\n'   '9) Security & integrity       Doctor, image pins, access credentials'
+    printf '%s\n'   '10) Reconfigure installation  Run the v0.5.9 wizard again'
+    printf '%s\n'   '11) Uninstall                 Safe remove or explicit purge'
     printf '%s\n'   '0) Exit'
     read -r -p 'Choose [0]: ' choice
     case "${choice:-0}" in
@@ -548,10 +554,11 @@ interactive_menu() {
       4) hermes_menu ;;
       5) n8n_menu ;;
       6) execution_menu ;;
-      7) maintenance_menu ;;
-      8) security_menu ;;
-      9) exec "$ROOT_DIR/install.sh" ;;
-      10) uninstall_menu ;;
+      7) content_menu ;;
+      8) maintenance_menu ;;
+      9) security_menu ;;
+      10) exec "$ROOT_DIR/install.sh" ;;
+      11) uninstall_menu ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1026,6 +1033,68 @@ PY
   chmod --reference="$file" "$tmp" || { rm -f -- "$tmp"; return 1; }
   chown --reference="$file" "$tmp" || { rm -f -- "$tmp"; return 1; }
   mv "$tmp" "$file"
+}
+
+content_status() {
+  local profiles token channel users writer model scheduler daily_time
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  if [[ ",$profiles," != *,content,* ]]; then
+    printf 'Content Bot is not enabled in COMPOSE_PROFILES. Run ./manage.sh configure to enable it.\n'
+    return 1
+  fi
+  token="$(env_value "$ENV_FILE" CONTENT_BOT_TOKEN)"
+  channel="$(env_value "$ENV_FILE" CONTENT_TELEGRAM_CHANNEL)"
+  users="$(env_value "$ENV_FILE" CONTENT_TELEGRAM_USERS)"
+  writer="$(env_value "$ENV_FILE" CONTENT_WRITER_BASE_URL)"
+  model="$(env_value "$ENV_FILE" CONTENT_WRITER_MODEL)"
+  scheduler="$(env_value "$ENV_FILE" CONTENT_SCHEDULER_ENABLED)"
+  daily_time="$(sed -n 's/^  daily_proposal_time: //p' \
+    "$ROOT_DIR/data/content-manager/config/editorial-policy.yaml" 2>/dev/null | head -n1 | tr -d '"')"
+  printf 'Content Bot status\n'
+  if [[ -n "$token" ]]; then
+    printf '  Telegram bot token: stored (secret not shown)\n'
+  else
+    printf '  Telegram bot token: NOT stored; reconfigure with ./manage.sh configure\n'
+  fi
+  printf '  Publish channel: %s\n' "${channel:-not configured}"
+  printf '  Operator users: %s\n' "${users:-none}"
+  printf '  Writer endpoint: %s\n' "${writer:-not configured}"
+  printf '  Writer model: %s\n' "${model:-auto}"
+  printf '  Daily scheduler: %s at %s\n' "${scheduler:-true}" "${daily_time:-08:00}"
+  printf '  Editorial policy: data/content-manager/config/editorial-policy.yaml\n'
+  printf '  Discovery sources: data/content-manager/config/sources.yaml\n'
+  printf '  Guide: docs/CONTENT-PRODUCTION-GUIDE.md\n'
+}
+
+content_connect_instagram() {
+  printf '%s\n' 'Instagram publishing is reserved for a later phase.'
+  printf '%s\n' 'The adapter keeps this as a pending manual checklist:'
+  printf '%s\n' '  1. Convert the Instagram account to Business/Creator and link it to a Facebook Page.'
+  printf '%s\n' '  2. Create a Meta Business app: https://developers.facebook.com/apps/creation/'
+  printf '%s\n' '  3. Add the Instagram Graph API product and connect the Instagram account.'
+  printf '%s\n' '  4. Grant instagram_basic and instagram_content_publish and generate a long-lived token.'
+  printf '%s\n' 'Step-by-step guide: docs/INSTAGRAM-SETUP.md'
+  printf '%s\n' 'When the adapter ships, this command will validate the token and finish provisioning.'
+}
+
+content_menu() {
+  local choice
+  while true; do
+    printf '\nContent Bot Manager\n'
+    printf '%s\n' '==================='
+    printf '%s\n' '1) Show Content Bot status'
+    printf '%s\n' '2) Instagram/Meta setup checklist'
+    printf '%s\n' '3) Follow Content Bot logs'
+    printf '%s\n' '0) Back'
+    read -r -p 'Choose: ' choice
+    case "$choice" in
+      1) content_status || true ;;
+      2) content_connect_instagram ;;
+      3) compose logs -f --tail=100 content-bot ;;
+      0) return 0 ;;
+      *) printf 'Unknown choice.\n' >&2 ;;
+    esac
+  done
 }
 
 env_value() {
@@ -1687,10 +1756,13 @@ case "$command" in
   router|router-menu) router_menu ;;
   hermes|hermes-menu) hermes_menu ;;
   n8n|n8n-menu) n8n_menu ;;
+  content|content-menu) content_menu ;;
   execution|execution-menu) execution_menu ;;
   maintenance|maintenance-menu) maintenance_menu ;;
   security|security-menu) security_menu ;;
   n8n-status) n8n_status ;;
+  content-status) content_status ;;
+  content-connect-instagram) content_connect_instagram ;;
   uninstall)
     shift
     uninstall_stack "${1:-}"
@@ -1711,8 +1783,9 @@ case "$command" in
       smart-router|router) compose logs -f --tail=100 smart-router ;;
       webui|open-webui) compose logs -f --tail=100 open-webui ;;
       n8n) compose logs -f --tail=100 n8n ;;
+      content|content-bot) compose logs -f --tail=100 content-bot ;;
       caddy) compose logs -f --tail=100 caddy ;;
-      *) printf 'Choose hermes, 9router, smart-router, webui, n8n, or caddy.\n' >&2; exit 2 ;;
+      *) printf 'Choose hermes, 9router, smart-router, webui, n8n, content, or caddy.\n' >&2; exit 2 ;;
     esac
     ;;
   dashboard-access)

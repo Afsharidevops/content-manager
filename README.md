@@ -17,6 +17,8 @@ This repository tracks the **9router branch** of the upstream stack.
 - [Content layer overview](content/README.md)
 - [Canonical changelog](CHANGELOG.md)
 - [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
+- [Content production guide](docs/CONTENT-PRODUCTION-GUIDE.md)
+- [Instagram/Meta setup (pending platform)](docs/INSTAGRAM-SETUP.md)
 - [Release process](docs/RELEASE-PROCESS.md)
 - [Smart Router client API](docs/SMART-ROUTER-CLIENT-API.md)
 - [Smart Router Docker Hub notes](docs/publishing/SMART-ROUTER-DOCKERHUB.md)
@@ -126,6 +128,22 @@ Do not add OmniRoute to `main`, and do not add 9router to the OmniRoute branch.
 - Dedicated Telegram approval bot support for privileged execution workflows
 - Local-only service bindings by default where appropriate
 
+### Content Bot (fork layer, Telegram MVP)
+
+- A dedicated Telegram bot turns any link you send it into a filtered, freshly
+  written Persian draft with **Approve/Reject** buttons and publishes approved
+  posts to your channel.
+- A daily scheduler proposes scored candidates from your RSS/Atom sources at
+  the cadence in `editorial-policy.yaml` (default 08:00 Asia/Tehran), with
+  per-day publish caps and same-category streak limits.
+- `install.sh` asks for the bot token, operator IDs, channel, writer model, and
+  provisions everything automatically; `.env` holds secrets at mode 0600.
+- The bot container image is built on GitHub Actions and published to Docker
+  Hub as `afsharidevops/content-bot:0.1.0`; installs pull the published image,
+  so no local Docker build is required.
+- Instagram is designed in as the next platform adapter and currently ships as
+  a guided pending checklist until Meta setup succeeds.
+
 ---
 
 # Requirements
@@ -135,6 +153,7 @@ Do not add OmniRoute to `main`, and do not add 9router to the OmniRoute branch.
 - Docker Engine
 - Docker Compose plugin
 - Git
+- Outbound HTTPS to Docker Hub and the Telegram Bot API
 - A Telegram BotFather token if Telegram is enabled
 - At least one AI provider configured through 9router
 

@@ -554,6 +554,40 @@ services:
       - ./data/caddy/config:/config
     networks: [agent-net]
 
+  # Telegram editorial bot: long-polls the Bot API (no public ingress needed),
+  # turns operator links into drafts with Approve/Reject buttons, and publishes
+  # approved posts to the configured channel. The image is built on GitHub
+  # Actions and published to Docker Hub; policy and sources are mounted
+  # read-only from the editorial working copy.
+  content-bot:
+    profiles: ["content"]
+    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.1.0}
+    container_name: content-bot
+    restart: unless-stopped
+    user: "${CONTENT_BOT_RUN_AS:-10004:10004}"
+    environment:
+      CONTENT_BOT_TOKEN: ${CONTENT_BOT_TOKEN:-}
+      CONTENT_TELEGRAM_CHANNEL: ${CONTENT_TELEGRAM_CHANNEL:-}
+      CONTENT_TELEGRAM_USERS: ${CONTENT_TELEGRAM_USERS:-}
+      CONTENT_TELEGRAM_API_BASE: ${CONTENT_TELEGRAM_API_BASE:-https://api.telegram.org}
+      CONTENT_WRITER_BASE_URL: ${CONTENT_WRITER_BASE_URL:-}
+      CONTENT_WRITER_API_KEY: ${CONTENT_WRITER_API_KEY:-}
+      CONTENT_WRITER_MODEL: ${CONTENT_WRITER_MODEL:-auto}
+      CONTENT_SCHEDULER_ENABLED: ${CONTENT_SCHEDULER_ENABLED:-true}
+      CONTENT_POLICY_DIR: /policy
+      CONTENT_DATA_DIR: /data
+      TZ: ${N8N_TIMEZONE:-Asia/Tehran}
+    volumes:
+      - ./data/content-manager/config:/policy:ro
+      - ./data/content-bot:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
 networks:
   agent-net:
     name: hermes-9router-net

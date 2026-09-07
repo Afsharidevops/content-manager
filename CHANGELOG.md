@@ -24,6 +24,30 @@ platform; this section tracks the fork additions.
   the end of install.
 - Quickstart and installer identity now point at this repository.
 
+### Fork additions — Content Bot Telegram MVP (2026-09-07)
+
+- Added `content/content_pipeline/score.py`: deterministic weighted scoring,
+  configured penalties, freshness mapping, and candidate ranking.
+- Added `content/config/sources.yaml`: seeded RSS/Atom discovery template for
+  the daily run.
+- Added the `content-bot/` service (Compose profile `content`): Telegram
+  long-polling bot with on-demand link drafts, Approve/Reject inline buttons,
+  channel publishing, per-day caps, duplicate-post protection, and a daily
+  editorial scheduler driven by the working-copy policy.
+- `install.sh` now offers the Content Bot interactively, asks for the bot
+  token, operator IDs, publish channel, and writer model, and provisions the
+  unprivileged container, secrets, and state directory automatically.
+- `manage.sh` gained `content-status`, `content-connect-instagram`, the
+  interactive Content Bot group, and `./manage.sh logs content`.
+- Added `.github/workflows/publish-content-bot.yml`: pushing Content Bot
+  source to `main` builds and publishes
+  `afsharidevops/content-bot:0.1.0` (plus `:latest`) to Docker Hub.
+  `install.sh` now pulls that published image instead of building the
+  container locally, and the daily scheduler honors `daily_proposal_time`
+  from `editorial-policy.yaml`.
+- Added `docs/CONTENT-PRODUCTION-GUIDE.md` and
+  `docs/INSTAGRAM-SETUP.md`; Instagram remains a guided pending checklist.
+
 ---
 
 ## Hermes Linux Stack — v0.5.9 Changelog — 2026-08-13

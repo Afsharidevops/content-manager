@@ -23,12 +23,19 @@ jobs:
           python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("plugins").rglob("*.py")]'
           python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("smart-router/src").rglob("*.py")]'
           python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("execution-broker/src").rglob("*.py")]'
+          python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("content-bot").rglob("*.py")]'
       - name: Test stack integrations
         run: |
           python3 -m unittest -v tests/test_stack_package_policy.py tests/test_stack_execution_policy.py tests/test_execution_broker.py
           node --test tests/test-bootstrap-n8n.mjs
           node --test tests/test-verify-n8n.mjs
           tests/test-manage-n8n.sh
+      - name: Test content layer and Content Bot
+        run: |
+          python3 -m venv /tmp/content-venv
+          /tmp/content-venv/bin/pip install -e content[dev]
+          PYTHONPATH=$PWD/content:$PWD/content-bot /tmp/content-venv/bin/pytest -q content/tests
+          PYTHONPATH=$PWD/content:$PWD/content-bot /tmp/content-venv/bin/python -m unittest discover -s content-bot/tests
       - name: Test Smart Router
         run: |
           python3 -m venv /tmp/smart-router-venv
@@ -38,6 +45,7 @@ jobs:
         run: |
           docker build -t hermes-smart-router:test smart-router
           docker build -t hermes-execution-broker:test execution-broker
+          docker build -t content-bot:test -f content-bot/Dockerfile .
       - name: Validate Compose execution boundaries
         run: |
           cp .env.example .env
