@@ -1,10 +1,110 @@
 # Discovery sources for the daily content pipeline.
-# This file is seeded once into data/content-manager/config/sources.yaml; edit
-# the working copy (not this tracked template) so local changes survive
-# re-installs.  The Content Bot reads the working copy on every daily run.
+# Owner-editable: add or remove entries without code changes. The Content Bot
+# reads the working copy (data/content-manager/config/sources.yaml) on every
+# daily run; keep this tracked template in sync when adding seeds.
+#
+# What kind of site fits here:
+#   - Topic fit: the site publishes technical, educational, or release content
+#     that matches at least one category in categories.yaml (ai_tools, mcp,
+#     n8n_automation, devops_cloud, linux_sysadmin, networking_mikrotik,
+#     vpn_tunnels, security_privacy, oss_projects). Product-marketing-only
+#     blogs, news wires, and politics-focused sites are poor fits: marketing
+#     titles are filtered as low-value and political terms are blocklisted by
+#     editorial-policy.yaml.
+#   - Format: the feed must be RSS 2.0 or Atom XML. JSON feeds are not
+#     supported.
+#   - Timestamps: entries should carry a parseable publication date
+#     (pubDate / published / updated). Entries older than freshness_hours
+#     (default 72) are filtered; undated entries are kept but score a neutral
+#     freshness signal, so a regular publishing cadence still matters.
+#   - Access: an https URL that returns HTTP 200 with an XML content type and
+#     no login, geo-block, or bot wall. Short redirects are fine.
+#   - Name: a short human-readable site name, e.g. "Example Tech Feed".
+#
+# How to test a feed before adding it:
+#   1. HTTP check - expect 200 and an xml/rss/atom content type:
+#        curl -sS -o /dev/null -w "%{http_code} %{content_type}\n" -L FEED_URL
+#   2. Format check - output must start with <?xml and contain <rss> or <feed>:
+#        curl -sSL FEED_URL | head -c 400
+#   3. Real parse check with the exact parser the bot uses (prints item count,
+#      first title, and its publication date; an empty or undated result means
+#      the feed will not work well):
+#        PYTHONPATH=content-bot python3 - <<'PY'
+#        import urllib.request
+#        from content_bot import extract
+#        body = urllib.request.urlopen("FEED_URL", timeout=20).read()
+#        items = extract.parse_rss("probe", "FEED_URL", body)
+#        print(len(items))
+#        if items:
+#            print(items[0]["title"])
+#            print(items[0].get("published_at"))
+#        PY
+#
+# Only add feeds that pass all three checks. Sources and policy are read on
+# the next daily run; no restart or code change is required after edits.
 #
 # Add RSS/Atom feeds as list entries:
 #   - name: "Example Tech Feed"
 #     url: "https://example.com/feed.xml"
 # A discovery source is skipped when its URL is missing or is not http(s).
-sources: []
+
+sources:
+  # AI tools & agents, LLM practice, MCP ecosystem.
+  - name: "Simon Willison's Weblog"
+    url: "https://simonwillison.net/atom/everything/"
+  - name: "Hugging Face Blog"
+    url: "https://huggingface.co/blog/feed.xml"
+  - name: "OpenAI News"
+    url: "https://openai.com/news/rss.xml"
+
+  # Automation and no-code/low-code platforms.
+  - name: "n8n Blog"
+    url: "https://blog.n8n.io/rss/"
+  - name: "Zapier Blog"
+    url: "https://zapier.com/blog/feeds/latest/"
+
+  # DevOps, containers, Kubernetes, infrastructure as code, observability.
+  - name: "Kubernetes Blog"
+    url: "https://kubernetes.io/feed.xml"
+  - name: "Docker Blog"
+    url: "https://www.docker.com/feed/"
+  - name: "HashiCorp Blog"
+    url: "https://www.hashicorp.com/blog/feed.xml"
+  - name: "Grafana Blog"
+    url: "https://grafana.com/blog/index.xml"
+  - name: "The New Stack"
+    url: "https://thenewstack.io/feed/"
+
+  # Linux, servers, and general open-source operating systems.
+  - name: "Ubuntu Blog"
+    url: "https://ubuntu.com/blog/feed"
+  - name: "It's FOSS News"
+    url: "https://feed.itsfoss.com/"
+  - name: "LWN.net"
+    url: "https://lwn.net/headlines/rss"
+
+  # Networking, secure tunnels, VPNs, and edge infrastructure.
+  - name: "Cloudflare Blog"
+    url: "https://blog.cloudflare.com/rss/"
+  - name: "Tailscale Blog"
+    url: "https://tailscale.com/blog/index.xml"
+  - name: "Proton VPN Blog"
+    url: "https://protonvpn.com/blog/feed.xml"
+
+  # Security research, incidents, and privacy.
+  - name: "Krebs on Security"
+    url: "https://krebsonsecurity.com/feed/"
+  - name: "The Hacker News"
+    url: "https://feeds.feedburner.com/TheHackersNews"
+  - name: "BleepingComputer"
+    url: "https://www.bleepingcomputer.com/feed/"
+  - name: "PortSwigger Research"
+    url: "https://portswigger.net/research/rss"
+
+  # Open-source projects and community launches.
+  - name: "GitHub Blog"
+    url: "https://github.blog/feed/"
+  - name: "OpenSource.com"
+    url: "https://opensource.com/feed"
+  - name: "Hacker News front page"
+    url: "https://hnrss.org/frontpage"
