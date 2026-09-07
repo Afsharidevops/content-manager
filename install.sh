@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-REPOSITORY_URL="${HERMES_STACK_REPOSITORY_URL:-https://github.com/Afsharidevops/hermes-linux-stack.git}"
-REPOSITORY_BRANCH="${HERMES_STACK_BRANCH:-main}"
+REPOSITORY_URL="${CONTENT_MANAGER_REPOSITORY_URL:-https://github.com/Afsharidevops/content-manager.git}"
+REPOSITORY_BRANCH="${CONTENT_MANAGER_BRANCH:-main}"
 SOURCE_PATH="${BASH_SOURCE[0]:-}"
 SOURCE_DIR="$(cd -- "$(dirname -- "${SOURCE_PATH:-.}")" 2>/dev/null && pwd || pwd)"
 
@@ -19,7 +19,7 @@ if [[ ! -f "$SOURCE_DIR/docker-compose.yml" ]]; then
     exit 1
   }
 
-  INSTALL_TARGET="${HERMES_STACK_DIR:-$HOME/hermes-linux-stack}"
+  INSTALL_TARGET="${CONTENT_MANAGER_DIR:-$HOME/content-manager}"
   if [[ -d "$INSTALL_TARGET/.git" ]]; then
     printf '[INFO] Updating existing installation in %s\n' "$INSTALL_TARGET"
     git -C "$INSTALL_TARGET" fetch origin "$REPOSITORY_BRANCH"
@@ -27,7 +27,7 @@ if [[ ! -f "$SOURCE_DIR/docker-compose.yml" ]]; then
     git -C "$INSTALL_TARGET" pull --ff-only origin "$REPOSITORY_BRANCH"
   elif [[ -e "$INSTALL_TARGET" ]]; then
     printf 'Target exists but is not a Git repository: %s\n' "$INSTALL_TARGET" >&2
-    printf 'Set HERMES_STACK_DIR to another path or move the existing directory.\n' >&2
+    printf 'Set CONTENT_MANAGER_DIR to another path or move the existing directory.\n' >&2
     exit 1
   else
     printf '[INFO] Cloning into %s\n' "$INSTALL_TARGET"
@@ -331,10 +331,10 @@ private_ipv4() {
 
 detect_lan_ipv4() {
   local candidate
-  if [[ -n "${HERMES_STACK_LAN_IP:-}" ]]; then
-    valid_bind_ip "$HERMES_STACK_LAN_IP" \
-      || die "HERMES_STACK_LAN_IP is not a valid IPv4 address: $HERMES_STACK_LAN_IP"
-    printf '%s' "$HERMES_STACK_LAN_IP"
+  if [[ -n "${CONTENT_MANAGER_LAN_IP:-}" ]]; then
+    valid_bind_ip "$CONTENT_MANAGER_LAN_IP" \
+      || die "CONTENT_MANAGER_LAN_IP is not a valid IPv4 address: $CONTENT_MANAGER_LAN_IP"
+    printf '%s' "$CONTENT_MANAGER_LAN_IP"
     return 0
   fi
 
@@ -500,8 +500,9 @@ profile_enabled() {
   [[ ",$configured," == *",$profile,"* ]]
 }
 
-printf '\nHermes Linux Stack v0.5.9 Easy Installer\n'
+printf '\nContent Manager - Easy Installer\n'
 printf '%s\n' '================================'
+printf '%s\n' 'Hermes Linux Stack v0.5.9 platform extended with the Content Manager daily content pipeline layer.'
 lan_ip="$(detect_lan_ipv4 || true)"
 if [[ -n "$lan_ip" ]]; then
   info "Detected LAN IPv4 address: $lan_ip (press Enter to use it when suggested)."
@@ -779,7 +780,7 @@ n8n_protocol="$(existing_env_value N8N_PROTOCOL)"; n8n_protocol="${n8n_protocol:
 n8n_public_url="$(existing_env_value N8N_PUBLIC_URL)"; n8n_public_url="${n8n_public_url:-http://localhost:5678}"
 n8n_secure_cookie="$(existing_env_value N8N_SECURE_COOKIE)"; n8n_secure_cookie="${n8n_secure_cookie:-false}"
 n8n_proxy_hops="$(existing_env_value N8N_PROXY_HOPS)"; n8n_proxy_hops="${n8n_proxy_hops:-0}"
-n8n_timezone="$(existing_env_value N8N_TIMEZONE)"; n8n_timezone="${n8n_timezone:-UTC}"
+n8n_timezone="$(existing_env_value N8N_TIMEZONE)"; n8n_timezone="${n8n_timezone:-Asia/Tehran}"
 n8n_diagnostics="$(existing_env_value N8N_DIAGNOSTICS_ENABLED)"; n8n_diagnostics="${n8n_diagnostics:-false}"
 n8n_version_notifications="$(existing_env_value N8N_VERSION_NOTIFICATIONS_ENABLED)"; n8n_version_notifications="${n8n_version_notifications:-false}"
 # Never regenerate: rotating this key makes every stored n8n credential undecryptable.
@@ -1474,6 +1475,24 @@ fi
 
 ok "Configuration generated."
 
+# Provision the Content Manager workspace. The repository's content/config/ is
+# the canonical source of truth; a working copy is seeded once so operator edits
+# survive later install runs. The directory is gitignored at runtime.
+if [[ "$DRY_RUN" != true ]] && [[ -d "$ROOT_DIR/content/config" ]]; then
+  mkdir -p "$ROOT_DIR/data/content-manager/config"
+  seeded_content_config=false
+  for policy_file in editorial-policy.yaml categories.yaml; do
+    if [[ -f "$ROOT_DIR/content/config/$policy_file" \
+      && ! -f "$ROOT_DIR/data/content-manager/config/$policy_file" ]]; then
+      cp "$ROOT_DIR/content/config/$policy_file" "$ROOT_DIR/data/content-manager/config/$policy_file"
+      seeded_content_config=true
+    fi
+  done
+  if [[ "$seeded_content_config" == true ]]; then
+    info "Content Manager: seeded policy working copy under data/content-manager/config"
+  fi
+fi
+
 if [[ "$DRY_RUN" == true ]]; then
   ok "Dry run complete. Docker was not changed."
   exit 0
@@ -1771,6 +1790,10 @@ if [[ "$install_caddy" == true ]]; then
   [[ -n "$caddy_hermes_api_domain" ]] && printf 'Hermes API HTTPS: https://%s\n' "$caddy_hermes_api_domain"
   [[ -n "$caddy_n8n_domain" ]] && printf 'n8n HTTPS: https://%s\n' "$caddy_n8n_domain"
   printf '%s\n' 'Caddy requires public DNS plus inbound TCP 80/443 and UDP 443.'
+fi
+if [[ -d "$ROOT_DIR/content/config" ]]; then
+  printf '%s\n' 'Content Manager: editorial policy working copy -> data/content-manager/config'
+  printf '%s\n' 'Content Manager: pipeline source, policy, and operations notes -> content/README.md'
 fi
 printf '%s\n' 'Status: ./manage.sh status'
 printf '%s\n' 'Logs:   ./manage.sh logs'

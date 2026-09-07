@@ -13,6 +13,8 @@ data/stack-secrets/*
 !data/smart-router/.gitkeep
 !data/n8n/.gitkeep
 !data/stack-secrets/.gitkeep
+data/content-manager/*
+!data/content-manager/.gitkeep
 *.backup-*
 *.log
 __pycache__/
@@ -29,4 +31,5 @@ build/
 *.db
 *.sqlite3
 .env.*
+!.env.example
 .DS_Store

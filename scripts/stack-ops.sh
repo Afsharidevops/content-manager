@@ -7,7 +7,7 @@ VERSION_FILE="$ROOT_DIR/VERSION"
 LOCK_FILE="$ROOT_DIR/stack.lock.json"
 STATE_ROOT="$ROOT_DIR/data/stack-state"
 RELEASE_STATE_DIR="$STATE_ROOT/releases"
-BACKUP_DIR_DEFAULT="${HERMES_STACK_BACKUP_DIR:-$(dirname "$ROOT_DIR")/$(basename "$ROOT_DIR")-backups}"
+BACKUP_DIR_DEFAULT="${CONTENT_MANAGER_BACKUP_DIR:-$(dirname "$ROOT_DIR")/$(basename "$ROOT_DIR")-backups}"
 OPS_LOCK="$STATE_ROOT/ops.lock"
 
 DOCKER=()

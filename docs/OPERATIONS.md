@@ -14,7 +14,7 @@ The command treats Docker healthchecks as authoritative when a service defines o
 
 ## Backups
 
-By default backups are stored next to the checkout in `../hermes-linux-stack-backups/` (derived from the checkout directory name), so restoring `data/` cannot accidentally delete the safety backup. Override this with `HERMES_STACK_BACKUP_DIR` or `--destination`.
+By default backups are stored next to the checkout in `../content-manager-backups/` (derived from the checkout directory name), so restoring `data/` cannot accidentally delete the safety backup. Override this with `CONTENT_MANAGER_BACKUP_DIR` or `--destination`.
 
 ```bash
 ./manage.sh backup
@@ -31,7 +31,7 @@ Every unencrypted backup receives a `.sha256` sidecar. Encrypted backups use `ag
 ## Restore
 
 ```bash
-./manage.sh restore ../hermes-linux-stack-backups/hermes-stack-YYYYMMDDTHHMMSSZ-manual.tar.gz
+./manage.sh restore ../content-manager-backups/hermes-stack-YYYYMMDDTHHMMSSZ-manual.tar.gz
 ```
 
 Restore performs path-safety validation, creates a pre-restore backup, stops services, restores `.env` and `data/`, validates Compose configuration, restarts the stack, and waits for readiness. If readiness fails, it restores the previous local state.

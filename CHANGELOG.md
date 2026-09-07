@@ -5,6 +5,27 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+## Content Manager — fork of Hermes Linux Stack v0.5.9 (2026-09-07)
+
+This repository is **Content Manager**: a fork of the Hermes Linux Stack v0.5.9
+platform (upstream unchanged) extended with a deterministic daily
+content-production layer. The upstream changelog below documents the inherited
+platform; this section tracks the fork additions.
+
+### Fork additions — content layer v0.1.0
+
+- Added the `content/` Python layer for deterministic discovery normalization,
+  deduplication, filtering, and candidate scoring; see `content/README.md`.
+- Added owner-editable policy under `content/config/` (`editorial-policy.yaml`,
+  `categories.yaml`). Persian copy is produced at runtime, never stored.
+- `install.sh` now provisions the Content Manager workspace: it seeds a
+  gitignored working copy of the policy under `data/content-manager/config`,
+  defaults the n8n timezone to `Asia/Tehran`, and reports the content layer at
+  the end of install.
+- Quickstart and installer identity now point at this repository.
+
+---
+
 ## Hermes Linux Stack — v0.5.9 Changelog — 2026-08-13
 
 ### v0.5.9 release focus

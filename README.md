@@ -1,15 +1,20 @@
-# Hermes Linux Stack — 9router + Smart Router v0.5.9
+# Content Manager — Hermes Linux Stack v0.5.9 (fork) + daily content pipeline
 
-> **v0.5.9 UX release:** this package includes the interactive v0.1-style install/management flow while keeping the v0.5.9 Smart Router and 9router architecture. Run `./install.sh`, use `./install.sh --dry-run` to preview, `./install.sh --no-start` to configure without starting containers, and `./manage.sh menu` for interactive management. n8n MCP provisioning/verification and token-management commands are available through `./manage.sh help`.
+Content Manager is the daily content-production stack: a fork of the [Hermes Linux Stack](https://github.com/Afsharidevops/hermes-linux-stack) v0.5.9 platform — 9router, Hermes Smart Router, Hermes Agent/Telegram, Open WebUI, optional n8n, and secure execution tooling — extended with a deterministic content layer under `content/` that discovers, filters, deduplicates, and scores candidate items on a fixed cadence. Persian copy is produced at runtime by the pipeline; everything stored in this repository is English-only.
 
-A self-hosted Linux stack for running **Hermes Agent**, its **Telegram bot/agent**, **Open WebUI**, optional **n8n**, and secure execution tooling behind **Hermes Smart Router v0.5.9** and **9router**.
+- Platform runtime: Hermes Linux Stack v0.5.9, kept as upstream.
+- Content layer: [content/README.md](content/README.md) and `content/config/`.
+- To stand this stack up on a new server, clone **this** repository and run `./install.sh`.
 
-> This is the **9router branch**.
->
-> `main` must not contain OmniRoute runtime configuration.
+> **v0.5.9 UX release (inherited):** this package includes the interactive v0.1-style install/management flow while keeping the v0.5.9 Smart Router and 9router architecture. Run `./install.sh`, use `./install.sh --dry-run` to preview, `./install.sh --no-start` to configure without starting containers, and `./manage.sh menu` for interactive management. n8n MCP provisioning/verification and token-management commands are available through `./manage.sh help`.
+
+This repository tracks the **9router branch** of the upstream stack.
+
+`main` must not contain OmniRoute runtime configuration.
 
 ## Project documentation
 
+- [Content layer overview](content/README.md)
 - [Canonical changelog](CHANGELOG.md)
 - [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
 - [Release process](docs/RELEASE-PROCESS.md)
@@ -147,8 +152,8 @@ docker compose version
 Clone the repository:
 
 ```bash
-git clone https://github.com/Afsharidevops/hermes-linux-stack.git
-cd hermes-linux-stack
+git clone https://github.com/Afsharidevops/content-manager.git
+cd content-manager
 git switch main
 ```
 
@@ -165,6 +170,8 @@ Run the installer:
 ```
 
 The installer guides you through the selected services and configuration.
+
+The installer also provisions the Content Manager workspace: it seeds a gitignored working copy of the editorial policy and category files from `content/config/` into `data/content-manager/config` and sets `N8N_TIMEZONE` for the orchestration schedule.
 
 Depending on your choices it can configure:
 
@@ -707,6 +714,7 @@ Important locations include:
 
 ```text
 data/9router/
+data/content-manager/
 data/hermes/
 data/open-webui/
 data/n8n/
