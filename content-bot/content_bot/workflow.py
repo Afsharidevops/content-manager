@@ -51,6 +51,24 @@ def rejection_label(record: dict) -> str:
     return template.format(detail=record.get("detail", ""))
 
 
+ON_DEMAND_DEFAULTS = {
+    "enforce_freshness": False,
+    "unlimited_approvals": True,
+}
+
+
+def on_demand_settings(policy: dict) -> dict:
+    """Return the operator-sent-link policy section with defaults applied."""
+    settings = policy.get("on_demand")
+    if not isinstance(settings, dict):
+        return dict(ON_DEMAND_DEFAULTS)
+    merged = dict(ON_DEMAND_DEFAULTS)
+    for key in ON_DEMAND_DEFAULTS:
+        if key in settings:
+            merged[key] = settings[key]
+    return merged
+
+
 def evaluate_single(item: dict, policy: dict, *, now=None, enforce_freshness: bool = True):
     """Run normalization plus filtering on one raw item.
 

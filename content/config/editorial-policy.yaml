@@ -17,6 +17,16 @@ pipeline:
 dedupe:
   title_similarity_threshold: 0.90
 
+# Behavior when the operator sends a link directly to the Content Bot.
+# Both keys are owner-editable; no code change required.
+on_demand:
+  # false (default): operator-sent links skip the freshness window below.
+  # true:            apply freshness_hours to operator-sent links as well.
+  enforce_freshness: false
+  # true (default):  operator approvals never hit max_approved_per_day.
+  # false:           operator approvals count toward the daily limit too.
+  unlimited_approvals: true
+
 # Reject items older than this window at discovery time (hours).
 freshness_hours: 72
 

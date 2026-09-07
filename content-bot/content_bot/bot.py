@@ -216,11 +216,12 @@ class ContentBot:
             "tags": [],
         }
         policy = workflow.load_policy(self.settings.policy_dir)
+        on_demand = workflow.on_demand_settings(policy)
         item, rejection = workflow.evaluate_single(
             raw_item,
             policy,
             now=self.now_fn(),
-            enforce_freshness=False,
+            enforce_freshness=bool(on_demand.get("enforce_freshness", False)),
         )
         if item is None:
             label = workflow.rejection_label(rejection or {})
@@ -384,13 +385,19 @@ class ContentBot:
         zone = _policy_zone(policy)
         day = self.now_fn().astimezone(zone).date().isoformat()
         self.state.reset_day(day)
-        limit = int((policy.get("pipeline") or {}).get("max_approved_per_day", 3))
-        if int(self.state.load().get("published_today", 0)) >= limit:
-            self.api.answer_callback_query(
-                query_id,
-                f"Daily publish limit reached ({limit}).",
-            )
-            return
+        on_demand = str(record.get("kind") or "") == "on_demand"
+        settings = workflow.on_demand_settings(policy) if on_demand else {}
+        subject_to_limit = not on_demand or not bool(
+            settings.get("unlimited_approvals", True)
+        )
+        if subject_to_limit:
+            limit = int((policy.get("pipeline") or {}).get("max_approved_per_day", 3))
+            if int(self.state.load().get("published_today", 0)) >= limit:
+                self.api.answer_callback_query(
+                    query_id,
+                    f"Daily publish limit reached ({limit}).",
+                )
+                return
         try:
             self.api.send_message(channel, self.channel_text(record))
         except telegram_mod.TelegramError as error:
@@ -400,6 +407,7 @@ class ContentBot:
             str(record.get("content_hash") or ""),
             str(record.get("category") or ""),
             day,
+            count_toward_limit=subject_to_limit,
         )
         draft_id = str(record.get("id") or "")
         self.state.drop_draft(draft_id)

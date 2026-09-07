@@ -26,8 +26,9 @@ Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0
   candidates on a schedule, and sends them to the operator with the same
   approval buttons.
 - **Approval-gated publishing** - only approved drafts are published to the
-  Telegram channel. Daily caps, duplicate protection, and same-category streak
-  limits are enforced by policy.
+  Telegram channel. The scheduled-proposal daily cap, duplicate protection,
+  and same-category streak limits are enforced by policy; operator-sent links
+  are never blocked by the daily cap.
 - **Comment-driven revision** - reply to a proposal with edit notes and press
   Reject; the bot revises the draft in place and lets you iterate until it is
   right. Reject without notes discards the draft.
@@ -156,6 +157,11 @@ pipeline:
   daily_proposal_time: "08:00"
   max_approved_per_day: 3
   max_consecutive_same_category: 3
+
+# Links the operator sends directly to the bot chat.
+on_demand:
+  enforce_freshness: false   # true also applies freshness_hours to these links
+  unlimited_approvals: true  # false makes them count toward max_approved_per_day
 ```
 
 ```yaml
@@ -165,9 +171,10 @@ sources:
     url: "https://example.com/feed.xml"
 ```
 
-Change values in the working copy only - the bot reloads policy each run and no
-code change is required. The daily proposal runs once per local day at
-`daily_proposal_time`; `CONTENT_SCHEDULER_ENABLED=false` disables it.
+Change values in the working copy only - the bot reloads policy on every
+request/callback, so policy edits apply without a code change or restart. The
+daily proposal runs once per local day at `daily_proposal_time`;
+`CONTENT_SCHEDULER_ENABLED=false` disables it.
 
 ## Management
 

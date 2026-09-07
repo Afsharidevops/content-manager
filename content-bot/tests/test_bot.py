@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -113,8 +114,123 @@ class BotTestCase(unittest.TestCase):
         )
         published = [payload for method, payload in self.api.calls if method == "sendMessage"]
         self.assertEqual(published[0]["chat_id"], "@channel")
-        self.assertEqual(self.bot.state.load()["published_today"], 1)
+        self.assertEqual(self.bot.state.load()["published_today"], 0)
+        self.assertEqual(len(self.bot.state.load()["published"]), 1)
         self.assertIsNone(self.bot.state.get_draft(draft_id))
+
+    def test_on_demand_approve_bypasses_daily_limit(self):
+        for index in range(3):
+            self.bot.state.remember_published(f"hash-{index}", day="2026-09-07")
+        self.assertEqual(self.bot.state.load()["published_today"], 3)
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        self.api.calls.clear()
+        self.bot.handle_callback(
+            {
+                "id": "q7",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published = [payload for method, payload in self.api.calls if method == "sendMessage"]
+        self.assertEqual(published[0]["chat_id"], "@channel")
+        self.assertEqual(self.bot.state.load()["published_today"], 3)
+        self.assertIsNone(self.bot.state.get_draft(draft_id))
+
+    def test_on_demand_limit_can_be_enabled_by_policy(self):
+        tmp_policy = Path(self.tmp.name) / "editorial-policy.yaml"
+        shutil.copyfile(POLICY_DIR / "editorial-policy.yaml", tmp_policy)
+        tmp_policy.write_text(
+            tmp_policy.read_text(encoding="utf-8").replace(
+                "unlimited_approvals: true", "unlimited_approvals: false"
+            )
+        )
+        self.bot.settings = BotSettings(
+            bot_token=self.bot.settings.bot_token,
+            telegram_channel="@channel",
+            telegram_users=frozenset({11}),
+            policy_dir=self.tmp.name,
+            data_dir=self.tmp.name,
+            scheduler_enabled=False,
+        )
+        for index in range(3):
+            self.bot.state.remember_published(f"hash-{index}", day="2026-09-07")
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        self.api.calls.clear()
+        self.bot.handle_callback(
+            {
+                "id": "q8",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        answers = [payload for method, payload in self.api.calls if method == "answerCallbackQuery"]
+        self.assertIn("Daily publish limit reached", answers[0]["text"])
+        self.assertIsNotNone(self.bot.state.get_draft(draft_id))
+        published = [payload for method, payload in self.api.calls if method == "sendMessage"]
+        self.assertEqual(published, [])
+
+    def _add_daily_draft(self, draft_id):
+        self.bot.state.add_draft(
+            draft_id,
+            {
+                "id": draft_id,
+                "kind": "daily",
+                "chat_id": 11,
+                "message_id": 500,
+                "title": "Daily title",
+                "body": "Daily body.",
+                "source_url": "https://example.com/feed",
+                "content_hash": f"daily-{draft_id}",
+                "created_at": "2026-09-07T12:00:00+00:00",
+            },
+        )
+
+    def _approve_callback(self, query_id, draft_id):
+        self.bot.handle_callback(
+            {
+                "id": query_id,
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 500},
+                "data": f"approve:{draft_id}",
+            }
+        )
+
+    def test_daily_approve_counts_toward_limit(self):
+        self._add_daily_draft("daily-ok")
+        self.api.calls.clear()
+        self._approve_callback("qd1", "daily-ok")
+        published = [payload for method, payload in self.api.calls if method == "sendMessage"]
+        self.assertEqual(published[0]["chat_id"], "@channel")
+        self.assertEqual(self.bot.state.load()["published_today"], 1)
+        self.assertIsNone(self.bot.state.get_draft("daily-ok"))
+
+    def test_daily_approve_respects_daily_limit(self):
+        for index in range(3):
+            self.bot.state.remember_published(f"hash-{index}", day="2026-09-07")
+        self._add_daily_draft("daily-blocked")
+        self.api.calls.clear()
+        self._approve_callback("qd2", "daily-blocked")
+        answers = [payload for method, payload in self.api.calls if method == "answerCallbackQuery"]
+        self.assertIn("Daily publish limit reached", answers[0]["text"])
+        self.assertIsNotNone(self.bot.state.get_draft("daily-blocked"))
+        published = [payload for method, payload in self.api.calls if method == "sendMessage"]
+        self.assertEqual(published, [])
 
     def test_reject_drops_draft(self):
         self.bot.handle_message(

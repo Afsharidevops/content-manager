@@ -9,6 +9,7 @@ from pathlib import Path
 from content_bot.workflow import (
     evaluate_single,
     load_policy,
+    on_demand_settings,
     prepare_daily,
     rejection_label,
     select_with_category_mix,
@@ -76,6 +77,19 @@ class WorkflowTest(unittest.TestCase):
         picked, skipped = select_with_category_mix(items, [], max_streak=1)
         self.assertEqual([item["title"] for item in picked], ["a", "d"])
         self.assertEqual([item["title"] for item in skipped], ["b", "c"])
+
+    def test_on_demand_settings_defaults_and_overrides(self):
+        settings = on_demand_settings({})
+        self.assertFalse(settings["enforce_freshness"])
+        self.assertTrue(settings["unlimited_approvals"])
+        settings = on_demand_settings(
+            {"on_demand": {"enforce_freshness": True, "unlimited_approvals": False}}
+        )
+        self.assertTrue(settings["enforce_freshness"])
+        self.assertFalse(settings["unlimited_approvals"])
+        settings = on_demand_settings({"on_demand": {"unlimited_approvals": False}})
+        self.assertFalse(settings["unlimited_approvals"])
+        self.assertFalse(settings["enforce_freshness"])
 
     def test_rejection_label_renders_detail(self):
         label = rejection_label({"reason": "topic_blocklist", "detail": "political_terms:election"})

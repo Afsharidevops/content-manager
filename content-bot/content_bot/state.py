@@ -112,13 +112,21 @@ class StateStore:
     def is_known(self, content_hash: str) -> bool:
         return content_hash in set(self.load().get("published") or [])
 
-    def remember_published(self, content_hash: str, category: str = "", day: str = "") -> None:
+    def remember_published(
+        self,
+        content_hash: str,
+        category: str = "",
+        day: str = "",
+        *,
+        count_toward_limit: bool = True,
+    ) -> None:
         data = self.reset_day(day)
         published = data.setdefault("published", [])
         if content_hash not in published:
             published.append(content_hash)
             data["published"] = published[-PUBLISHED_HISTORY_LIMIT:]
-        data["published_today"] = int(data.get("published_today", 0)) + 1
+        if count_toward_limit:
+            data["published_today"] = int(data.get("published_today", 0)) + 1
         if category:
             history = data.setdefault("last_categories", [])
             history.append(category)

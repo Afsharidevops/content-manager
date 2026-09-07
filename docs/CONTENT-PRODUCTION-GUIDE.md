@@ -43,8 +43,9 @@ The token and key are stored in `.env` with mode `0600` and are never printed.
 3. The writer model turns the source into a fresh Persian draft (title + body)
    and sends you a preview with **Approve** and **Reject** buttons.
 4. **Approve** publishes the post to the configured channel and records the
-   source hash so the same link is never posted twice. A daily publish cap
-   (default 3, `max_approved_per_day`) is enforced.
+   source hash so the same link is never posted twice. Approvals of links you
+   send yourself are never limited and do not consume the scheduled daily
+   quota (`max_approved_per_day` applies to daily proposals only).
 5. **Revise before approving**: reply to the proposal message with edit notes
    (for example, "make the intro shorter") and then press **Reject**. The bot
    asks the writer to revise the draft from your notes and updates the same
@@ -54,6 +55,18 @@ The token and key are stored in `.env` with mode `0600` and are never printed.
 
 Commands in the bot chat: `/start`, `/help`, `/status`.
 
+## Policy-driven behavior (no code changes)
+
+All tunable behavior lives in `data/content-manager/config/editorial-policy.yaml`
+and is reloaded on every request and callback:
+
+- `on_demand.enforce_freshness` - set `true` to apply `freshness_hours` to
+  links you send the bot yourself (default `false`).
+- `on_demand.unlimited_approvals` - set `false` to make your own link
+  approvals count against `max_approved_per_day` (default `true`).
+- `pipeline.max_approved_per_day` - daily proposal cap.
+- `freshness_hours`, `exclusions`, and `scoring` - discovery-time filters.
+
 ## Daily flow: scheduled proposals
 
 1. At `daily_proposal_time` (default `08:00`, timezone `Asia/Tehran`) in
@@ -62,7 +75,7 @@ Commands in the bot chat: `/start`, `/help`, `/status`.
    deduplicated, filtered, and scored with `content_pipeline/score.py`.
 3. The top candidates (default 5, `max_candidates`) are drafted and sent to the
    first operator ID with Approve/Reject buttons. Approvals count against the
-   same daily cap as on-demand posts.
+   daily cap (`max_approved_per_day`, default 3); operator-sent links do not.
 4. `max_consecutive_same_category` prevents same-category streaks across the
    batch and previously published items.
 
