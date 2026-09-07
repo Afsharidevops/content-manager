@@ -5,7 +5,9 @@ bash -n "$ROOT/install.sh" "$ROOT/manage.sh"
 python3 -m unittest -v "$ROOT/tests/test_hermes_telegram_toolsets.py"
 python3 -m unittest -v "$ROOT/tests/test_repository_layout.py"
 python3 -m compileall -q "$ROOT/smart-router/src" "$ROOT/smart-router/tests"
-PYTHONPATH="$ROOT/smart-router/src" pytest -q "$ROOT/smart-router/tests"
+python3 -m venv /tmp/smoke-router-venv
+/tmp/smoke-router-venv/bin/pip install --quiet -r "$ROOT/smart-router/requirements-dev.txt"
+PYTHONPATH="$ROOT/smart-router/src" /tmp/smoke-router-venv/bin/pytest -q "$ROOT/smart-router/tests"
 python3 - "$ROOT/docker-compose.yml" <<'PY'
 import sys, yaml
 p=sys.argv[1]
@@ -67,10 +69,10 @@ PY
 # Eval CLI smoke checks.
 # Functional eval behavior is covered by the Smart Router pytest suite.
 PYTHONPATH="$ROOT/smart-router/src" \
-python3 -m smart_router.eval.calibrate --help >/dev/null
+/tmp/smoke-router-venv/bin/python -m smart_router.eval.calibrate --help >/dev/null
 
 PYTHONPATH="$ROOT/smart-router/src" \
-python3 -m smart_router.eval.report --help >/dev/null
+/tmp/smoke-router-venv/bin/python -m smart_router.eval.report --help >/dev/null
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   docker compose -f "$ROOT/docker-compose.yml" --env-file "$ROOT/.env.example" config --quiet
