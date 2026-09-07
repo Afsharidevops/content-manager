@@ -41,7 +41,9 @@ The token and key are stored in `.env` with mode `0600` and are never printed.
    low-value titles, topic blocklists). Rejected links are answered with the
    reason.
 3. The writer model turns the source into a fresh Persian draft (title + body)
-   and sends you a preview with **Approve** and **Reject** buttons.
+   and sends you a preview with **Approve** and **Reject** buttons. Titles are
+   rendered bold and right-aligned on Telegram, so the writer starts titles
+   with a Persian word and keeps Latin brand names later in the title.
 4. **Approve** publishes the post to the configured channel and records the
    source hash so the same link is never posted twice. Approvals of links you
    send yourself are never limited and do not consume the scheduled daily

@@ -100,6 +100,8 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(len(self.writer.calls), 1)
         preview = self.api.sent_messages[-1]
         self.assertEqual(preview["chat_id"], 11)
+        self.assertEqual(preview["parse_mode"], "HTML")
+        self.assertTrue(preview["text"].startswith("Draft proposal\n<b>\u202b"))
         buttons = preview["reply_markup"]["inline_keyboard"][0]
         draft_id = buttons[0]["callback_data"].split(":", 1)[1]
         self.assertEqual(self.bot.state.load()["drafts"][draft_id]["kind"], "on_demand")
@@ -114,6 +116,8 @@ class BotTestCase(unittest.TestCase):
         )
         published = [payload for method, payload in self.api.calls if method == "sendMessage"]
         self.assertEqual(published[0]["chat_id"], "@channel")
+        self.assertEqual(published[0]["parse_mode"], "HTML")
+        self.assertTrue(published[0]["text"].startswith("<b>\u202b"))
         self.assertEqual(self.bot.state.load()["published_today"], 0)
         self.assertEqual(len(self.bot.state.load()["published"]), 1)
         self.assertIsNone(self.bot.state.get_draft(draft_id))
@@ -347,12 +351,21 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(self.api.sent_messages, [])
         self.assertEqual(self.bot.state.load()["drafts"], {})
 
+    def _policy_dir_without_sources(self) -> str:
+        policy_tmp = Path(self.tmp.name) / "policy-empty"
+        policy_tmp.mkdir(exist_ok=True)
+        shutil.copyfile(
+            POLICY_DIR / "editorial-policy.yaml",
+            policy_tmp / "editorial-policy.yaml",
+        )
+        return str(policy_tmp)
+
     def test_daily_run_marks_state_without_sources(self):
         self.bot.settings = BotSettings(
             bot_token=self.bot.settings.bot_token,
             telegram_channel="@channel",
             telegram_users=frozenset({11}),
-            policy_dir=str(POLICY_DIR),
+            policy_dir=self._policy_dir_without_sources(),
             data_dir=self.tmp.name,
             scheduler_enabled=True,
         )
@@ -367,7 +380,7 @@ class BotTestCase(unittest.TestCase):
             bot_token=self.bot.settings.bot_token,
             telegram_channel="@channel",
             telegram_users=frozenset({11}),
-            policy_dir=str(POLICY_DIR),
+            policy_dir=self._policy_dir_without_sources(),
             data_dir=self.tmp.name,
             scheduler_enabled=True,
         )

@@ -41,10 +41,18 @@ class TelegramApi:
         result = self._call("getUpdates", params)
         return result if isinstance(result, list) else []
 
-    def send_message(self, chat_id, text: str, reply_markup: dict | None = None) -> dict:
+    def send_message(
+        self,
+        chat_id,
+        text: str,
+        reply_markup: dict | None = None,
+        parse_mode: str | None = None,
+    ) -> dict:
         params = {"chat_id": chat_id, "text": text}
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
+        if parse_mode is not None:
+            params["parse_mode"] = parse_mode
         result = self._call("sendMessage", params)
         return result if isinstance(result, dict) else {}
 
@@ -54,10 +62,13 @@ class TelegramApi:
         message_id: int,
         text: str,
         reply_markup: dict | None = None,
+        parse_mode: str | None = None,
     ) -> object:
         params = {"chat_id": chat_id, "message_id": message_id, "text": text}
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
+        if parse_mode is not None:
+            params["parse_mode"] = parse_mode
         return self._call("editMessageText", params)
 
     def delete_message(self, chat_id, message_id: int) -> bool:

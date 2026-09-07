@@ -62,6 +62,10 @@ class ParseRssTest(unittest.TestCase):
         self.assertEqual(items[0]["title"], "Atom post")
         self.assertEqual(items[0]["url"], "https://example.com/a/1")
 
+    def test_malformed_xml_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            parse_rss("Broken", "https://example.com/feed", b"not xml at all")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -108,7 +108,10 @@ def parse_rss(source_name: str, source_url: str, content: bytes | str) -> list[d
         text = content.decode("utf-8", "replace")
     else:
         text = content
-    root = ET.fromstring(text)
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as error:
+        raise ValueError(f"feed is not valid XML: {error}") from error
     items: list[dict] = []
     if root.tag.lower().endswith("rss"):
         for entry in root.findall("./channel/item"):

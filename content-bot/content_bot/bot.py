@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 import secrets
@@ -18,6 +19,23 @@ URL_RE = re.compile(r"https?://[^\s<>\"']+")
 MIN_ARTICLE_CHARS = 60
 
 log = logging.getLogger("content_bot")
+
+# Forces the bold title line to render right-to-left in Telegram even when it
+# contains Latin-script product names.
+_TITLE_RTL_OPEN = "\u202b"
+_TITLE_RTL_CLOSE = "\u202c"
+
+
+def _html_escape(value) -> str:
+    return html.escape(str(value or ""), quote=False)
+
+
+def _html_title(title: str) -> str:
+    """Render one post title as bold, right-to-left HTML."""
+    return (
+        f"<b>{_TITLE_RTL_OPEN}{_html_escape(title)}"
+        f"{_TITLE_RTL_CLOSE}</b>"
+    )
 
 
 def _now_utc() -> datetime:
@@ -263,6 +281,7 @@ class ContentBot:
             chat_id,
             self.preview_text(record),
             telegram_mod.approval_keyboard(draft_id),
+            parse_mode="HTML",
         )
         record["message_id"] = sent.get("message_id")
         self.state.add_draft(draft_id, record)
@@ -277,16 +296,17 @@ class ContentBot:
         channel = self.settings.telegram_channel or "(no channel configured)"
         return (
             f"{label}\n"
-            f"{record['title']}\n\n"
-            f"{record['body']}\n\n"
-            f"Source: {record['source_url']}\n"
-            f"Publish to {channel}; reply with edit notes and press Reject to "
-            f"revise; press Reject alone to discard."
+            f"{_html_title(str(record.get('title') or ''))}\n\n"
+            f"{_html_escape(str(record.get('body') or ''))}\n\n"
+            f"Source: {_html_escape(str(record.get('source_url') or ''))}\n"
+            f"Publish to {_html_escape(channel)}; reply with edit notes and "
+            f"press Reject to revise; press Reject alone to discard."
         )
 
     @staticmethod
     def channel_text(record: dict) -> str:
-        return f"{record['title']}\n\n{record['body']}"
+        title = _html_title(str(record.get("title") or ""))
+        return f"{title}\n\n{_html_escape(str(record.get('body') or ''))}"
 
     # ------------------------------------------------------------ callbacks
 
@@ -357,9 +377,15 @@ class ContentBot:
         try:
             if chat_id is None or message_id is None:
                 raise telegram_mod.TelegramError("no anchor message to edit")
-            self.api.edit_message_text(chat_id, int(message_id), preview, keyboard)
+            self.api.edit_message_text(
+                chat_id,
+                int(message_id),
+                preview,
+                keyboard,
+                parse_mode="HTML",
+            )
         except telegram_mod.TelegramError:
-            sent = self.api.send_message(chat_id, preview, keyboard)
+            sent = self.api.send_message(chat_id, preview, keyboard, parse_mode="HTML")
             self.state.update_draft(draft_id, {"message_id": sent.get("message_id")})
         self._safe_answer(
             query_id,
@@ -399,7 +425,7 @@ class ContentBot:
                 )
                 return
         try:
-            self.api.send_message(channel, self.channel_text(record))
+            self.api.send_message(channel, self.channel_text(record), parse_mode="HTML")
         except telegram_mod.TelegramError as error:
             self.api.answer_callback_query(query_id, f"Publish failed: {error}")
             return
