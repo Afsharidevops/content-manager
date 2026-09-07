@@ -54,7 +54,7 @@ jobs:
           sed -i "s|EXECUTION_WORKSPACE_HOST_PATH=.*|EXECUTION_WORKSPACE_HOST_PATH=$PWD/data/execution-workspace|" .env
           docker compose config --quiet
           rendered="$(docker compose --profile execution-docker --profile execution-ssh config)"
-          test "$(grep -c '/var/run/docker.sock:/var/run/docker.sock' <<<"$rendered")" -eq 1
+      test "$(grep -cE 'source: /var/run/docker.sock|/var/run/docker.sock:/var/run/docker.sock' <<<"$rendered")" -eq 1
           ! grep -A25 '^  hermes:' <<<"$rendered" | grep -q docker.sock
           ! grep -A45 '^  execution-ssh-broker:' <<<"$rendered" | grep -q docker.sock
           ! grep -A45 '^  execution-docker-broker:' <<<"$rendered" | grep -q 'published:'
