@@ -1,0 +1,59 @@
+# Content categories for the LocalLab daily content pipeline.
+# Build-in-Public / LocalLab-stack update category is intentionally disabled.
+# weight: relative share of the daily mix; sum of weights should equal 100.
+# English-only in the repository. Persian display labels are produced at
+# runtime by the writer step from these canonical category ids/labels.
+categories:
+  - id: ai_tools
+    en_label: "AI tools & agents"
+    weight: 12
+    icon: "🤖"
+    keywords: [llm, agent, model, openai, anthropic, gemini, copilot, rag, fine-tune]
+
+  - id: mcp
+    en_label: "MCP & integrations"
+    weight: 10
+    icon: "🔌"
+    keywords: [mcp, "model context protocol", tool server, connector, integration, api]
+
+  - id: n8n_automation
+    en_label: "n8n & automation"
+    weight: 18
+    icon: "⚙️"
+    keywords: [n8n, workflow, automation, no-code, low-code, zapier, make.com, webhook]
+
+  - id: devops_cloud
+    en_label: "DevOps & cloud-native"
+    weight: 15
+    icon: "☁️"
+    keywords: [kubernetes, docker, container, ci/cd, terraform, devops, sre, cloud, helm, k8s]
+
+  - id: linux_sysadmin
+    en_label: "Linux & sysadmin"
+    weight: 10
+    icon: "🐧"
+    keywords: [linux, systemd, bash, shell, server, sysadmin, kernel, self-hosted, vps]
+
+  - id: networking_mikrotik
+    en_label: "Networking & MikroTik"
+    weight: 12
+    icon: "🌐"
+    keywords: [router, mikrotik, routeros, switch, firewall, vlan, bgp, network, wireguard, proxy]
+
+  - id: vpn_tunnels
+    en_label: "VPN & secure tunnels"
+    weight: 8
+    icon: "🛡️"
+    keywords: [vpn, tunnel, wireguard, openvpn, tailscale, cloudflare tunnel, ssh tunnel, nat, port forward]
+
+  - id: security_privacy
+    en_label: "Security & privacy"
+    weight: 10
+    icon: "🔐"
+    keywords: [security, vulnerability, cve, privacy, malware, ransomware, encryption, zero-day, hardening, auth]
+
+  - id: oss_projects
+    en_label: "Open-source projects"
+    weight: 5
+    icon: "📦"
+    keywords: [open-source, github release, "new release", self-hosted app, floss, starred, trending]

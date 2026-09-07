@@ -1,0 +1,97 @@
+# Editorial policy for the LocalLab daily content pipeline.
+# Owner-editable. No code change required to adjust any value below.
+# All static content in this repository is English-only; Persian copy is
+# produced at runtime by the writer step, never stored in this repository.
+schema_version: 1
+
+# Daily cadence and limits (decided values).
+pipeline:
+  timezone: "Asia/Tehran"
+  daily_proposal_time: "08:00"
+  min_candidates: 5
+  max_candidates: 5
+  max_approved_per_day: 3
+  max_consecutive_same_category: 3
+
+# Deduplication tuning.
+dedupe:
+  title_similarity_threshold: 0.90
+
+# Reject items older than this window at discovery time (hours).
+freshness_hours: 72
+
+# Deterministic candidate score (0-100). Weighted sum, then penalties applied.
+scoring:
+  weights:
+    local_lab_relevance: 30
+    practical_usefulness: 20
+    freshness: 15
+    source_trust: 15
+    novelty: 10
+    visual_fit: 5
+    iranian_audience: 5
+  penalties:
+    duplicate_topic: -25
+    pure_marketing: -30
+    no_primary_source: -40
+    too_niche: -15
+    unsafe_guidance: -100
+
+# Deterministic exclusions applied before any shortlist is built.
+exclusions:
+  # Exact host or suffix match against the canonical URL host.
+  blocked_domains: []
+
+  # Plain substrings matched against the normalized title.
+  low_value_title_keywords:
+    - "limited time offer"
+    - "buy now"
+    - "get rich"
+    - "earn money fast"
+    - "discount code"
+    - "best deal"
+    - "free money"
+    - "click here"
+
+  # Topics that are never proposed, whatever the source.
+  # Sources are English-first, so English blocklists cover the MVP.
+  political_terms:
+    - election
+    - elections
+    - electoral
+    - vote
+    - voting
+    - ballot
+    - referendum
+    - parliament
+    - parliamentary
+    - congress
+    - congressional
+    - senate
+    - senator
+    - president
+    - presidential
+    - prime minister
+    - impeachment
+    - coup
+    - regime change
+    - sanctions
+    - diplomat
+    - diplomacy
+    - geopolitics
+    - geopolitical
+    - government shutdown
+
+  religious_terms:
+    - fatwa
+    - jihad
+    - blasphemy
+
+  controversial_terms:
+    - "nsfw"
+    - "adult content"
+    - gambling
+    - casino
+    - "pump and dump"
+    - "pyramid scheme"
+    - "get rich quick"

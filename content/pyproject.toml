@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "content-manager"
+version = "0.1.0"
+description = "LocalLab daily content pipeline: deterministic discovery, human-approved Persian editorial production, and Telegram/Instagram publication for the Hermes Linux Stack."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "jsonschema>=4.0",
+    "feedparser>=6.0",
+]
+
+[tool.setuptools]
+packages = ["content_pipeline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
