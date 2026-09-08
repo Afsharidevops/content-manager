@@ -77,6 +77,7 @@ n8n automation:
 Content Bot automation:
   content-status              Content Bot configuration summary (no secrets)
   content-connect-instagram   Print the pending Instagram/Meta setup checklist
+  content-configure           Reconfigure Content Bot settings (installer wizard)
 
 Advanced commands remain backward compatible. Use the interactive groups for
 normal administration; use direct commands for automation and scripts.
@@ -1039,7 +1040,7 @@ content_status() {
   local profiles token channel users writer model scheduler daily_time
   profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
   if [[ ",$profiles," != *,content,* ]]; then
-    printf 'Content Bot is not enabled in COMPOSE_PROFILES. Run ./manage.sh configure to enable it.\n'
+    printf 'Content Bot is not enabled in COMPOSE_PROFILES. Run ./manage.sh content-configure to enable it.\n'
     return 1
   fi
   token="$(env_value "$ENV_FILE" CONTENT_BOT_TOKEN)"
@@ -1054,7 +1055,7 @@ content_status() {
   if [[ -n "$token" ]]; then
     printf '  Telegram bot token: stored (secret not shown)\n'
   else
-    printf '  Telegram bot token: NOT stored; reconfigure with ./manage.sh configure\n'
+    printf '  Telegram bot token: NOT stored; reconfigure with ./manage.sh content-configure\n'
   fi
   printf '  Publish channel: %s\n' "${channel:-not configured}"
   printf '  Operator users: %s\n' "${users:-none}"
@@ -1077,6 +1078,11 @@ content_connect_instagram() {
   printf '%s\n' 'When the adapter ships, this command will validate the token and finish provisioning.'
 }
 
+content_configure() {
+  printf 'Reconfiguring Content Bot settings. Existing components, data, and bind IPs are preserved.\n'
+  exec "$ROOT_DIR/install.sh" --content-reconfigure
+}
+
 content_menu() {
   local choice
   while true; do
@@ -1085,12 +1091,14 @@ content_menu() {
     printf '%s\n' '1) Show Content Bot status'
     printf '%s\n' '2) Instagram/Meta setup checklist'
     printf '%s\n' '3) Follow Content Bot logs'
+    printf '%s\n' '4) Reconfigure Content Bot settings'
     printf '%s\n' '0) Back'
     read -r -p 'Choose: ' choice
     case "$choice" in
       1) content_status || true ;;
       2) content_connect_instagram ;;
       3) compose logs -f --tail=100 content-bot ;;
+      4) content_configure ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1763,6 +1771,7 @@ case "$command" in
   n8n-status) n8n_status ;;
   content-status) content_status ;;
   content-connect-instagram) content_connect_instagram ;;
+  content-configure) content_configure ;;
   uninstall)
     shift
     uninstall_stack "${1:-}"

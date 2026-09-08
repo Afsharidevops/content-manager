@@ -18,7 +18,10 @@ items from your feeds, and where the editorial rules live.
 
 ## What the installer asks
 
-When you select the Content Bot during `./install.sh`, the wizard asks for:
+The wizard can provision the Content Bot alongside a full stack (select it
+during `./install.sh`) or as the only service on a server (menu option
+`5) Install Content Bot only (external OpenAI-compatible model API)`). In both
+cases it asks for:
 
 1. A **bot token** created with `@BotFather` (the Content Bot uses its own bot,
    separate from the Hermes agent bot, because two pollers cannot share one
@@ -29,7 +32,11 @@ When you select the Content Bot during `./install.sh`, the wizard asks for:
    (defaults to the Hermes Telegram allowlist when Hermes is enabled).
 4. The **writer endpoint, API key, and model**. With the Smart Router enabled,
    the installer defaults to `http://smart-router:8080/v1` with model `auto`
-   and stores the trusted router client key automatically.
+   and stores the trusted router client key automatically. In the standalone
+   mode there is no local router, so the wizard requires your own
+   OpenAI-compatible base URL (including `/v1`, for example
+   `https://api.openai.com/v1`), its API key, and the exact model id the API
+   expects (for example `gpt-4o-mini`).
 
 The token and key are stored in `.env` with mode `0600` and are never printed.
 
@@ -103,6 +110,8 @@ Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
    the Bot API, so admin rights are required).
 5. Run `./install.sh`, choose the Content Bot, and paste the values. After the
    stack starts, send `/start` to the bot and test with a link.
+   On a dedicated server choose `5) Install Content Bot only` and answer the
+   external API questions; no router or Hermes services are installed.
 
 ## Platform status
 
@@ -116,13 +125,16 @@ Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
 ```bash
 ./manage.sh content-status              # configuration summary, no secrets
 ./manage.sh content-connect-instagram   # Instagram/Meta pending checklist
+./manage.sh content-configure           # reconfigure Content Bot settings only
 ./manage.sh logs content                # follow Content Bot logs
 ./manage.sh configure                   # change Content Bot settings later
 ```
 
 State (pending drafts, published hashes, daily counters) lives in
 `data/content-bot/state.json` (mode 0600). Reconfigure the bot with
-`./manage.sh configure`; disabling it keeps all data.
+`./manage.sh content-configure`; it preserves every other component, bind IP,
+secret, and data file. To disable the bot, run `./manage.sh configure` and
+answer No to "Keep the Content Bot enabled?"; all data is kept.
 
 ## Image updates
 

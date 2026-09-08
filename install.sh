@@ -49,13 +49,15 @@ CADDY_DIR="$ROOT_DIR/data/caddy"
 HERMES_DASHBOARD_ACCESS_FILE="$ROOT_DIR/data/stack-secrets/hermes-dashboard-access.env"
 DRY_RUN=false
 NO_START=false
+CONTENT_RECONFIGURE=false
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
     --no-start) NO_START=true ;;
+    --content-reconfigure) CONTENT_RECONFIGURE=true ;;
     -h|--help)
-      printf '%s\n' "Usage: ./install.sh [--dry-run] [--no-start]"
+      printf '%s\n' "Usage: ./install.sh [--dry-run] [--no-start] [--content-reconfigure]"
       exit 0
       ;;
     *) printf 'Unknown option: %s\n' "$arg" >&2; exit 2 ;;
@@ -523,6 +525,10 @@ content_was_enabled=false
 change_bind_ips=false
 n8n_ready=false
 
+if [[ "$CONTENT_RECONFIGURE" == true && ! -f "$ENV_FILE" ]]; then
+  die "--content-reconfigure requires an existing installation; run ./install.sh once to provision it."
+fi
+
 if [[ -f "$ENV_FILE" ]]; then
   existing_install=true
   install_nine=false; profile_enabled 9router && install_nine=true
@@ -539,62 +545,73 @@ if [[ -f "$ENV_FILE" ]]; then
   printf 'Existing components: %s\n' "$(existing_env_value COMPOSE_PROFILES)"
   printf '%s\n' 'The wizard keeps existing components, secrets, and data by default.'
 
-  if [[ "$install_nine" == true ]]; then
-    confirm "Reconfigure existing 9router settings?" n && configure_nine=true
-  elif confirm "Add 9router?" n; then
-    install_nine=true; configure_nine=true
-  fi
-  if [[ "$install_hermes" == true ]]; then
-    confirm "Reconfigure existing Hermes Agent settings?" n && configure_hermes=true
-  elif confirm "Add Hermes Agent?" n; then
-    install_hermes=true; configure_hermes=true
-  fi
-  if [[ "$install_webui" == true ]]; then
-    confirm "Reconfigure existing Open WebUI settings?" n && configure_webui=true
-  elif confirm "Add Open WebUI?" n; then
-    install_webui=true; configure_webui=true
-  fi
-  if [[ "$install_smart_router" == true ]]; then
-    if ! confirm "Keep the Hermes Smart Router enabled?" y; then
-      install_smart_router=false
-      configure_smart_router=true
-    elif confirm "Reconfigure existing Smart Router settings?" n; then
-      configure_smart_router=true
-    fi
-  elif [[ "$install_nine" == true && "$install_hermes" == true ]] \
-    && confirm "Enable Hermes Smart Router v0.5.9 (recommended)?" y; then
-    install_smart_router=true
-    configure_smart_router=true
-  fi
-  if [[ "$install_n8n" == true ]]; then
-    if ! confirm "Keep n8n workflow automation enabled?" y; then
-      install_n8n=false
-      configure_n8n=true
-    elif confirm "Reconfigure existing n8n settings?" n; then
-      configure_n8n=true
-    fi
-  elif confirm "Add optional n8n workflow automation?" n; then
-    install_n8n=true
-    configure_n8n=true
-  fi
-  if [[ "$install_content" == true ]]; then
-    if ! confirm "Keep the Content Bot (Telegram approve/publish bot) enabled?" y; then
-      install_content=false
+  if [[ "$CONTENT_RECONFIGURE" == true ]]; then
+    printf '%s\n' 'Content-focused reconfigure: existing components, data, and bind IPs are preserved.'
+    if [[ "$install_content" == true ]]; then
       configure_content=true
-    elif confirm "Reconfigure Content Bot settings?" n; then
+    else
+      install_content=true
+      configure_content=true
+      info "The Content Bot profile is not enabled yet; this run enables it."
+    fi
+  else
+    if [[ "$install_nine" == true ]]; then
+      confirm "Reconfigure existing 9router settings?" n && configure_nine=true
+    elif confirm "Add 9router?" n; then
+      install_nine=true; configure_nine=true
+    fi
+    if [[ "$install_hermes" == true ]]; then
+      confirm "Reconfigure existing Hermes Agent settings?" n && configure_hermes=true
+    elif confirm "Add Hermes Agent?" n; then
+      install_hermes=true; configure_hermes=true
+    fi
+    if [[ "$install_webui" == true ]]; then
+      confirm "Reconfigure existing Open WebUI settings?" n && configure_webui=true
+    elif confirm "Add Open WebUI?" n; then
+      install_webui=true; configure_webui=true
+    fi
+    if [[ "$install_smart_router" == true ]]; then
+      if ! confirm "Keep the Hermes Smart Router enabled?" y; then
+        install_smart_router=false
+        configure_smart_router=true
+      elif confirm "Reconfigure existing Smart Router settings?" n; then
+        configure_smart_router=true
+      fi
+    elif [[ "$install_nine" == true && "$install_hermes" == true ]] \
+      && confirm "Enable Hermes Smart Router v0.5.9 (recommended)?" y; then
+      install_smart_router=true
+      configure_smart_router=true
+    fi
+    if [[ "$install_n8n" == true ]]; then
+      if ! confirm "Keep n8n workflow automation enabled?" y; then
+        install_n8n=false
+        configure_n8n=true
+      elif confirm "Reconfigure existing n8n settings?" n; then
+        configure_n8n=true
+      fi
+    elif confirm "Add optional n8n workflow automation?" n; then
+      install_n8n=true
+      configure_n8n=true
+    fi
+    if [[ "$install_content" == true ]]; then
+      if ! confirm "Keep the Content Bot (Telegram approve/publish bot) enabled?" y; then
+        install_content=false
+        configure_content=true
+      elif confirm "Reconfigure Content Bot settings?" n; then
+        configure_content=true
+      fi
+    elif confirm "Add the Content Bot (Telegram approve/publish bot; external OpenAI-compatible API when no router is installed)?" n; then
+      install_content=true
       configure_content=true
     fi
-  elif [[ "$install_nine" == true || "$install_smart_router" == true ]] \
-    && confirm "Add the Content Bot (Telegram approve/publish bot with Approve/Reject buttons)?" n; then
-    install_content=true
-    configure_content=true
+    confirm "Change published container bind IPs only?" n && change_bind_ips=true
   fi
-  confirm "Change published container bind IPs only?" n && change_bind_ips=true
 else
   printf '%s\n' '1) Install both 9router and Hermes Agent (recommended)'
   printf '%s\n' '2) Install 9router only'
   printf '%s\n' '3) Install Hermes Agent only'
   printf '%s\n' '4) Install Open WebUI only'
+  printf '%s\n' '5) Install Content Bot only (external OpenAI-compatible model API)'
   while true; do
     selection="$(prompt "Choose installation" "1")"
     case "$selection" in
@@ -602,11 +619,12 @@ else
       2) install_nine=true; install_hermes=false; install_webui=false; break ;;
       3) install_nine=false; install_hermes=true; install_webui=false; break ;;
       4) install_nine=false; install_hermes=false; install_webui=true; break ;;
-      *) warn "Choose 1, 2, 3, or 4." >&2 ;;
+      5) install_nine=false; install_hermes=false; install_webui=false; break ;;
+      *) warn "Choose 1, 2, 3, 4, or 5." >&2 ;;
     esac
   done
 
-  if [[ "$selection" != 4 ]] && confirm "Also install Open WebUI?" n; then
+  if [[ "$selection" != 4 && "$selection" != 5 ]] && confirm "Also install Open WebUI?" n; then
     install_webui=true
   fi
   configure_nine="$install_nine"
@@ -619,12 +637,15 @@ else
     configure_smart_router=true
   fi
   install_n8n=false
-  if confirm "Add optional n8n workflow automation?" n; then
+  if [[ "$selection" != 5 ]] && confirm "Add optional n8n workflow automation?" n; then
     install_n8n=true
     configure_n8n=true
   fi
   install_content=false
-  if [[ "$install_nine" == true || "$install_smart_router" == true ]] \
+  if [[ "$selection" == 5 ]]; then
+    install_content=true
+    configure_content=true
+  elif [[ "$install_nine" == true || "$install_smart_router" == true ]] \
     && confirm "Add the Content Bot (Telegram approve/publish bot with Approve/Reject buttons)?" \
       "$([[ "$install_smart_router" == true ]] && printf y || printf n)"; then
     install_content=true
@@ -1101,8 +1122,8 @@ caddy_hermes_dashboard_domain=""
 caddy_hermes_api_domain=""
 caddy_n8n_domain=""
 
-if [[ "$install_nine" == true || "$install_webui" == true || "$install_n8n" == true \
-  || "$hermes_dashboard" == 1 || "$api_enabled" == true ]]; then
+if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_webui" == true \
+  || "$install_n8n" == true || "$hermes_dashboard" == 1 || "$api_enabled" == true ) ]]; then
   if [[ "$install_caddy" == true ]]; then
     confirm "Reconfigure existing Caddy domains?" n && configure_caddy=true
   elif confirm "Add optional Caddy domains with automatic HTTPS?" n; then
@@ -1209,9 +1230,34 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
       content_writer_default="http://nine-router:20128/v1"
     fi
   fi
-  content_writer_url="$(prompt "Writer OpenAI-compatible API base URL (include /v1)" "$content_writer_default")"
-  content_writer_key="$(prompt_secret "Writer API key (Enter for no-auth local endpoints)" true)"
-  content_writer_model="$(prompt "Writer model/combo" "${content_writer_model:-auto}")"
+  content_external_api=false
+  if [[ "$install_smart_router" != true && "$install_nine" != true ]]; then
+    content_external_api=true
+    printf '%s\n' 'No local router is installed: the Content Bot will call your own OpenAI-compatible API.'
+    printf '%s\n' 'Example: base URL https://api.openai.com/v1, API key sk-..., model gpt-4o-mini.'
+  fi
+  while true; do
+    content_writer_url="$(prompt "Writer OpenAI-compatible API base URL (include /v1)" "$content_writer_default")"
+    case "$content_writer_url" in
+      http://*|https://*) break ;;
+      *) warn "The writer base URL must start with http:// or https://." >&2 ;;
+    esac
+  done
+  if [[ "$content_external_api" == true ]]; then
+    content_writer_key="$(prompt_secret "Writer API key (required for your hosted API)")"
+  else
+    content_writer_key="$(prompt_secret "Writer API key (Enter for no-auth local endpoints)" true)"
+  fi
+  if [[ "$content_external_api" == true && -z "$content_writer_model" ]]; then
+    content_writer_model_default=""
+  else
+    content_writer_model_default="${content_writer_model:-auto}"
+  fi
+  while true; do
+    content_writer_model="$(prompt "Writer model id (as your API expects; local router: auto)" "$content_writer_model_default")"
+    [[ -n "$content_writer_model" ]] && break
+    warn "A writer model id is required." >&2
+  done
   if confirm "Enable the daily editorial proposal scheduler?" "$([[ "$content_scheduler_enabled" == true ]] && printf y || printf n)"; then
     content_scheduler_enabled=true
   else
@@ -1724,7 +1770,9 @@ fi
 info "Starting selected services..."
 "${DOCKER[@]}" compose -f "$ROOT_DIR/docker-compose.yml" --env-file "$ENV_FILE" up -d --build --remove-orphans
 
-enable_hermes_telegram_policy_toolsets
+if [[ "$CONTENT_RECONFIGURE" != true ]]; then
+  enable_hermes_telegram_policy_toolsets
+fi
 
 if [[ "$install_smart_router" == true ]]; then
   info "Waiting for the Hermes Smart Router to become ready..."

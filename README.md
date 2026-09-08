@@ -184,6 +184,7 @@ daily proposal runs once per local day at `daily_proposal_time`;
 ./manage.sh logs content            # follow Content Bot logs
 ./manage.sh content-status          # Content Bot summary (no secrets)
 ./manage.sh content-connect-instagram
+./manage.sh content-configure       # reconfigure Content Bot only (writer API, model, Telegram)
 ./manage.sh configure               # re-run the installer wizard
 ./manage.sh start | stop | restart | update
 ./manage.sh doctor                  # diagnostics and hardening checks
