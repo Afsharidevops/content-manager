@@ -199,7 +199,7 @@ class ContentBot:
             else:
                 self.api.send_message(
                     chat_id,
-                    "Send /forget-link <url> to allow a previously published link to be drafted again.",
+                    "Send /forget_link <url> to allow a previously published link to be drafted again.",
                 )
             return
         match = URL_RE.search(text)
