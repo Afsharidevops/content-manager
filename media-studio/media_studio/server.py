@@ -215,13 +215,20 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
                 pass
 
 
-def serve(settings, state: StateStore, queue: JobQueue) -> None:
-    class BoundMediaStudioHandler(MediaStudioHandler):
-        settings = settings
-        state = state
-        queue = queue
+def build_handler(settings, state: StateStore, queue: JobQueue):
+    """Return a request-handler class bound to one API instance."""
 
-    server = ThreadingHTTPServer((settings.bind_ip, settings.port), BoundMediaStudioHandler)
+    class BoundMediaStudioHandler(MediaStudioHandler):
+        pass
+
+    BoundMediaStudioHandler.settings = settings
+    BoundMediaStudioHandler.state = state
+    BoundMediaStudioHandler.queue = queue
+    return BoundMediaStudioHandler
+
+
+def serve(settings, state: StateStore, queue: JobQueue) -> None:
+    server = ThreadingHTTPServer((settings.bind_ip, settings.port), build_handler(settings, state, queue))
     LOGGER.info("Media Studio API listening on %s:%s", settings.bind_ip, settings.port)
     try:
         server.serve_forever(poll_interval=0.5)

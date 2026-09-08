@@ -121,3 +121,25 @@ class ServerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HandlerFactoryTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="ms-handler-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def test_build_handler_binds_instance(self):
+        settings = Settings(data_dir=self.dir, drivers=("fake",))
+        state = StateStore(os.path.join(self.dir, "handler-jobs.json"))
+        queue = JobQueue(settings, state, driver_factory=factory)
+        from media_studio.server import build_handler
+
+        cls = build_handler(settings, state, queue)
+        self.assertIs(cls.settings, settings)
+        self.assertIs(cls.state, state)
+        self.assertIs(cls.queue, queue)
+        self.assertTrue(issubclass(cls, MediaStudioHandler))
+
+
+if __name__ == "__main__":
+    unittest.main()
