@@ -108,6 +108,20 @@ class ContentBot:
             self.api.delete_webhook()
         except telegram_mod.TelegramError:
             pass
+        try:
+            self.api.set_my_commands(
+                [
+                    {"command": "start", "description": "Show available commands"},
+                    {"command": "help", "description": "Show available commands"},
+                    {"command": "status", "description": "Show configuration and counters"},
+                    {
+                        "command": "forget_link",
+                        "description": "Allow a published link to be drafted again",
+                    },
+                ]
+            )
+        except telegram_mod.TelegramError:
+            pass
         if not self.settings.telegram_users:
             log.warning("CONTENT_TELEGRAM_USERS is empty; no operator can approve drafts")
         if not self.settings.telegram_channel:
@@ -178,7 +192,7 @@ class ContentBot:
         if text == "/status":
             self.api.send_message(chat_id, self.status_text())
             return
-        if text.startswith("/forget-link"):
+        if text.startswith(("/forget-link", "/forget_link")):
             link_match = URL_RE.search(text)
             if link_match:
                 self._forget_link(link_match.group(0), chat_id)
@@ -215,7 +229,7 @@ class ContentBot:
             "Content Bot commands:\n"
             "/start or /help - this message\n"
             "/status - configuration and counters\n"
-            "/forget-link <url> - allow a published link to be drafted again\n"
+            "/forget_link <url> - allow a published link to be drafted again\n"
             "Send any http(s) link - draft a post with Approve/Reject buttons\n"
             "Reply to a proposal with edit notes, then press Reject to revise;\n"
             "press Reject without notes to discard. Approved drafts are\n"

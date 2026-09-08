@@ -34,6 +34,10 @@ class TelegramApi:
         result = self._call("deleteWebhook")
         return result is True
 
+    def set_my_commands(self, commands: list[dict]) -> bool:
+        result = self._call("setMyCommands", {"commands": commands})
+        return result is True
+
     def get_updates(self, offset: int | None = None, timeout: int = 25) -> list:
         params: dict = {"timeout": timeout}
         if offset is not None:

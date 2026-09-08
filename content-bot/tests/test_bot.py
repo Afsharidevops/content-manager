@@ -11,6 +11,7 @@ from pathlib import Path
 from content_bot.bot import ContentBot
 from content_bot.config import BotSettings
 from content_bot.telegram import TelegramApi
+from content_pipeline.normalize import canonicalize_url, content_hash as url_content_hash
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_DIR = ROOT / "content" / "config"
@@ -427,6 +428,25 @@ class BotTestCase(unittest.TestCase):
         self.assertTrue(
             self.api.sent_messages[-1]["text"].startswith("No published record found")
         )
+
+    def test_forget_link_underscore_command_clears_record(self):
+        url = "https://example.com/forgotten"
+        digest = url_content_hash(canonicalize_url(url))
+        self.bot.state.remember_published(digest, day="2026-09-07")
+        self.assertEqual(len(self.bot.state.load()["published"]), 1)
+        self.bot.handle_message(
+            {"chat": {"id": 11}, "from": {"id": 11}, "text": f"/forget_link {url}"}
+        )
+        self.assertEqual(self.bot.state.load()["published"], [])
+        self.assertTrue(self.api.sent_messages[-1]["text"].startswith("Link forgotten"))
+
+    def test_startup_registers_command_menu(self):
+        self.bot._startup()
+        registrations = [payload for method, payload in self.api.calls if method == "setMyCommands"]
+        self.assertEqual(len(registrations), 1)
+        names = [command["command"] for command in registrations[0]["commands"]]
+        self.assertIn("forget_link", names)
+        self.assertIn("status", names)
 
 
 if __name__ == "__main__":
