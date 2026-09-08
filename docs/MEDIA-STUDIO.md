@@ -76,11 +76,11 @@ When Google considers the visitor region unsupported, Flow redirects to
 Both default to enabled. The same two techniques are available standalone for
 manual browser use, independent of Media Studio:
 
-- `extensions/flow-unlock/` — an unpacked Chrome extension (MV3): a
+- `extensions/locallab-flow-unlock/` — an unpacked Chrome extension (MV3): a
   declarative rule blocks the unsupported-country page and a content script
   applies the freeze. Load it from `chrome://extensions` with Developer mode
   enabled.
-- `extensions/flow-unlock/ublock-filter.txt` — the two filter lines for
+- `extensions/locallab-flow-unlock/ublock-filter.txt` — the two filter lines for
   uBlock Origin.
 
 Flow availability still depends on the Google account and region policy of the
@@ -88,7 +88,7 @@ Google AI subscription. Media Studio never depends on Flow: `api-image` jobs
 keep working without any Google service.
 
 For a laptop-only setup (no Media Studio, no Docker) follow
-`docs/FLOW-UNLOCK-STANDALONE.md`; the same `extensions/flow-unlock` files are
+`docs/FLOW-UNLOCK-STANDALONE.md`; the same `extensions/locallab-flow-unlock` files are
 used there.
 
 ## API

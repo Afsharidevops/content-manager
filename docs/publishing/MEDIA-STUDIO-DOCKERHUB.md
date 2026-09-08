@@ -12,8 +12,8 @@ changes land on `main` inside `media-studio/**`, `extensions/**`, or the
 workflow itself. Manual runs are available through
 `Actions -> Publish Media Studio -> Run workflow`.
 
-The image includes a Playwright Chromium and bundles the `flow-unlock`
-extension files under `/app/extensions/flow-unlock`.
+The image includes a Playwright Chromium and bundles the `locallab-flow-unlock`
+extension files under `/app/extensions/locallab-flow-unlock`.
 
 ## Prerequisites
 

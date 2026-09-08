@@ -36,7 +36,7 @@ platform; this section tracks the fork additions.
   Chrome over CDP (operator desktop) or a persistent container profile; both
   support the Flow unsupported-country region workaround
   (`MEDIA_STUDIO_BLOCK_GEO_REDIRECT`, `MEDIA_STUDIO_FREEZE_ON_READY`).
-- Added `extensions/flow-unlock/`: a standalone Chrome extension and uBlock
+- Added `extensions/locallab-flow-unlock/`: a standalone Chrome extension and uBlock
   filter that keep `flow.google.com` usable on a laptop without any stack
   component (`docs/FLOW-UNLOCK-STANDALONE.md`).
 - `install.sh` gained a Media Studio wizard and `--media-reconfigure`;

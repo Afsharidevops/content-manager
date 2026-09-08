@@ -70,7 +70,7 @@ def freeze_page(page, seconds: float = 2.5) -> None:
 def _extension_args(settings) -> list[str]:
     extension = os.environ.get("MEDIA_STUDIO_EXTENSION_PATH", "").strip()
     if not extension:
-        extension = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions", "flow-unlock")
+        extension = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions", "locallab-flow-unlock")
     if not os.path.isdir(extension):
         return []
     return [

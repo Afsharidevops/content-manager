@@ -39,7 +39,7 @@ Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0   Media 
   optionally, through a signed-in Google Flow/Gemini session. See
   `docs/MEDIA-STUDIO.md`. The Flow region unlock is also available standalone
   for laptop use: `docs/FLOW-UNLOCK-STANDALONE.md` and
-  `extensions/flow-unlock/`.
+  `extensions/locallab-flow-unlock/`.
 
 | Platform | State |
 | --- | --- |

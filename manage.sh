@@ -1142,7 +1142,7 @@ media_status() {
 media_guide() {
   printf '%s\n' 'Media Studio guide: docs/MEDIA-STUDIO.md'
   printf '%s\n' 'Flow unlock on a laptop only: docs/FLOW-UNLOCK-STANDALONE.md'
-  printf '%s\n' 'Standalone extension folder: extensions/flow-unlock/ (load as an unpacked Chrome extension)'
+  printf '%s\n' 'Standalone extension folder: extensions/locallab-flow-unlock/ (load as an unpacked Chrome extension)'
   printf '%s\n' 'Reconfigure: ./manage.sh media-configure'
 }
 

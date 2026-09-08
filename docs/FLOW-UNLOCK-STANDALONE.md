@@ -3,7 +3,7 @@
 You can keep `flow.google.com` usable on a laptop without installing Media
 Studio, Docker, or anything from this stack. The unlock is a plain Chrome
 extension plus an optional uBlock filter; both live in this repository under
-`extensions/flow-unlock/` and do not talk to any other service.
+`extensions/locallab-flow-unlock/` and do not talk to any other service.
 
 What it does:
 
@@ -18,18 +18,18 @@ Requirements:
 
 - Chrome or Chromium on the laptop (any OS).
 - A Google account that is signed in at https://flow.google.com.
-- The folder `extensions/flow-unlock` from this repository (clone the repo or
+- The folder `extensions/locallab-flow-unlock` from this repository (clone the repo or
   download a release zip and extract it).
 
 ## Option A — install the extension (recommended)
 
 1. Keep the repository folder somewhere stable, e.g.
-   `~/lab/projects/content-manager/extensions/flow-unlock`. Do not delete or
+   `~/lab/projects/content-manager/extensions/locallab-flow-unlock`. Do not delete or
    move it after loading; Chrome reads it from disk.
 2. Open `chrome://extensions`.
 3. Enable **Developer mode** (top-right toggle).
-4. Click **Load unpacked** and select the `extensions/flow-unlock` folder.
-5. Confirm the "Flow Region Unlock" card appears and its toggle is on.
+4. Click **Load unpacked** and select the `extensions/locallab-flow-unlock` folder.
+5. Confirm the "Locallab Flow Unlock" card appears and its toggle is on.
 6. (Optional) Pin it next to the address bar so you can see it is active.
 
 ## Option B — uBlock Origin filter (alternative or backup)
@@ -45,7 +45,7 @@ Requirements:
 ```
 
 The filter file is also stored at
-`extensions/flow-unlock/ublock-filter.txt`.
+`extensions/locallab-flow-unlock/ublock-filter.txt`.
 
 ## Use
 

@@ -1,9 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Flow Region Unlock",
-  "version": "0.1.0",
-  "description": "Keeps flow.google.com usable when Google redirects unsupported regions to the unsupported-country page.",
-  "permissions": ["declarativeNetRequest"],
+  "name": "Locallab Flow Unlock",
+  "version": "0.1.1",
+  "description": "Locallab: keeps flow.google.com usable when Google redirects unsupported regions to the unsupported-country page.",
+  "permissions": [
+    "declarativeNetRequest"
+  ],
   "declarative_net_request": {
     "rule_resources": [
       {
@@ -20,7 +22,9 @@
         "https://flow.google-*.com/*",
         "https://labs.google/fx/tools/flow*"
       ],
-      "js": ["freeze.js"],
+      "js": [
+        "freeze.js"
+      ],
       "run_at": "document_start"
     }
   ]
