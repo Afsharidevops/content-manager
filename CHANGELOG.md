@@ -48,6 +48,32 @@ platform; this section tracks the fork additions.
 - Added `docs/CONTENT-PRODUCTION-GUIDE.md` and
   `docs/INSTAGRAM-SETUP.md`; Instagram remains a guided pending checklist.
 
+### Fork additions — editorial loop and standalone deployment (2026-09-09)
+
+- Draft behavior is now policy-driven: on-demand freshness and the daily
+  proposal cap are read from the working-copy editorial policy, and
+  operator-sent links are never blocked by the freshness window or the daily
+  cap.
+- Added the reply-based revision loop: replying to a proposal with edit notes
+  and pressing Reject revises the draft in place; pressing Reject without
+  notes discards it. Empty or unchanged writer revisions are surfaced to the
+  operator instead of re-posting the original draft.
+- Draft titles render bold with RTL-safe ordering, and daily feed parsing is
+  hardened to HTML titles and links instead of raw page text.
+- Seeded `content/config/sources.yaml` with vetted RSS/Atom feeds per category
+  and an in-file guide for adding and pre-testing new feeds.
+- Added standalone Content Bot deployment: installer option 5 provisions only
+  the Content Bot against an external OpenAI-compatible writer API (base URL,
+  key, model), and `./install.sh --content-reconfigure` or
+  `./manage.sh content-configure` reconfigures it while preserving existing
+  components and data.
+- Writer calls tolerate null or truncated responses and honor
+  `CONTENT_WRITER_MODEL=auto`, `CONTENT_WRITER_MAX_TOKENS`, and
+  `CONTENT_WRITER_REASONING_EFFORT`.
+- Added the operator `/forget-link <url>` command (plus `/forget_link` alias)
+  so a previously published link can be drafted again; the Telegram command
+  menu is registered on startup in the default and private-chat scopes.
+
 ---
 
 ## Hermes Linux Stack — v0.5.9 Changelog — 2026-08-13

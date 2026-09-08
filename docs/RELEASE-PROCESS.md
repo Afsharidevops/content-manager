@@ -30,6 +30,18 @@ Current release state:
 - Smart Router mutable current tag: `afsharidevops/hermes-smart-router:latest`
 - Execution Broker image: `afsharidevops/hermes-execution-broker:0.1.3`
 
+Fork release state (Content Manager):
+
+- fork/content release: `content-manager-v0.1.0` (first fork release)
+- Content Bot image: `afsharidevops/content-bot:0.1.0`
+- Content Bot mutable current tag: `afsharidevops/content-bot:latest`
+
+The Content Bot image is rebuilt and published by `.github/workflows/publish-content-bot.yml`
+on `main` pushes that touch the Content Bot build context; no image rebuild is
+needed for a plain fork release. Fork releases reuse the upstream versioning
+section only for inherited platform artifacts; the fork itself is versioned by
+the `content-manager-v*` release tags.
+
 For v0.5.9, automated acceptance passed and the release owner explicitly waived the remaining manual browser light/dark and mouse/trackpad interaction gate in order to finalize early. Record such waivers explicitly; never mark an unperformed check as passed.
 
 ## 4. Docker publishing policy
