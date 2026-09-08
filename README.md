@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0   Media Studio: 0.1.0
 ```
 
 ## What it does
@@ -34,12 +34,19 @@ Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0
   right. Reject without notes discards the draft.
 - **Platform adapters** - the pipeline is platform-agnostic; publishing
   currently supports Telegram.
+- **Media generation (optional)** - Media Studio turns prompts into images or
+  video through an OpenAI-compatible API (`api-image`, no Google account) and,
+  optionally, through a signed-in Google Flow/Gemini session. See
+  `docs/MEDIA-STUDIO.md`. The Flow region unlock is also available standalone
+  for laptop use: `docs/FLOW-UNLOCK-STANDALONE.md` and
+  `extensions/flow-unlock/`.
 
 | Platform | State |
 | --- | --- |
 | Telegram | Live: on-demand drafts, daily proposals, Approve/Reject, channel publish |
 | Instagram | Pending: guided Meta setup checklist in `docs/INSTAGRAM-SETUP.md` |
 | Aparat / YouTube | Planned: not implemented yet |
+| Media assets | Optional: `media-studio` worker (API images now; Google Flow/Gemini via browser session) |
 
 ## Architecture
 

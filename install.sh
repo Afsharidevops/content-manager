@@ -50,14 +50,16 @@ HERMES_DASHBOARD_ACCESS_FILE="$ROOT_DIR/data/stack-secrets/hermes-dashboard-acce
 DRY_RUN=false
 NO_START=false
 CONTENT_RECONFIGURE=false
+MEDIA_RECONFIGURE=false
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
     --no-start) NO_START=true ;;
     --content-reconfigure) CONTENT_RECONFIGURE=true ;;
+    --media-reconfigure) MEDIA_RECONFIGURE=true ;;
     -h|--help)
-      printf '%s\n' "Usage: ./install.sh [--dry-run] [--no-start] [--content-reconfigure]"
+      printf '%s\n' "Usage: ./install.sh [--dry-run] [--no-start] [--content-reconfigure] [--media-reconfigure]"
       exit 0
       ;;
     *) printf 'Unknown option: %s\n' "$arg" >&2; exit 2 ;;
@@ -518,15 +520,20 @@ configure_smart_router=false
 configure_n8n=false
 configure_caddy=false
 configure_content=false
+configure_media=false
 existing_install=false
 smart_router_was_enabled=false
 n8n_was_enabled=false
 content_was_enabled=false
+media_was_enabled=false
 change_bind_ips=false
 n8n_ready=false
 
 if [[ "$CONTENT_RECONFIGURE" == true && ! -f "$ENV_FILE" ]]; then
   die "--content-reconfigure requires an existing installation; run ./install.sh once to provision it."
+fi
+if [[ "$MEDIA_RECONFIGURE" == true && ! -f "$ENV_FILE" ]]; then
+  die "--media-reconfigure requires an existing installation; run ./install.sh once to provision it."
 fi
 
 if [[ -f "$ENV_FILE" ]]; then
@@ -540,6 +547,8 @@ if [[ -f "$ENV_FILE" ]]; then
   n8n_was_enabled="$install_n8n"
   install_content=false; profile_enabled content && install_content=true
   content_was_enabled="$install_content"
+  install_media=false; profile_enabled media && install_media=true
+  media_was_enabled="$install_media"
   install_caddy=false; profile_enabled caddy && install_caddy=true
 
   printf 'Existing components: %s\n' "$(existing_env_value COMPOSE_PROFILES)"
@@ -553,6 +562,15 @@ if [[ -f "$ENV_FILE" ]]; then
       install_content=true
       configure_content=true
       info "The Content Bot profile is not enabled yet; this run enables it."
+    fi
+  elif [[ "$MEDIA_RECONFIGURE" == true ]]; then
+    printf '%s\n' 'Media Studio reconfigure: existing components, data, and bind IPs are preserved.'
+    if [[ "$install_media" == true ]]; then
+      configure_media=true
+    else
+      install_media=true
+      configure_media=true
+      info "The Media Studio profile is not enabled yet; this run enables it."
     fi
   else
     if [[ "$install_nine" == true ]]; then
@@ -604,6 +622,17 @@ if [[ -f "$ENV_FILE" ]]; then
       install_content=true
       configure_content=true
     fi
+    if [[ "$install_media" == true ]]; then
+      if ! confirm "Keep Media Studio (browser/API media generation worker) enabled?" y; then
+        install_media=false
+        configure_media=true
+      elif confirm "Reconfigure Media Studio settings?" n; then
+        configure_media=true
+      fi
+    elif confirm "Add Media Studio (optional media worker; api-image driver works without Google, flow-video/gemini-image need a signed-in Google session)?" n; then
+      install_media=true
+      configure_media=true
+    fi
     confirm "Change published container bind IPs only?" n && change_bind_ips=true
   fi
 else
@@ -612,6 +641,7 @@ else
   printf '%s\n' '3) Install Hermes Agent only'
   printf '%s\n' '4) Install Open WebUI only'
   printf '%s\n' '5) Install Content Bot only (external OpenAI-compatible model API)'
+  printf '%s\n' '6) Install Media Studio only (API image generation; Google Flow/Gemini optional)'
   while true; do
     selection="$(prompt "Choose installation" "1")"
     case "$selection" in
@@ -620,11 +650,12 @@ else
       3) install_nine=false; install_hermes=true; install_webui=false; break ;;
       4) install_nine=false; install_hermes=false; install_webui=true; break ;;
       5) install_nine=false; install_hermes=false; install_webui=false; break ;;
-      *) warn "Choose 1, 2, 3, 4, or 5." >&2 ;;
+      6) install_nine=false; install_hermes=false; install_webui=false; break ;;
+      *) warn "Choose 1, 2, 3, 4, 5, or 6." >&2 ;;
     esac
   done
 
-  if [[ "$selection" != 4 && "$selection" != 5 ]] && confirm "Also install Open WebUI?" n; then
+  if [[ "$selection" != 4 && "$selection" != 5 && "$selection" != 6 ]] && confirm "Also install Open WebUI?" n; then
     install_webui=true
   fi
   configure_nine="$install_nine"
@@ -637,7 +668,7 @@ else
     configure_smart_router=true
   fi
   install_n8n=false
-  if [[ "$selection" != 5 ]] && confirm "Add optional n8n workflow automation?" n; then
+  if [[ "$selection" != 5 && "$selection" != 6 ]] && confirm "Add optional n8n workflow automation?" n; then
     install_n8n=true
     configure_n8n=true
   fi
@@ -651,6 +682,14 @@ else
     install_content=true
     configure_content=true
   fi
+  install_media=false
+  if [[ "$selection" == 6 ]]; then
+    install_media=true
+    configure_media=true
+  elif confirm "Add Media Studio (optional media worker; api-image works without Google, flow-video/gemini-image need a signed-in Google session)?" n; then
+    install_media=true
+    configure_media=true
+  fi
   install_caddy=false
 fi
 
@@ -661,9 +700,10 @@ profiles=""
 [[ "$install_webui" == true ]] && profiles="${profiles:+$profiles,}open-webui"
 [[ "$install_n8n" == true ]] && profiles="${profiles:+$profiles,}n8n"
 [[ "$install_content" == true ]] && profiles="${profiles:+$profiles,}content"
+[[ "$install_media" == true ]] && profiles="${profiles:+$profiles,}media"
 
 mkdir -p "$HERMES_DIR" "$NINEROUTER_DIR" "$OPENWEBUI_DIR" "$SMART_ROUTER_DIR" "$N8N_DIR" "$CADDY_DIR" \
-  "$ROOT_DIR/data/content-bot"
+  "$ROOT_DIR/data/content-bot" "$ROOT_DIR/data/media-studio"
 mkdir -p "$HERMES_DIR/lazy-packages" "$HERMES_DIR/npm-packages" "$ROOT_DIR/data/stack-secrets"
 chmod 700 "$ROOT_DIR/data/stack-secrets"
 # Empty execution policy files keep the normal Compose profile renderable while
@@ -1265,6 +1305,82 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
   fi
 fi
 
+# Media Studio settings. The api-image driver reuses the writer endpoint
+# selected above (Smart Router, 9router, or an external hosted API) so Media
+# Studio works without any Google subscription. flow-video and gemini-image
+# are optional and need a signed-in Google session.
+media_drivers="$(existing_env_value MEDIA_STUDIO_DRIVERS)"
+media_drivers="${media_drivers:-api-image,flow-video}"
+media_api_token="$(existing_env_value MEDIA_STUDIO_API_TOKEN)"
+media_writer_url="$(existing_env_value MEDIA_STUDIO_WRITER_BASE_URL)"
+media_writer_key="$(existing_env_value MEDIA_STUDIO_WRITER_API_KEY)"
+media_writer_model="$(existing_env_value MEDIA_STUDIO_WRITER_MODEL)"
+media_block_geo="$(existing_env_value MEDIA_STUDIO_BLOCK_GEO_REDIRECT)"
+media_block_geo="${media_block_geo:-true}"
+media_freeze="$(existing_env_value MEDIA_STUDIO_FREEZE_ON_READY)"
+media_freeze="${media_freeze:-true}"
+if [[ "$install_media" == true && "$configure_media" == true ]]; then
+  printf '\nMedia Studio settings\n'
+  printf '%s\n' '------------------------'
+  while true; do
+    media_drivers="$(prompt "Enabled drivers, comma-separated (api-image, flow-video, gemini-image)" "$media_drivers")"
+    media_drivers="$(printf '%s' "$media_drivers" | tr ',' ' ' | tr -s ' ' | tr ' ' ',')"
+    media_drivers_valid=true
+    while IFS=',' read -r -a driver_list <<< "$media_drivers"; do
+      for driver in "${driver_list[@]}"; do
+        case "$driver" in
+          api-image|flow-video|gemini-image) ;;
+          *) media_drivers_valid=false ;;
+        esac
+      done
+    done
+    [[ "$media_drivers_valid" == true && -n "$media_drivers" ]] && break
+    warn "Choose from api-image, flow-video, and gemini-image only." >&2
+  done
+  if [[ ",$media_drivers," == *,api-image,* ]]; then
+    media_writer_default="$media_writer_url"
+    [[ -n "$media_writer_default" ]] || media_writer_default="$content_writer_url"
+    while true; do
+      media_writer_url="$(prompt "Image API base URL (OpenAI-compatible, include /v1; Enter for no image API)" "$media_writer_default")"
+      case "$media_writer_url" in
+        "") break ;;
+        http://*|https://*) break ;;
+        *) warn "The image API base URL must start with http:// or https://." >&2 ;;
+      esac
+    done
+    if [[ -n "$media_writer_url" ]]; then
+      media_writer_key="$(prompt_secret "Image API key (Enter to keep current or skip)" true)"
+      [[ -n "$media_writer_key" ]] || media_writer_key="$(existing_env_value MEDIA_STUDIO_WRITER_API_KEY)"
+      [[ -n "$media_writer_key" ]] || media_writer_key="$content_writer_key"
+      media_writer_model="$(prompt "Image model id (as your API expects)" "${media_writer_model:-${content_writer_model:-auto}}")"
+    fi
+  fi
+  if [[ ",$media_drivers," == *,flow-video,* || ",$media_drivers," == *,gemini-image,* ]]; then
+    printf '%s\n' 'Google drivers need a signed-in Google session:'
+    printf '%s\n' '  - cdp mode attaches to Chrome on the operator desktop (default)'
+    printf '%s\n' '  - persistent mode keeps its own Chromium profile in data/media-studio'
+  fi
+  if confirm "Block the Google unsupported-country redirect for Flow (region unlock)?" "$([[ "$media_block_geo" == true ]] && printf y || printf n)"; then
+    media_block_geo=true
+  else
+    media_block_geo=false
+  fi
+  if confirm "Apply the page freeze after the Flow project button appears?" "$([[ "$media_freeze" == true ]] && printf y || printf n)"; then
+    media_freeze=true
+  else
+    media_freeze=false
+  fi
+  if confirm "Protect the local Media Studio API with a token?" "$([[ -n "$media_api_token" ]] && printf y || printf n)"; then
+    while true; do
+      media_api_token="$(prompt_secret "Media Studio API token (used as Authorization: Bearer)")"
+      [[ -n "$media_api_token" ]] && break
+      warn "An API token cannot be empty when protection is enabled." >&2
+    done
+  else
+    media_api_token=""
+  fi
+fi
+
 invoking_uid="${SUDO_UID:-$(id -u)}"
 invoking_gid="${SUDO_GID:-$(id -g)}"
 # The Hermes image refuses to run its gateway as root. A direct-root install has
@@ -1297,6 +1413,23 @@ if [[ "$install_content" == true ]]; then
 else
   content_bot_run_as="$(existing_env_value CONTENT_BOT_RUN_AS)"
   content_bot_run_as="${content_bot_run_as:-10004:10004}"
+fi
+
+# The Media Studio container runs unprivileged; root installs map it to the
+# isolated 10005:10005 identity so Chromium can write its profile and jobs.
+if [[ "$install_media" == true ]]; then
+  if [[ "$invoking_uid" == 0 ]]; then
+    media_uid=10005
+    media_gid=10005
+    media_run_as="10005:10005"
+  else
+    media_uid="$invoking_uid"
+    media_gid="$invoking_gid"
+    media_run_as="$invoking_uid:$invoking_gid"
+  fi
+else
+  media_run_as="$(existing_env_value MEDIA_STUDIO_RUN_AS)"
+  media_run_as="${media_run_as:-10005:10005}"
 fi
 
 if [[ "$hermes_dashboard" == 1 ]]; then
@@ -1397,6 +1530,16 @@ replace_env_value "$tmp_env" CONTENT_WRITER_BASE_URL "$(dotenv_quote "$content_w
 replace_env_value "$tmp_env" CONTENT_WRITER_API_KEY "$(dotenv_quote "$content_writer_key")"
 replace_env_value "$tmp_env" CONTENT_WRITER_MODEL "$(dotenv_quote "$content_writer_model")"
 replace_env_value "$tmp_env" CONTENT_SCHEDULER_ENABLED "$content_scheduler_enabled"
+replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_REPOSITORY "afsharidevops/media-studio"
+replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_TAG "0.1.0"
+replace_env_value "$tmp_env" MEDIA_STUDIO_RUN_AS "$media_run_as"
+replace_env_value "$tmp_env" MEDIA_STUDIO_DRIVERS "$media_drivers"
+replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_BASE_URL "$(dotenv_quote "$media_writer_url")"
+replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_API_KEY "$(dotenv_quote "$media_writer_key")"
+replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_MODEL "$(dotenv_quote "$media_writer_model")"
+replace_env_value "$tmp_env" MEDIA_STUDIO_API_TOKEN "$(dotenv_quote "$media_api_token")"
+replace_env_value "$tmp_env" MEDIA_STUDIO_BLOCK_GEO_REDIRECT "$media_block_geo"
+replace_env_value "$tmp_env" MEDIA_STUDIO_FREEZE_ON_READY "$media_freeze"
 mv "$tmp_env" "$ENV_FILE"
 
 # Generate any v0.5.x placeholder secrets without rotating existing values.
@@ -1643,6 +1786,11 @@ if [[ "$DRY_RUN" != true ]] && [[ -d "$ROOT_DIR/content/config" ]]; then
   fi
 fi
 
+if [[ "$DRY_RUN" != true && "$install_media" == true ]]; then
+  install -d -m 0700 -o "$media_uid" -g "$media_gid" \
+    "$ROOT_DIR/data/media-studio"
+fi
+
 if [[ "$DRY_RUN" == true ]]; then
   ok "Dry run complete. Docker was not changed."
   exit 0
@@ -1767,10 +1915,17 @@ if [[ "$content_was_enabled" == true && "$install_content" != true ]]; then
     rm -sf content-bot
 fi
 
+if [[ "$media_was_enabled" == true && "$install_media" != true ]]; then
+  info "Stopping disabled Media Studio (data/media-studio is preserved)..."
+  COMPOSE_PROFILES=media "${DOCKER[@]}" compose \
+    -f "$ROOT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
+    rm -sf media-studio
+fi
+
 info "Starting selected services..."
 "${DOCKER[@]}" compose -f "$ROOT_DIR/docker-compose.yml" --env-file "$ENV_FILE" up -d --build --remove-orphans
 
-if [[ "$CONTENT_RECONFIGURE" != true ]]; then
+if [[ "$CONTENT_RECONFIGURE" != true && "$MEDIA_RECONFIGURE" != true ]]; then
   enable_hermes_telegram_policy_toolsets
 fi
 
@@ -1960,6 +2115,11 @@ if [[ "$install_content" == true ]]; then
   printf '%s\n' 'Content Bot guide: docs/CONTENT-PRODUCTION-GUIDE.md'
   printf '%s\n' 'Instagram/Meta setup (optional, pending): docs/INSTAGRAM-SETUP.md'
   printf '%s\n' 'Content Bot status: ./manage.sh content-status'
+fi
+if [[ "$install_media" == true ]]; then
+  printf '%s\n' 'Media Studio: media generation worker enabled'
+  printf '%s\n' 'Media Studio guide: docs/MEDIA-STUDIO.md'
+  printf '%s\n' 'Media Studio status: ./manage.sh media-status'
 fi
 printf '%s\n' 'Status: ./manage.sh status'
 printf '%s\n' 'Logs:   ./manage.sh logs'

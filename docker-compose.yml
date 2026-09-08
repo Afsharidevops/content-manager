@@ -590,6 +590,47 @@ services:
       - no-new-privileges:true
     networks: [agent-net]
 
+  # Media Studio: optional media generation worker (compose profile "media").
+  # Submits jobs to browser drivers (Google Flow video, Gemini images) or to an
+  # OpenAI-compatible image API. Google drivers need a signed-in session; the
+  # api-image driver works with any compatible gateway. The image is built on
+  # GitHub Actions and published to Docker Hub.
+  media-studio:
+    profiles: ["media"]
+    image: ${MEDIA_STUDIO_IMAGE_REPOSITORY:-afsharidevops/media-studio}:${MEDIA_STUDIO_IMAGE_TAG:-0.1.0}
+    container_name: media-studio
+    restart: unless-stopped
+    user: "${MEDIA_STUDIO_RUN_AS:-10005:10005}"
+    environment:
+      MEDIA_STUDIO_DATA_DIR: /data
+      MEDIA_STUDIO_DRIVERS: ${MEDIA_STUDIO_DRIVERS:-api-image,flow-video}
+      MEDIA_STUDIO_API_TOKEN: ${MEDIA_STUDIO_API_TOKEN:-}
+      MEDIA_STUDIO_WRITER_BASE_URL: ${MEDIA_STUDIO_WRITER_BASE_URL:-}
+      MEDIA_STUDIO_WRITER_API_KEY: ${MEDIA_STUDIO_WRITER_API_KEY:-}
+      MEDIA_STUDIO_WRITER_MODEL: ${MEDIA_STUDIO_WRITER_MODEL:-auto}
+      MEDIA_STUDIO_IMAGE_SIZE: ${MEDIA_STUDIO_IMAGE_SIZE:-1024x1024}
+      MEDIA_STUDIO_SESSION_MODE: ${MEDIA_STUDIO_SESSION_MODE:-cdp}
+      MEDIA_STUDIO_CDP_URL: ${MEDIA_STUDIO_CDP_URL:-http://host.docker.internal:9222}
+      MEDIA_STUDIO_HEADLESS: ${MEDIA_STUDIO_HEADLESS:-true}
+      MEDIA_STUDIO_BLOCK_GEO_REDIRECT: ${MEDIA_STUDIO_BLOCK_GEO_REDIRECT:-true}
+      MEDIA_STUDIO_FREEZE_ON_READY: ${MEDIA_STUDIO_FREEZE_ON_READY:-true}
+      MEDIA_STUDIO_STEP_TIMEOUT_SECONDS: ${MEDIA_STUDIO_STEP_TIMEOUT_SECONDS:-30}
+      MEDIA_STUDIO_JOB_TIMEOUT_SECONDS: ${MEDIA_STUDIO_JOB_TIMEOUT_SECONDS:-900}
+      MEDIA_STUDIO_TIMEZONE: ${MEDIA_STUDIO_TIMEZONE:-Asia/Tehran}
+      TZ: ${N8N_TIMEZONE:-Asia/Tehran}
+    ports:
+      - "${MEDIA_STUDIO_BIND_IP:-127.0.0.1}:${MEDIA_STUDIO_PORT:-8850}:8850"
+    volumes:
+      - ./data/media-studio:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    shm_size: 1gb
+    init: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
 networks:
   agent-net:
     name: hermes-9router-net

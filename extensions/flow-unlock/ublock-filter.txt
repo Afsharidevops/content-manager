@@ -1,0 +1,3 @@
+! Companion static filter for standalone use with uBlock Origin.
+||flow.google.com/unsupported-country^$document
+||flow.google-*.com/unsupported-country^$document

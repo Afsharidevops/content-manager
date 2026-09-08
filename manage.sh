@@ -33,6 +33,7 @@ Interactive groups:
   hermes                      Hermes Agent, Telegram, API and agent settings
   n8n                         n8n provisioning and MCP integration
   content                     Content Bot status, publishing docs and platform setup
+  media                       Media Studio status, jobs, logs and reconfiguration
   execution                   Sandbox, Docker execution, SSH and approvals
   maintenance                 Update, backups, restore and rollback
   security                    Diagnostics, image integrity and access info
@@ -40,7 +41,7 @@ Interactive groups:
 Common direct commands:
   status                      Show container status
   health [--json]             Show per-service health
-  logs [SERVICE]              Follow logs (hermes/9router/smart-router/webui/n8n/caddy)
+  logs [SERVICE]              Follow logs (hermes/9router/smart-router/webui/n8n/content/media/caddy)
   doctor                      Run diagnostics and hardening checks
   migrate-hermes-permissions [--dry-run]
                               Repair Hermes log ownership/mode under data/hermes/logs
@@ -78,6 +79,11 @@ Content Bot automation:
   content-status              Content Bot configuration summary (no secrets)
   content-connect-instagram   Print the pending Instagram/Meta setup checklist
   content-configure           Reconfigure Content Bot settings (installer wizard)
+
+Media Studio automation:
+  media-status                Media Studio configuration summary (no secrets)
+  media-guide                 Print the Media Studio setup and API guide pointer
+  media-configure             Reconfigure Media Studio settings (installer wizard)
 
 Advanced commands remain backward compatible. Use the interactive groups for
 normal administration; use direct commands for automation and scripts.
@@ -270,6 +276,7 @@ services_menu() {
         printf '%s\n' 'Log choices:'
         printf '%s\n' '  1) all          2) Hermes       3) backend gateway'
         printf '%s\n' '  4) Smart Router 5) Open WebUI   6) n8n          7) Caddy'
+        printf '%s\n' '  8) Content Bot  9) Media Studio'
         read -r -p 'Choose [1]: ' service
         case "${service:-1}" in
           1) "$ROOT_DIR/manage.sh" logs || true ;;
@@ -279,6 +286,8 @@ services_menu() {
           5) "$ROOT_DIR/manage.sh" logs webui || true ;;
           6) "$ROOT_DIR/manage.sh" logs n8n || true ;;
           7) "$ROOT_DIR/manage.sh" logs caddy || true ;;
+          8) "$ROOT_DIR/manage.sh" logs content || true ;;
+          9) "$ROOT_DIR/manage.sh" logs media || true ;;
           *) printf 'Unknown log choice.\n' >&2 ;;
         esac
         ;;
@@ -535,10 +544,11 @@ interactive_menu() {
     printf '%s\n'   '5) n8n & MCP                  Provisioning, Instance MCP, Trigger MCP'
     printf '%s\n'   '6) Execution & SSH            Sandbox, Docker, SSH profiles, approvals'
     printf '%s\n'   '7) Content Bot                Status, publishing docs, platform setup'
-    printf '%s\n'   '8) Maintenance & recovery     Updates, backup, restore, rollback'
-    printf '%s\n'   '9) Security & integrity       Doctor, image pins, access credentials'
-    printf '%s\n'   '10) Reconfigure installation  Run the v0.5.9 wizard again'
-    printf '%s\n'   '11) Uninstall                 Safe remove or explicit purge'
+    printf '%s\n'   '8) Media Studio               Media jobs, sessions and Google setup'
+    printf '%s\n'   '9) Maintenance & recovery     Updates, backup, restore, rollback'
+    printf '%s\n'   '10) Security & integrity      Doctor, image pins, access credentials'
+    printf '%s\n'   '11) Reconfigure installation  Run the v0.5.9 wizard again'
+    printf '%s\n'   '12) Uninstall                 Safe remove or explicit purge'
     printf '%s\n'   '0) Exit'
     read -r -p 'Choose [0]: ' choice
     case "${choice:-0}" in
@@ -556,10 +566,11 @@ interactive_menu() {
       5) n8n_menu ;;
       6) execution_menu ;;
       7) content_menu ;;
-      8) maintenance_menu ;;
-      9) security_menu ;;
-      10) exec "$ROOT_DIR/install.sh" ;;
-      11) uninstall_menu ;;
+      8) media_menu ;;
+      9) maintenance_menu ;;
+      10) security_menu ;;
+      11) exec "$ROOT_DIR/install.sh" ;;
+      12) uninstall_menu ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1099,6 +1110,71 @@ content_menu() {
       2) content_connect_instagram ;;
       3) compose logs -f --tail=100 content-bot ;;
       4) content_configure ;;
+      0) return 0 ;;
+      *) printf 'Unknown choice.\n' >&2 ;;
+    esac
+  done
+}
+
+media_status() {
+  local profiles drivers mode writer model token set freeze
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  if [[ ",$profiles," != *,media,* ]]; then
+    printf 'Media Studio is not enabled in COMPOSE_PROFILES. Run ./manage.sh media-configure to enable it.\n'
+    return 1
+  fi
+  drivers="$(env_value "$ENV_FILE" MEDIA_STUDIO_DRIVERS)"
+  mode="$(env_value "$ENV_FILE" MEDIA_STUDIO_SESSION_MODE)"
+  writer="$(env_value "$ENV_FILE" MEDIA_STUDIO_WRITER_BASE_URL)"
+  [[ -n "$writer" ]] || writer="$(env_value "$ENV_FILE" CONTENT_WRITER_BASE_URL)"
+  token="$(env_value "$ENV_FILE" MEDIA_STUDIO_API_TOKEN)"
+  freeze="$(env_value "$ENV_FILE" MEDIA_STUDIO_FREEZE_ON_READY)"
+  printf 'Media Studio status\n'
+  printf '  Enabled drivers: %s\n' "${drivers:-api-image,flow-video}"
+  printf '  Session mode: %s\n' "${mode:-cdp}"
+  printf '  Writer endpoint: %s\n' "${writer:-not configured}"
+  printf '  API token: %s\n' "$([[ -n "$token" ]] && printf 'stored (secret not shown)' || printf 'not set (localhost only)')"
+  printf '  Flow freeze on ready: %s\n' "${freeze:-true}"
+  printf '  Guide: docs/MEDIA-STUDIO.md\n'
+  printf '  API base: http://127.0.0.1:%s (when enabled)\n' "$(env_value "$ENV_FILE" MEDIA_STUDIO_PORT | sed 's/^$/8850/')"
+}
+
+media_guide() {
+  printf '%s\n' 'Media Studio guide: docs/MEDIA-STUDIO.md'
+  printf '%s\n' 'Flow unlock on a laptop only: docs/FLOW-UNLOCK-STANDALONE.md'
+  printf '%s\n' 'Standalone extension folder: extensions/flow-unlock/ (load as an unpacked Chrome extension)'
+  printf '%s\n' 'Reconfigure: ./manage.sh media-configure'
+}
+
+media_configure() {
+  printf 'Reconfiguring Media Studio settings. Existing components, data, and bind IPs are preserved.\n'
+  exec "$ROOT_DIR/install.sh" --media-reconfigure
+}
+
+media_menu() {
+  local choice
+  while true; do
+    printf '\nMedia Studio Manager\n'
+    printf '%s\n' '====================='
+    printf '%s\n' '1) Show Media Studio status'
+    printf '%s\n' '2) Print setup and API guide'
+    printf '%s\n' '3) Follow Media Studio logs'
+    printf '%s\n' '4) Check API health'
+    printf '%s\n' '5) Reconfigure Media Studio settings'
+    printf '%s\n' '0) Back'
+    read -r -p 'Choose: ' choice
+    case "$choice" in
+      1) media_status || true ;;
+      2) media_guide ;;
+      3) compose logs -f --tail=100 media-studio ;;
+      4)
+        if [[ -z "$(compose ps -q media-studio)" ]]; then
+          printf 'Media Studio container is not running. Start it with ./manage.sh start.\n'
+        else
+          compose exec -T media-studio python -c             'import json, urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:8850/healthz", timeout=5)))'             || printf 'Media Studio API did not answer on :8850.\n'
+        fi
+        ;;
+      5) media_configure ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1765,6 +1841,7 @@ case "$command" in
   hermes|hermes-menu) hermes_menu ;;
   n8n|n8n-menu) n8n_menu ;;
   content|content-menu) content_menu ;;
+  media|media-menu) media_menu ;;
   execution|execution-menu) execution_menu ;;
   maintenance|maintenance-menu) maintenance_menu ;;
   security|security-menu) security_menu ;;
@@ -1772,6 +1849,9 @@ case "$command" in
   content-status) content_status ;;
   content-connect-instagram) content_connect_instagram ;;
   content-configure) content_configure ;;
+  media-status) media_status ;;
+  media-guide) media_guide ;;
+  media-configure) media_configure ;;
   uninstall)
     shift
     uninstall_stack "${1:-}"
@@ -1793,8 +1873,9 @@ case "$command" in
       webui|open-webui) compose logs -f --tail=100 open-webui ;;
       n8n) compose logs -f --tail=100 n8n ;;
       content|content-bot) compose logs -f --tail=100 content-bot ;;
+      media|media-studio) compose logs -f --tail=100 media-studio ;;
       caddy) compose logs -f --tail=100 caddy ;;
-      *) printf 'Choose hermes, 9router, smart-router, webui, n8n, content, or caddy.\n' >&2; exit 2 ;;
+      *) printf 'Choose hermes, 9router, smart-router, webui, n8n, content, media, or caddy.\n' >&2; exit 2 ;;
     esac
     ;;
   dashboard-access)

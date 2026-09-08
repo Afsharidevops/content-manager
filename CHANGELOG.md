@@ -24,7 +24,30 @@ platform; this section tracks the fork additions.
   the end of install.
 - Quickstart and installer identity now point at this repository.
 
+### Fork additions — Media Studio worker v0.1.0 (2026-09-09)
+
+- Added `media-studio/`: a single-worker job service with a JSON API on
+  `127.0.0.1:8850`, JSON-backed job state, artifact storage, and pluggable
+  drivers.
+- Added the `api-image` driver (OpenAI-compatible `/images/generations`) so
+  media generation works with the existing router or hosted writer API,
+  without any Google subscription.
+- Added Google drivers (`flow-video`, `gemini-image`) that drive a signed-in
+  Chrome over CDP (operator desktop) or a persistent container profile; both
+  support the Flow unsupported-country region workaround
+  (`MEDIA_STUDIO_BLOCK_GEO_REDIRECT`, `MEDIA_STUDIO_FREEZE_ON_READY`).
+- Added `extensions/flow-unlock/`: a standalone Chrome extension and uBlock
+  filter that keep `flow.google.com` usable on a laptop without any stack
+  component (`docs/FLOW-UNLOCK-STANDALONE.md`).
+- `install.sh` gained a Media Studio wizard and `--media-reconfigure`;
+  `manage.sh` gained the `media` menu group and `media-status`,
+  `media-guide`, and `media-configure` commands; the compose profile is
+  `media` with image `afsharidevops/media-studio:0.1.0`.
+- Documentation: `docs/MEDIA-STUDIO.md` (install, sessions, API, selector
+  calibration) and `docs/publishing/MEDIA-STUDIO-DOCKERHUB.md`.
+
 ### Fork additions — Content Bot Telegram MVP (2026-09-07)
+
 
 - Added `content/content_pipeline/score.py`: deterministic weighted scoring,
   configured penalties, freshness mapping, and candidate ranking.

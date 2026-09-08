@@ -1,0 +1,100 @@
+name: Publish Media Studio
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'media-studio/**'
+      - 'extensions/**'
+      - '.github/workflows/publish-media-studio.yml'
+      - '.dockerignore'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-studio-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: dockerhub-release
+    timeout-minutes: 60
+    env:
+      IMAGE_VERSION: 0.1.0
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve and validate image version
+        id: release
+        shell: bash
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          version="${IMAGE_VERSION}"
+
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+            printf 'Invalid semantic version: %s\n' "$version" >&2
+            exit 2
+          }
+
+          if [[ -z "${DOCKERHUB_USERNAME:-}" ]]; then
+            echo "Repository variable DOCKERHUB_USERNAME is required." >&2
+            exit 2
+          fi
+
+          image="${DOCKERHUB_USERNAME}/media-studio"
+          {
+            echo "value=$version"
+            echo "image=$image"
+            echo 'tags<<EOF'
+            echo "$image:$version"
+            if [[ "$version" != *-* ]]; then
+              echo "$image:latest"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Test Media Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/media-studio-venv
+          PYTHONPATH=$PWD/media-studio /tmp/media-studio-venv/bin/python -m unittest discover -s media-studio/tests -v
+
+      - uses: docker/setup-qemu-action@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Docker Hub login
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push multi-platform image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: media-studio/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.release.outputs.tags }}
+
+      - name: Verify published multi-platform manifest
+        shell: bash
+        env:
+          IMAGE: ${{ steps.release.outputs.image }}
+          VERSION: ${{ steps.release.outputs.value }}
+        run: |
+          set -euo pipefail
+          inspect="$(docker buildx imagetools inspect "$IMAGE:$VERSION")"
+          printf '%s\n' "$inspect"
+          grep -q 'linux/amd64' <<<"$inspect"
+          grep -q 'linux/arm64' <<<"$inspect"

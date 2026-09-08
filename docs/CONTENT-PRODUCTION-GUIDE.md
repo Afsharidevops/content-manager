@@ -119,6 +119,18 @@ Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
 | --- | --- |
 | Telegram | Live: on-demand drafts and scheduled proposals with Approve/Reject |
 | Instagram | Pending: adapter designed in, manual Meta setup blocked for now; see `docs/INSTAGRAM-SETUP.md` |
+| Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
+
+## Media assets
+
+Media Studio generates images through the same OpenAI-compatible gateway as
+the Content Bot (`api-image` driver, no Google account required) and can drive
+Google Flow video and Gemini images through a signed-in browser session. It
+runs as its own container with a JSON job API on `127.0.0.1:8850`; the
+Content Bot/Telegram wiring to submit jobs and publish returned media is the
+next integration step. The Google Flow region unlock is available standalone
+for laptop use (`docs/FLOW-UNLOCK-STANDALONE.md`), independent of the stack.
+See `docs/MEDIA-STUDIO.md` for install, sessions, API, and calibration.
 
 ## Operations
 
@@ -151,6 +163,10 @@ To update a running stack to the newest published build:
 
 See `docs/publishing/CONTENT-BOT-DOCKERHUB.md` for the publish workflow,
 required repository settings, and version bumps.
+
+The `media-studio` image is published the same way as
+`afsharidevops/media-studio:0.1.0`; see
+`docs/publishing/MEDIA-STUDIO-DOCKERHUB.md`.
 
 ## Troubleshooting
 
