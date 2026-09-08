@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from content_bot import extract, fetch, state as state_mod, telegram as telegram_mod
 from content_bot import workflow, writer as writer_mod
 from content_bot.config import BotSettings
+from content_pipeline.normalize import canonicalize_url, content_hash as canonical_content_hash
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
 MIN_ARTICLE_CHARS = 60
@@ -177,6 +178,16 @@ class ContentBot:
         if text == "/status":
             self.api.send_message(chat_id, self.status_text())
             return
+        if text.startswith("/forget-link"):
+            link_match = URL_RE.search(text)
+            if link_match:
+                self._forget_link(link_match.group(0), chat_id)
+            else:
+                self.api.send_message(
+                    chat_id,
+                    "Send /forget-link <url> to allow a previously published link to be drafted again.",
+                )
+            return
         match = URL_RE.search(text)
         if not match:
             self.api.send_message(
@@ -186,11 +197,25 @@ class ContentBot:
             return
         self.request_on_demand(match.group(0), chat_id)
 
+    def _forget_link(self, url: str, chat_id) -> None:
+        digest = canonical_content_hash(canonicalize_url(url))
+        if self.state.forget_published(digest):
+            self.api.send_message(
+                chat_id,
+                "Link forgotten; it can be drafted and published again.",
+            )
+        else:
+            self.api.send_message(
+                chat_id,
+                "No published record found for that link.",
+            )
+
     def help_text(self) -> str:
         return (
             "Content Bot commands:\n"
             "/start or /help - this message\n"
             "/status - configuration and counters\n"
+            "/forget-link <url> - allow a published link to be drafted again\n"
             "Send any http(s) link - draft a post with Approve/Reject buttons\n"
             "Reply to a proposal with edit notes, then press Reject to revise;\n"
             "press Reject without notes to discard. Approved drafts are\n"

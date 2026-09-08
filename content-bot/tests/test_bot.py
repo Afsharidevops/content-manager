@@ -394,6 +394,40 @@ class BotTestCase(unittest.TestCase):
         self.bot.maybe_run_daily()
         self.assertEqual(self.bot.state.load()["daily_last_run"], "2026-09-07")
 
+    def test_forget_link_allows_the_same_link_to_be_drafted_again(self):
+        url = "https://example.com/layers"
+        self.bot.handle_message(
+            {"chat": {"id": 11}, "from": {"id": 11}, "text": url}
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        self.bot.handle_callback(
+            {
+                "id": "q9",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        self.assertEqual(len(self.bot.state.load()["published"]), 1)
+        self.api.sent_messages.clear()
+        self.bot.handle_message(
+            {"chat": {"id": 11}, "from": {"id": 11}, "text": f"/forget-link {url}"}
+        )
+        self.assertEqual(self.bot.state.load()["published"], [])
+        self.assertTrue(self.api.sent_messages[-1]["text"].startswith("Link forgotten"))
+        self.bot.handle_message(
+            {"chat": {"id": 11}, "from": {"id": 11}, "text": url}
+        )
+        self.assertEqual(len(self.bot.state.load()["drafts"]), 1)
+
+    def test_forget_link_reports_when_no_record_exists(self):
+        self.bot.handle_message(
+            {"chat": {"id": 11}, "from": {"id": 11}, "text": "/forget-link https://example.com/never"}
+        )
+        self.assertTrue(
+            self.api.sent_messages[-1]["text"].startswith("No published record found")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

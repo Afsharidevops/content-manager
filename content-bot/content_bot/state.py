@@ -112,6 +112,16 @@ class StateStore:
     def is_known(self, content_hash: str) -> bool:
         return content_hash in set(self.load().get("published") or [])
 
+    def forget_published(self, content_hash: str) -> bool:
+        """Remove one published link hash so the same link can be posted again."""
+        data = self.load()
+        published = data.get("published") or []
+        if content_hash not in published:
+            return False
+        data["published"] = [item for item in published if item != content_hash]
+        self.save()
+        return True
+
     def remember_published(
         self,
         content_hash: str,
