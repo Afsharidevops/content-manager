@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import http.client
 import urllib.error
 import urllib.request
 
@@ -45,6 +46,8 @@ def request_bytes(
         return int(error.code), error.read(max_bytes + 1)
     except urllib.error.URLError as error:
         raise ConnectionError(str(error.reason)) from error
+    except (http.client.IncompleteRead, TimeoutError) as error:
+        raise ConnectionError(f"connection error: {error}") from error
 
 
 def request_json(

@@ -55,11 +55,22 @@ def _chat_endpoint(base_url: str) -> str:
 
 
 class Writer:
-    def __init__(self, base_url: str, api_key: str = "", model: str = "auto", timeout: int = 240):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str = "",
+        model: str = "auto",
+        *,
+        timeout: int = 240,
+        max_tokens: int = 1600,
+        reasoning_effort: str = "",
+    ):
         self.endpoint = _chat_endpoint(base_url)
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        self.max_tokens = max_tokens
+        self.reasoning_effort = reasoning_effort
 
     def _chat(self, messages: list[dict]) -> str:
         headers = {}
@@ -70,8 +81,10 @@ class Writer:
             "messages": messages,
             "stream": False,
             "temperature": 0.7,
-            "max_tokens": 1600,
+            "max_tokens": self.max_tokens,
         }
+        if self.reasoning_effort:
+            payload["reasoning_effort"] = self.reasoning_effort
         try:
             data = request_json(
                 self.endpoint,
@@ -87,6 +100,8 @@ class Writer:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
             raise WriterError("writer returned no message content") from error
+        if content is None:
+            raise WriterError("writer returned no content")
         content = str(content)
         if not content.strip():
             raise WriterError("writer returned empty content")

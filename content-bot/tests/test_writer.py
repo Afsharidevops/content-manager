@@ -30,6 +30,32 @@ class WriterTest(unittest.TestCase):
             with self.assertRaisesRegex(WriterError, "empty content"):
                 writer._chat([{"role": "user", "content": "hi"}])
 
+    def test_chat_raises_when_content_is_null(self):
+        writer = Writer("http://writer.test")
+        with mock.patch(
+            "content_bot.writer.request_json",
+            return_value={"choices": [{"message": {"content": None}}]},
+        ):
+            with self.assertRaisesRegex(WriterError, "no content"):
+                writer._chat([{"role": "user", "content": "hi"}])
+
+    def test_chat_sends_configured_token_budget_and_reasoning_effort(self):
+        writer = Writer(
+            "http://writer.test/v1",
+            api_key="sk-test",
+            model="free",
+            max_tokens=3000,
+            reasoning_effort="low",
+        )
+        with mock.patch(
+            "content_bot.writer.request_json",
+            return_value={"choices": [{"message": {"content": "ok"}}]},
+        ) as request:
+            writer._chat([{"role": "user", "content": "hi"}])
+        payload = request.call_args.kwargs["payload"]
+        self.assertEqual(payload["max_tokens"], 3000)
+        self.assertEqual(payload["reasoning_effort"], "low")
+
     def test_revise_returns_shortened_post(self):
         writer = StubWriter(
             [

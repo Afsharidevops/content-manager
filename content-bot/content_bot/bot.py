@@ -72,6 +72,8 @@ class ContentBot:
                 settings.writer_base_url,
                 settings.writer_api_key,
                 settings.writer_model,
+                max_tokens=settings.writer_max_tokens,
+                reasoning_effort=settings.writer_reasoning_effort,
             )
         self.writer = writer
         self.state = store or state_mod.StateStore(Path(settings.data_dir) / "state.json")
