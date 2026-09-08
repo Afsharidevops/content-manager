@@ -34,8 +34,11 @@ class TelegramApi:
         result = self._call("deleteWebhook")
         return result is True
 
-    def set_my_commands(self, commands: list[dict]) -> bool:
-        result = self._call("setMyCommands", {"commands": commands})
+    def set_my_commands(self, commands: list[dict], scope: dict | None = None) -> bool:
+        payload = {"commands": commands}
+        if scope is not None:
+            payload["scope"] = scope
+        result = self._call("setMyCommands", payload)
         return result is True
 
     def get_updates(self, offset: int | None = None, timeout: int = 25) -> list:

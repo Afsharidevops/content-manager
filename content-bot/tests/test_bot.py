@@ -443,7 +443,9 @@ class BotTestCase(unittest.TestCase):
     def test_startup_registers_command_menu(self):
         self.bot._startup()
         registrations = [payload for method, payload in self.api.calls if method == "setMyCommands"]
-        self.assertEqual(len(registrations), 1)
+        self.assertEqual(len(registrations), 2)
+        scopes = [registration.get("scope") for registration in registrations]
+        self.assertIn({"type": "all_private_chats"}, scopes)
         names = [command["command"] for command in registrations[0]["commands"]]
         self.assertIn("forget_link", names)
         self.assertIn("status", names)

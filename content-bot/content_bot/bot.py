@@ -108,20 +108,20 @@ class ContentBot:
             self.api.delete_webhook()
         except telegram_mod.TelegramError:
             pass
-        try:
-            self.api.set_my_commands(
-                [
-                    {"command": "start", "description": "Show available commands"},
-                    {"command": "help", "description": "Show available commands"},
-                    {"command": "status", "description": "Show configuration and counters"},
-                    {
-                        "command": "forget_link",
-                        "description": "Allow a published link to be drafted again",
-                    },
-                ]
-            )
-        except telegram_mod.TelegramError:
-            pass
+        commands = [
+            {"command": "start", "description": "Show available commands"},
+            {"command": "help", "description": "Show available commands"},
+            {"command": "status", "description": "Show configuration and counters"},
+            {
+                "command": "forget_link",
+                "description": "Allow a published link to be drafted again",
+            },
+        ]
+        for scope in (None, {"type": "all_private_chats"}):
+            try:
+                self.api.set_my_commands(commands, scope=scope)
+            except telegram_mod.TelegramError:
+                pass
         if not self.settings.telegram_users:
             log.warning("CONTENT_TELEGRAM_USERS is empty; no operator can approve drafts")
         if not self.settings.telegram_channel:
