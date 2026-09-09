@@ -64,6 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv /tmp/media-studio-venv
+          /tmp/media-studio-venv/bin/pip install --quiet -r media-studio/requirements.txt
           PYTHONPATH=$PWD/media-studio /tmp/media-studio-venv/bin/python -m unittest discover -s media-studio/tests -v
 
       - uses: docker/setup-qemu-action@v4
