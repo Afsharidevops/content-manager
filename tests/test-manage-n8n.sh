@@ -303,11 +303,11 @@ grep -q 'Refusing unsafe data/stack-secrets path' "$stack/output"
 # targets the OmniRoute API and the auto/best-chat alias. The dedicated key is
 # provisioned through the OmniRoute management API and stored with mode 0600.
 stack="$(new_fixture omniroute-reconcile off omniroute,hermes,n8n)"
-printf '%s\n' eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJtY3Atc2VydmVyLWFwaSJ9.fixture-signature | run_manage "$stack" "$stack/valid.out" set-n8n-instance-mcp-token
+printf '%s\n' opaque-fixture-token | run_manage "$stack" "$stack/valid.out" set-n8n-instance-mcp-token
 : > "$stack/fake-docker.log"
 if ! run_manage "$stack" "$stack/instance.out" set-n8n-mcp-mode instance; then
   printf 'OmniRoute Instance mode transition failed:\n' >&2
-  command grep -v -F -e eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJtY3Atc2VydmVyLWFwaSJ9.fixture-signature -e valid-trigger-token "$stack/instance.out" >&2 || true
+  command grep -v -F -e opaque-fixture-token -e valid-trigger-token "$stack/instance.out" >&2 || true
   exit 1
 fi
 grep -q '^N8N_MCP_MODE=instance$' "$stack/.env"
