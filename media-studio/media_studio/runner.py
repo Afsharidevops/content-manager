@@ -9,6 +9,7 @@ import threading
 import time
 import traceback
 
+from media_studio import branding as branding_mod
 from media_studio.browser import open_page, snapshot_page
 from media_studio.drivers import DRIVERS, PROBE, DriverMeta, meta_for
 from media_studio.drivers.base import Driver, DriverError, RunContext
@@ -128,6 +129,7 @@ class JobQueue:
                             raise
                 else:
                     artifacts = driver.run(ctx)
+            artifacts = self._apply_branding(artifacts, ctx)
             registered = self._register_artifacts(job.id, artifacts)
             self._state.finish(job.id, artifacts=registered)
             log(f"finished with {len(registered)} artifact(s).")
@@ -145,6 +147,35 @@ class JobQueue:
                 log_file.close()
             except OSError:
                 pass
+
+    @staticmethod
+    def _branding_enabled(ctx: RunContext) -> bool:
+        label = str(getattr(ctx.settings, "brand_label", "") or "").strip()
+        if not label:
+            return False
+        raw = str((ctx.params or {}).get("brand", "") or "").strip().lower()
+        return raw not in {"0", "false", "no", "off"}
+
+    def _apply_branding(
+        self,
+        artifacts: list[tuple[str, str]],
+        ctx: RunContext,
+    ) -> list[tuple[str, str]]:
+        """Draw the configured brand chip onto every raster artifact."""
+        if not self._branding_enabled(ctx):
+            return artifacts
+        label = str(getattr(ctx.settings, "brand_label", "") or "").strip()
+        position = str(getattr(ctx.settings, "brand_position", "") or "bottom-right")
+        for name, kind in artifacts:
+            path = os.path.join(ctx.work_dir, os.path.basename(name))
+            if kind != "image" or not os.path.isfile(path):
+                continue
+            try:
+                if branding_mod.apply_brand_overlay(path, label, position=position):
+                    ctx.log(f"brand chip applied to {os.path.basename(name)}")
+            except Exception as exc:  # noqa: BLE001 - branding must not fail jobs
+                ctx.log(f"brand chip skipped for {name}: {exc}")
+        return artifacts
 
     def _probe(self, ctx: RunContext, target: DriverMeta) -> list[tuple[str, str]]:
         with open_page(self._settings) as page:

@@ -23,11 +23,12 @@ Writer step (short-lived role: Persian title+body, channel voice)
    v
 Media decision (operator answers on Telegram)
    |-- Text only
-   |-- Image   -> Media Studio api-image/gemini-image job
-   +-- Video   -> duration choice -> Media Studio flow-video job
+   |-- AI image      -> Media Studio api-image/gemini-image job (brand chip added)
+   |-- Upload image  -> Media Studio /brand chip added to the operator photo
+   +-- Video prompt  -> operator creates the clip and uploads it
    |
    v
-Media Studio worker (queued jobs, artifact download)
+Media Studio worker (queued jobs, artifact download, brand chip overlay)
    |
    v
 Preview (text draft + media preview) with Approve / Reject / feedback reply
@@ -46,7 +47,8 @@ roles, each with its own prompt context, inputs, and audit trail:
 - `writer` - turns the source snapshot into the Persian post (title+body)
   following the channel voice and owner lessons.
 - `media-planner` - asks the operator whether media is needed and what kind.
-- `media-worker` - Media Studio job for image or video generation.
+- `media-worker` - Media Studio job for image or video generation plus the
+  configured corner brand chip on every raster output.
 - `publisher` - platform-specific publishing adapter (Telegram live).
 
 Roles map to Rakazo-style delegation without adding sandboxes or a second
@@ -84,20 +86,30 @@ snapshots stay in Media Studio (`data/media-studio/`). This satisfies the
 - Link drafting with a search fallback for short pages.
 - Topic drafting: plain messages are searched (DuckDuckGo HTML, no key) and
   drafted. Toggles: `CONTENT_SEARCH_ENABLED`, `CONTENT_TOPIC_DRAFTS_ENABLED`.
-- After an on-demand draft, the bot asks Text only / image / video; video asks
-  for an approximate duration first.
+- After an on-demand draft, the bot asks a four-choice media question: text
+  only, AI image, send your own image, or a video prompt the operator uses to
+  create the clip and upload it back.
 - Media jobs run through `CONTENT_MEDIA_STUDIO_URL` (Media Studio), with
   driver selection via `CONTENT_MEDIA_IMAGE_DRIVER` and
-  `CONTENT_MEDIA_VIDEO_DRIVER`.
-- Media preview messages carry New attempt / Text only actions; approval
-  happens on the text draft; publishing sends text then media to the channel.
-- Owner feedback is learned into writer guidance.
-- Telegram API client now supports multipart photo/video uploads.
+  `CONTENT_MEDIA_VIDEO_DRIVER` (Flow stays experimental).
+- Operator uploads are stored locally; photos are sent through the Media
+  Studio `/brand` endpoint so they carry the same corner chip as AI images.
+- Media preview buttons match the source: AI previews offer New attempt /
+  Text only, upload previews offer Approve / Reject / Text only; publishing
+  sends one media message with a bold-title caption and continuation
+  messages when the body exceeds the 1024-character caption limit.
+- Owner feedback is learned into writer guidance; body copy renders with
+  RTL-safe lines and writer replies with legacy-charset mojibake are repaired
+  or refused.
+- Telegram API client supports multipart photo/video uploads and raw binary
+  requests.
 
 ### Limits in Phase 1
 
-- Google Flow returns one clip of roughly 8-10 seconds per job. Choosing "up
-  to 30 seconds" records the intent; true multi-scene composition is Phase 3.
+- Google Flow returns one clip of roughly 8-10 seconds per job and needs
+  interactive confirmations plus a signed-in session; true multi-scene
+  composition is Phase 3, and the supported video path is the operator-created
+  prompt + upload flow.
 - The media question is only asked for operator-driven (`on_demand`) drafts,
   not for scheduled daily proposals.
 - Publish adapters beyond Telegram are not implemented yet.
@@ -134,6 +146,8 @@ CONTENT_MEDIA_STUDIO_TOKEN          Bearer token for Media Studio
 CONTENT_MEDIA_IMAGE_DRIVER          image driver (default api-image)
 CONTENT_MEDIA_VIDEO_DRIVER          video driver (default flow-video)
 CONTENT_MEDIA_JOB_TIMEOUT_SECONDS   max wait for one media job (default 1200)
+MEDIA_STUDIO_BRAND_LABEL           brand chip text, blank disables (default Locallab)
+MEDIA_STUDIO_BRAND_POSITION        chip corner: bottom-right/left, top-right/left
 CONTENT_SEARCH_ENABLED              topic/short-page search (default true)
 CONTENT_TOPIC_DRAFTS_ENABLED        draft from topic messages (default true)
 CONTENT_SEARCH_MAX_RESULTS          search results used (default 5)

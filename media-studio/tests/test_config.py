@@ -34,6 +34,28 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.writer_base_url, "https://api.example.test/v1")
         self.assertEqual(settings.writer_model, "image-model")
 
+    def test_brand_defaults_and_env_override(self):
+        settings = Settings.from_env()
+        self.assertEqual(settings.brand_label, "Locallab")
+        self.assertEqual(settings.brand_position, "bottom-right")
+        with patch.dict(
+            os.environ,
+            {
+                "MEDIA_STUDIO_BRAND_LABEL": "MyBrand",
+                "MEDIA_STUDIO_BRAND_POSITION": "top-left",
+            },
+            clear=False,
+        ):
+            overridden = Settings.from_env()
+        self.assertEqual(overridden.brand_label, "MyBrand")
+        self.assertEqual(overridden.brand_position, "top-left")
+        with patch.dict(
+            os.environ,
+            {"MEDIA_STUDIO_BRAND_LABEL": ""},
+            clear=False,
+        ):
+            self.assertEqual(Settings.from_env().brand_label, "")
+
     def test_writer_falls_back_to_content_env(self):
         with patch.dict(
             os.environ,

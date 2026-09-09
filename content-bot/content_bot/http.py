@@ -24,12 +24,22 @@ def request_bytes(
     method: str | None = None,
     headers: dict | None = None,
     payload: dict | None = None,
+    raw_body: bytes | None = None,
+    content_type: str | None = None,
     timeout: int = 30,
     max_bytes: int = 4_000_000,
 ) -> tuple[int, bytes]:
-    """Perform one HTTP request and return ``(status, body)``."""
-    data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    content_type = "application/json" if payload is not None else None
+    """Perform one HTTP request and return ``(status, body)``.
+
+    Either a JSON ``payload`` or pre-encoded ``raw_body`` can be sent; when
+    neither is given the request has no body. ``content_type`` is guessed for
+    JSON payloads and can be set explicitly for raw bodies.
+    """
+    data = raw_body if raw_body is not None else None
+    if data is None and payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+    if content_type is None:
+        content_type = "application/json" if payload is not None else None
     return _request(url, data=data, headers=headers, content_type=content_type, method=method, timeout=timeout, max_bytes=max_bytes)
 
 

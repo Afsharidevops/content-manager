@@ -102,6 +102,26 @@ class MediaStudio:
             raise MediaStudioError("artifact download returned an empty file")
         return body
 
+    def brand_image(self, content: bytes, *, content_type: str = "image/png") -> bytes:
+        """Ask Media Studio to draw its configured brand chip on one image."""
+        if not content:
+            return content
+        headers = self._headers()
+        headers["Content-Type"] = content_type
+        try:
+            status, body = self.request_bytes(
+                self._url("brand"),
+                raw_body=content,
+                headers=headers,
+                timeout=180,
+                max_bytes=60_000_000,
+            )
+        except ConnectionError as error:
+            raise MediaStudioError(f"branding network error: {error}") from error
+        if status >= 400:
+            raise MediaStudioError(f"branding failed with HTTP {status}")
+        return body or content
+
     @staticmethod
     def pick_artifact(job: dict) -> tuple[str, str] | None:
         """Return ``(name, kind)`` for the first usable media artifact."""

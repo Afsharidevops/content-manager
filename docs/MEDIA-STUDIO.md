@@ -118,6 +118,12 @@ curl http://127.0.0.1:8850/jobs/<id> -H 'Authorization: Bearer <token>'
 curl -OJ http://127.0.0.1:8850/artifacts/<id>/<filename> \
   -H 'Authorization: Bearer <token>'
 
+# brand one raw image (used by the Content Bot for operator uploads)
+curl -X POST http://127.0.0.1:8850/brand \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: image/png' \
+  --data-binary @photo.png -o branded.png
+
 # cancel a queued job
 curl -X DELETE http://127.0.0.1:8850/jobs/<id> \
   -H 'Authorization: Bearer <token>'
@@ -131,7 +137,17 @@ curl -X POST http://127.0.0.1:8850/session/probe \
 
 Endpoints: `GET /healthz`, `GET /session/info`, `POST /session/probe`,
 `POST /jobs`, `GET /jobs`, `GET /jobs/<id>` (includes the log tail),
-`DELETE /jobs/<id>`, `GET /artifacts/<id>/<name>`.
+`DELETE /jobs/<id>`, `GET /artifacts/<id>/<name>`, `POST /brand`.
+
+### Brand chip
+
+Every raster artifact produced by an image driver gets a small translucent
+brand chip in one corner. Operator-uploaded photos reach the same chip
+through `POST /brand` (the Content Bot calls it automatically). Configure
+with `MEDIA_STUDIO_BRAND_LABEL` (default `Locallab`, blank disables branding)
+and `MEDIA_STUDIO_BRAND_POSITION` (`bottom-right` default; also
+`bottom-left`, `top-right`, `top-left`). Jobs can opt out per request with
+`"params": {"brand": false}`.
 
 ## Selector calibration
 

@@ -38,6 +38,8 @@ class Settings:
     writer_api_key: str = ""
     writer_model: str = ""
     image_size: str = "1024x1024"
+    brand_label: str = "Locallab"
+    brand_position: str = "bottom-right"
     session_mode: str = "cdp"
     cdp_url: str = "http://127.0.0.1:9222"
     headless: bool = True
@@ -56,6 +58,8 @@ class Settings:
             for part in _env("MEDIA_STUDIO_DRIVERS", "api-image,flow-video").split(",")
             if part.strip()
         )
+        raw_brand = os.environ.get("MEDIA_STUDIO_BRAND_LABEL")
+        brand_label = raw_brand.strip() if raw_brand is not None else "Locallab"
         return cls(
             data_dir=_env("MEDIA_STUDIO_DATA_DIR", "/data"),
             bind_ip=_env("MEDIA_STUDIO_BIND_IP", "127.0.0.1"),
@@ -66,6 +70,8 @@ class Settings:
             writer_api_key=_env("MEDIA_STUDIO_WRITER_API_KEY") or _env("CONTENT_WRITER_API_KEY"),
             writer_model=_env("MEDIA_STUDIO_WRITER_MODEL") or _env("CONTENT_WRITER_MODEL", "auto"),
             image_size=_env("MEDIA_STUDIO_IMAGE_SIZE", "1024x1024"),
+            brand_label=brand_label,
+            brand_position=_env("MEDIA_STUDIO_BRAND_POSITION", "bottom-right"),
             session_mode=_env("MEDIA_STUDIO_SESSION_MODE", "cdp").lower(),
             cdp_url=_env("MEDIA_STUDIO_CDP_URL", "http://127.0.0.1:9222"),
             headless=_env_bool("MEDIA_STUDIO_HEADLESS", True),

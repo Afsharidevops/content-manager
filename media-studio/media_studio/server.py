@@ -9,6 +9,7 @@ Endpoints:
   GET  /jobs/<id>
   DELETE /jobs/<id>              cancel while queued
   GET  /artifacts/<id>/<name>
+  POST /brand                    raw image bytes in, branded image bytes out
 """
 
 from __future__ import annotations
@@ -18,15 +19,37 @@ import json
 import logging
 import mimetypes
 import os
+import tempfile
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from media_studio import branding as branding_mod
 from media_studio.drivers import DRIVERS, PROBE
 from media_studio.runner import JobQueue
 from media_studio.state import StateStore
 
 LOGGER = logging.getLogger("media_studio.server")
 MAX_BODY = 512 * 1024
+MAX_IMAGE_UPLOAD = 32 * 1024 * 1024
+
+
+def _binary_response(handler: BaseHTTPRequestHandler, status: int, body: bytes) -> None:
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/octet-stream")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _image_suffix(content_type: str) -> str:
+    media_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    return {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+    }.get(media_type, ".img")
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
@@ -69,6 +92,45 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
         header = self.headers.get("Authorization", "")
         expected = f"Bearer {token}"
         return hmac.compare_digest(header.encode(), expected.encode())
+
+    def _brand_image(self) -> None:
+        """POST /brand with raw image bytes returns the branded image."""
+        label = str(getattr(self.settings, "brand_label", "") or "").strip()
+        position = str(getattr(self.settings, "brand_position", "") or "bottom-right")
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0 or length > MAX_IMAGE_UPLOAD:
+            _json_response(self, 413, {"error": "Image body must be between 1 byte and 32 MiB."})
+            return
+        raw = self.rfile.read(length)
+        if not raw:
+            _json_response(self, 400, {"error": "Empty image body."})
+            return
+        if not label:
+            _binary_response(self, 200, raw)
+            return
+        suffix = _image_suffix(self.headers.get("Content-Type", ""))
+        tmp_path = ""
+        try:
+            descriptor, tmp_path = tempfile.mkstemp(prefix="brand-", suffix=suffix, dir=self.settings.data_dir)
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(raw)
+            try:
+                branding_mod.apply_brand_overlay(tmp_path, label, position=position)
+            except Exception as exc:  # noqa: BLE001 - never fail a job over branding
+                LOGGER.warning("brand endpoint overlay failed: %s", exc)
+            with open(tmp_path, "rb") as handle:
+                result = handle.read()
+        except OSError as exc:
+            LOGGER.warning("brand endpoint could not process upload: %s", exc)
+            _json_response(self, 500, {"error": "Could not process the image."})
+            return
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        _binary_response(self, 200, result)
 
     def _route(self, parts: list[str]) -> None:
         method = self.command
@@ -114,6 +176,9 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
                 _json_response(self, 400, {"error": str(exc)})
                 return
             _json_response(self, 202, {"job": job.to_dict()})
+            return
+        if method == "POST" and parts == ["brand"]:
+            self._brand_image()
             return
         if method == "POST" and parts == ["jobs"]:
             try:

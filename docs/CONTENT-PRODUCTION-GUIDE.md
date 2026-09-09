@@ -91,7 +91,8 @@ question with four choices:
   (`CONTENT_MEDIA_IMAGE_DRIVER`, default `api-image`) and shows the result for
   review.
 - **Send my image** - the bot waits for a photo you send in the chat and
-  attaches it to the draft. Uploaded files are never branded or altered.
+  attaches it to the draft. Uploaded photos get the same corner brand chip as
+  AI-generated images; uploaded videos are stored unchanged.
 - **My video (get a prompt)** - the bot composes a ready-to-use video prompt
   from the post title and body. Create the clip yourself in any tool (for
   example Google Flow), then send the video file back in the chat; the bot
@@ -102,6 +103,12 @@ upload** button and new drafts are blocked until the upload is cancelled or
 completed. Sending a file while no draft is waiting is rejected with an
 explanation; sending the wrong media kind for a waiting draft keeps the draft
 waiting.
+
+The brand chip is configurable on Media Studio: `MEDIA_STUDIO_BRAND_LABEL`
+(default `Locallab`, blank disables branding) and
+`MEDIA_STUDIO_BRAND_POSITION` (default `bottom-right`). Every AI-generated
+image and every uploaded photo is branded in a corner before it is previewed
+or published.
 
 Experimental AI video jobs (`CONTENT_MEDIA_VIDEO_DRIVER`, default
 `flow-video`) can still be triggered from older media questions, but Google

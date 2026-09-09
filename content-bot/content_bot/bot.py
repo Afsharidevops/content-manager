@@ -452,6 +452,8 @@ class ContentBot:
             str(attachment.get("file_name") or ""),
             str(attachment["kind"]),
         )
+        if attachment["kind"] == "image":
+            content = self._brand_uploaded_image(content, extension)
         media_dir = Path(self.settings.data_dir) / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
         local_path = media_dir / f"{draft_id}.{extension}"
@@ -503,6 +505,30 @@ class ContentBot:
                 chat_id,
                 "Media received, but the preview could not be sent.",
             )
+
+    _IMAGE_CONTENT_TYPES = {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "webp": "image/webp",
+        "bmp": "image/bmp",
+    }
+
+    def _brand_uploaded_image(self, content: bytes, extension: str) -> bytes:
+        """Ask Media Studio for its brand chip; keep the upload on failure."""
+        media = getattr(self, "media", None)
+        if media is None or not hasattr(media, "brand_image"):
+            return content
+        content_type = self._IMAGE_CONTENT_TYPES.get(
+            str(extension or "").lower(),
+            "image/png",
+        )
+        try:
+            branded = media.brand_image(content, content_type=content_type)
+        except media_mod.MediaStudioError as error:
+            log.warning("uploaded image branding skipped: %s", error)
+            return content
+        return branded or content
 
     def _user_video_prompt(self, record: dict) -> str:
         title = str(record.get("title") or "").strip()

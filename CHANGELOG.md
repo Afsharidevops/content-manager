@@ -104,7 +104,8 @@ platform; this section tracks the fork additions.
   prompt so the operator creates the clip elsewhere and uploads it.
 - Upload handling is guarded per draft: a Cancel button, wrong-kind rejection,
   size checks, and blocked new drafts while an upload is pending; uploaded
-  files are stored locally and are never branded or altered.
+  files are stored locally, and uploaded photos are branded by Media Studio
+  like AI images while uploaded videos stay unchanged.
 - Media preview buttons now match the media source: retry options for
   AI-generated media and Approve/Reject options for operator uploads.
 - Mixed Persian/Latin post bodies render RTL-safe in Telegram: every line that
@@ -113,6 +114,22 @@ platform; this section tracks the fork additions.
 - Writer replies that arrive as legacy-charset mojibake are repaired
   automatically; replies that cannot be repaired are refused instead of being
   published as garbage.
+
+### Fork additions — configurable corner brand chip (2026-09-09)
+
+- Added `media-studio/media_studio/branding.py`: a translucent rounded chip
+  with the configured brand label is drawn in a corner of every raster
+  artifact produced by an image driver. The chip is disabled when the label
+  is blank, and jobs can opt out with `"params": {"brand": false}`.
+- Media Studio exposes `POST /brand` (raw image bytes in, branded bytes out);
+  the Content Bot calls it for every uploaded photo so operator media carries
+  the same brand as AI images. Branding failures never fail a job or an
+  upload; the original file is kept.
+- Configuration: `MEDIA_STUDIO_BRAND_LABEL` (default `Locallab`, blank
+  disables) and `MEDIA_STUDIO_BRAND_POSITION` (default `bottom-right`, also
+  `bottom-left`, `top-right`, `top-left`), wired through `docker-compose.yml`
+  and `.env.example`.
+- Media Studio gained Pillow as a runtime dependency for the overlay.
 
 ---
 

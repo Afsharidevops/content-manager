@@ -96,6 +96,16 @@ class FakeMedia:
         self.job_ids = []
         self.status_by_job = {}
         self.artifact = artifact
+        self.brand_calls = []
+        self.fail_brand = False
+
+    def brand_image(self, content, *, content_type="image/png"):
+        if self.fail_brand:
+            from content_bot.mediastudio import MediaStudioError
+
+            raise MediaStudioError("brand service unavailable")
+        self.brand_calls.append(content_type)
+        return b"branded:" + content
 
     def submit(self, driver, prompt, params=None):
         self.submits.append((driver, prompt, params or {}))
@@ -735,6 +745,9 @@ class MediaFlowTestCase(unittest.TestCase):
         self.assertEqual(record["media"]["driver"], "user-upload")
         self.assertEqual(record["media"]["kind"], "image")
         self.assertTrue(Path(record["media"]["local_path"]).is_file())
+        stored = Path(record["media"]["local_path"]).read_bytes()
+        self.assertTrue(stored.startswith(b"branded:"))
+        self.assertEqual(self.media.brand_calls, ["image/jpeg"])
         preview = [
             u for u in self.api.uploads if u[0] == "sendPhoto" and u[1]["chat_id"] == 11
         ]
@@ -752,6 +765,55 @@ class MediaFlowTestCase(unittest.TestCase):
         ]
         self.assertEqual(len(published), 1)
         self.assertTrue(published[0][1]["caption"].startswith("<b>"))
+
+    def test_uploaded_image_branding_failure_keeps_original(self):
+        bot = self.build_bot(artifact=("image_0.png", "image"))
+        self.media.fail_brand = True
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [{"file_id": "big", "file_size": 500, "width": 100, "height": 100}],
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ready")
+        self.assertEqual(Path(record["media"]["local_path"]).read_bytes(), b"fake-media-bytes")
+
+    def test_uploaded_video_is_not_branded(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:video_prompt:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "video": {
+                    "file_id": "vid1",
+                    "mime_type": "video/mp4",
+                    "file_name": "clip.mp4",
+                },
+            }
+        )
+        self.assertEqual(self.media.brand_calls, [])
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ready")
 
     def test_video_prompt_then_uploaded_video_publishes(self):
         bot = self.build_bot(artifact=("clip.mp4", "video"))

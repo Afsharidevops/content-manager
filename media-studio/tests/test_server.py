@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import shutil
@@ -143,3 +144,80 @@ class HandlerFactoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrandServerTests(unittest.TestCase):
+    """POST /brand returns the image with the configured brand chip."""
+
+    def setUp(self):
+        import base64
+
+        self.dir = tempfile.mkdtemp(prefix="ms-brand-srv-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.settings = Settings(data_dir=self.dir, drivers=("fake",), api_token="test-token")
+        self.state = StateStore(os.path.join(self.dir, "jobs.json"))
+        self.queue = JobQueue(self.settings, self.state, driver_factory=factory)
+        self.queue.start()
+        self.addCleanup(self.queue.stop)
+
+        class Bound(MediaStudioHandler):
+            settings = self.settings
+            state = self.state
+            queue = self.queue
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Bound)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.httpd.shutdown)
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        from PIL import Image
+
+        image = Image.new("RGB", (220, 160), "white")
+        buffer = tempfile.SpooledTemporaryFile(max_size=0)
+        image.save(buffer, format="PNG")
+        buffer.seek(0)
+        self.png = buffer.read()
+
+    def _raw(self, method, path, body, content_type, token=True):
+        headers = {"Content-Type": content_type}
+        if token:
+            headers["Authorization"] = "Bearer test-token"
+        request = urllib.request.Request(self.base + path, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read()
+
+    def test_brand_endpoint_requires_token(self):
+        status, body = self._raw("POST", "/brand", self.png, "image/png", token=False)
+        self.assertEqual(status, 401)
+        self.assertIn(b"error", body)
+
+    def test_brand_endpoint_draws_chip(self):
+        status, body = self._raw("POST", "/brand", self.png, "image/png", token=True)
+        self.assertEqual(status, 200)
+        self.assertNotEqual(body, self.png)
+        from PIL import Image as PilImage
+
+        with PilImage.open(io.BytesIO(body)) as image:
+            rgb = image.convert("RGB")
+        width, height = rgb.size
+        corner = rgb.crop((width * 3 // 4, height * 3 // 4, width, height))
+        self.assertTrue(any(pixel[0] < 120 for pixel in corner.getdata()))
+
+    def test_brand_endpoint_passthrough_when_label_disabled(self):
+        bound = self.httpd.RequestHandlerClass
+        original = bound.settings
+        bound.settings = Settings(
+            data_dir=self.dir,
+            drivers=("fake",),
+            api_token="test-token",
+            brand_label="",
+        )
+        try:
+            status, body = self._raw("POST", "/brand", self.png, "image/png", token=True)
+        finally:
+            bound.settings = original
+        self.assertEqual(status, 200)
+        self.assertEqual(body, self.png)

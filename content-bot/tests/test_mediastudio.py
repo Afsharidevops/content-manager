@@ -72,3 +72,41 @@ class MediaStudioTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MediaStudioBrandTests(unittest.TestCase):
+    def test_brand_image_sends_raw_body_and_returns_branded_bytes(self):
+        captured = {}
+
+        def raw_responder(url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return (200, b"branded-image")
+
+        client = MediaStudio("http://ms:8850", "tok", request_bytes_fn=raw_responder)
+        result = client.brand_image(b"raw-image", content_type="image/jpeg")
+        self.assertEqual(result, b"branded-image")
+        self.assertEqual(captured["raw_body"], b"raw-image")
+        self.assertEqual(captured["headers"]["Content-Type"], "image/jpeg")
+        self.assertEqual(captured["headers"]["Authorization"], "Bearer tok")
+        self.assertTrue(str(captured["url"]).endswith("/brand"))
+
+    def test_brand_image_returns_original_when_body_empty(self):
+        client = MediaStudio("http://ms:8850", request_bytes_fn=lambda url, **kwargs: (200, b"x"))
+        self.assertEqual(client.brand_image(b""), b"")
+
+    def test_brand_image_http_error_raises(self):
+        client = MediaStudio(
+            "http://ms:8850",
+            request_bytes_fn=lambda url, **kwargs: (500, b"boom"),
+        )
+        with self.assertRaisesRegex(MediaStudioError, "HTTP 500"):
+            client.brand_image(b"raw-image")
+
+    def test_brand_image_network_error_raises(self):
+        def offline(url, **kwargs):
+            raise ConnectionError("unreachable")
+
+        client = MediaStudio("http://ms:8850", request_bytes_fn=offline)
+        with self.assertRaisesRegex(MediaStudioError, "network"):
+            client.brand_image(b"raw-image")
