@@ -81,6 +81,48 @@ def request_multipart(
     )
 
 
+def request_multipart_many(
+    url: str,
+    *,
+    fields: dict | None = None,
+    files: list[tuple[str, str, bytes]] | None = None,
+    headers: dict | None = None,
+    timeout: int = 240,
+    max_bytes: int = 80_000_000,
+) -> tuple[int, bytes]:
+    """Perform one multipart/form-data upload with several file parts."""
+    boundary = f"----ContentBot{uuid.uuid4().hex}"
+    parts: list[bytes] = []
+    for name, value in (fields or {}).items():
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'.encode(
+                "utf-8"
+            )
+        )
+        parts.append(str(value).encode("utf-8"))
+        parts.append(b"\r\n")
+    for file_field, filename, file_bytes in files or []:
+        parts.append(
+            (
+                f'--{boundary}\r\nContent-Disposition: form-data; '
+                f'name="{file_field}"; filename="{filename}"\r\n'
+                "Content-Type: application/octet-stream\r\n\r\n"
+            ).encode("utf-8")
+        )
+        parts.append(file_bytes)
+        parts.append(b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return _request(
+        url,
+        data=b"".join(parts),
+        headers=headers,
+        content_type=f"multipart/form-data; boundary={boundary}",
+        method=None,
+        timeout=timeout,
+        max_bytes=max_bytes,
+    )
+
+
 def _request(
     url: str,
     *,

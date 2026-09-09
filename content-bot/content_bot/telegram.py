@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from content_bot.http import HttpError as _HttpError
+from content_bot.http import request_multipart_many
 from content_bot.http import request_bytes, request_multipart
 from content_bot.http import HttpError, request_json
 
@@ -113,6 +114,52 @@ class TelegramApi:
             file_bytes=file_bytes,
         )
         return result if isinstance(result, dict) else {}
+
+    def send_media_group(
+        self,
+        chat_id,
+        files: list[tuple[str, bytes]],
+        *,
+        caption: str = "",
+        parse_mode: str | None = None,
+    ) -> dict:
+        """Send several photos as one Telegram media group (album)."""
+        media_items: list[dict] = []
+        for index, (_filename, _bytes) in enumerate(files):
+            item = {"type": "photo", "media": f"attach://photo{index}"}
+            if index == 0:
+                if caption:
+                    item["caption"] = caption
+                if parse_mode is not None:
+                    item["parse_mode"] = parse_mode
+            media_items.append(item)
+        fields = {"chat_id": chat_id, "media": json.dumps(media_items)}
+        uploads = [
+            (f"photo{index}", filename, file_bytes)
+            for index, (filename, file_bytes) in enumerate(files)
+        ]
+        try:
+            status, body = request_multipart_many(
+                f"{self.root}/sendMediaGroup",
+                fields=fields,
+                files=uploads,
+                timeout=240,
+            )
+        except _HttpError as error:
+            raise TelegramError(f"Telegram sendMediaGroup HTTP {error.status}") from error
+        except ConnectionError as error:
+            raise TelegramError(f"Telegram sendMediaGroup network error: {error}") from error
+        try:
+            data = json.loads(body.decode("utf-8", "replace"))
+        except ValueError as error:
+            raise TelegramError(f"Telegram sendMediaGroup returned invalid JSON") from error
+        if not isinstance(data, dict) or data.get("ok") is not True:
+            description = data.get("description") if isinstance(data, dict) else str(data)
+            raise TelegramError(f"Telegram sendMediaGroup failed: {description}")
+        result = data.get("result")
+        if isinstance(result, list) and result:
+            return result[0] if isinstance(result[0], dict) else {}
+        return {}
 
     def get_me(self) -> dict:
         result = self._call("getMe")
@@ -232,6 +279,12 @@ def media_choice_keyboard(draft_id: str) -> dict:
             ],
             [
                 {
+                    "text": "Send several images",
+                    "callback_data": f"media:user_images:{draft_id}",
+                },
+            ],
+            [
+                {
                     "text": "My video (get a prompt)",
                     "callback_data": f"media:video_prompt:{draft_id}",
                 },
@@ -251,17 +304,43 @@ def upload_wait_keyboard(draft_id: str) -> dict:
     }
 
 
-def user_media_preview_keyboard(draft_id: str) -> dict:
+def instagram_approval_row(draft_id: str) -> list[dict]:
+    """Publish targets for one media draft when Instagram is configured."""
+    return [
+        {
+            "text": "Approve to Instagram",
+            "callback_data": f"approve_ig:{draft_id}",
+        },
+        {
+            "text": "Approve to Telegram + Instagram",
+            "callback_data": f"approve_both:{draft_id}",
+        },
+    ]
+
+
+def user_media_preview_keyboard(
+    draft_id: str,
+    *,
+    instagram: bool = False,
+    collecting: bool = False,
+) -> dict:
     """Approve/Reject plus text-only fallback for an operator-uploaded file."""
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "Approve", "callback_data": f"approve:{draft_id}"},
-                {"text": "Reject", "callback_data": f"reject:{draft_id}"},
-            ],
-            [{"text": "Text only", "callback_data": f"media:none:{draft_id}"}],
+    rows = [
+        [
+            {"text": "Approve", "callback_data": f"approve:{draft_id}"},
+            {"text": "Reject", "callback_data": f"reject:{draft_id}"},
         ]
-    }
+    ]
+    actions = []
+    if collecting:
+        actions.append(
+            {"text": "Done", "callback_data": f"media:done:{draft_id}"}
+        )
+    actions.append({"text": "Text only", "callback_data": f"media:none:{draft_id}"})
+    rows.append(actions)
+    if instagram:
+        rows.append(instagram_approval_row(draft_id))
+    return {"inline_keyboard": rows}
 
 
 def media_duration_keyboard(draft_id: str) -> dict:
@@ -301,20 +380,21 @@ def media_action_keyboard(draft_id: str) -> dict:
     }
 
 
-def media_preview_keyboard(draft_id: str) -> dict:
+def media_preview_keyboard(draft_id: str, *, instagram: bool = False) -> dict:
     """Approve/Reject plus media actions on one generated preview message."""
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "Approve", "callback_data": f"approve:{draft_id}"},
-                {"text": "Reject", "callback_data": f"reject:{draft_id}"},
-            ],
-            [
-                {"text": "New attempt", "callback_data": f"media:retry:{draft_id}"},
-                {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
-            ],
-        ]
-    }
+    rows = [
+        [
+            {"text": "Approve", "callback_data": f"approve:{draft_id}"},
+            {"text": "Reject", "callback_data": f"reject:{draft_id}"},
+        ],
+        [
+            {"text": "New attempt", "callback_data": f"media:retry:{draft_id}"},
+            {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
+        ],
+    ]
+    if instagram:
+        rows.append(instagram_approval_row(draft_id))
+    return {"inline_keyboard": rows}
 
 
 def discard_confirm_keyboard(draft_id: str) -> dict:

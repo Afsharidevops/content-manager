@@ -88,6 +88,13 @@ class FakeApi(TelegramApi):
         self.uploads.append((method, fields, file_field, filename, file_bytes))
         return {"ok": True, "result": {"message_id": 200 + len(self.uploads)}}
 
+    def send_media_group(self, chat_id, files, *, caption="", parse_mode=None):
+        self.uploads.append(("sendMediaGroup", {"chat_id": chat_id}, None, "", b""))
+        self.sent_messages.append(
+            {"chat_id": chat_id, "caption": caption, "parse_mode": parse_mode}
+        )
+        return {"message_id": 300 + len(self.uploads)}
+
 
 class FakeMedia:
     def __init__(self, artifact=("image_0.png", "image")):
@@ -168,7 +175,7 @@ class BotTestCase(unittest.TestCase):
             }
         )
         self.assertEqual(len(self.writer.calls), 1)
-        preview = self.api.sent_messages[-1]
+        preview = self.api.sent_messages[0]
         self.assertEqual(preview["chat_id"], 11)
         self.assertEqual(preview["parse_mode"], "HTML")
         self.assertTrue(preview["text"].startswith("Draft proposal\n<b>\u202b"))
@@ -1147,3 +1154,113 @@ class BotRtlRenderTest(unittest.TestCase):
         channel = self.bot.channel_text(self.record)
         self.assertIn("\u200fArgo Workflows", channel)
         self.assertNotIn("\u200fاگر با Kubernetes", channel)
+
+
+class MultiPhotoAndInstagramTests(BotTestCase):
+    def setUp(self):
+        super().setUp()
+        from content_bot.mediastudio import MediaStudio
+
+        class AskOnlyFakeMedia(FakeMedia):
+            def submit(self, driver, prompt, params=None):
+                from content_bot.mediastudio import MediaStudioError
+
+                raise MediaStudioError("ask only")
+
+        self.bot.media = AskOnlyFakeMedia()
+
+    def _draft_with_media_ask(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        self.api.calls.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qm1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"media:user_images:{draft_id}",
+            }
+        )
+        return draft_id
+
+    def _send_photo(self, draft_id, index):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [{"file_id": f"photo-{index}", "file_size": 1000}],
+            }
+        )
+
+    def test_send_several_images_collects_album(self):
+        draft_id = self._draft_with_media_ask()
+        self._send_photo(draft_id, 1)
+        self._send_photo(draft_id, 2)
+        record = self.bot.state.get_draft(draft_id)
+        self.assertEqual(record["status"], "media_ready")
+        self.assertTrue(record["media_collect"])
+        media = record["media"]
+        self.assertEqual(len(media["files"]), 2)
+        self.assertEqual(media["kind"], "image")
+        self.assertTrue(
+            any(method == "sendMediaGroup" for method, _, _, _, _ in self.api.uploads)
+        )
+
+    def test_done_closes_collection_and_publishes_album(self):
+        draft_id = self._draft_with_media_ask()
+        self._send_photo(draft_id, 1)
+        self._send_photo(draft_id, 2)
+        self.bot.handle_callback(
+            {
+                "id": "qdone",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"media:done:{draft_id}",
+            }
+        )
+        record = self.bot.state.get_draft(draft_id)
+        self.assertIsNone(record["media_wait_kind"])
+        self.assertEqual(len(record["media"]["files"]), 2)
+        self.api.uploads.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qappr",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        self.assertTrue(
+            any(method == "sendMediaGroup" for method, _, _, _, _ in self.api.uploads)
+        )
+        self.assertIsNone(self.bot.state.get_draft(draft_id))
+
+    def test_instagram_approval_buttons_require_configuration(self):
+        draft_id = self._draft_with_media_ask()
+        self._send_photo(draft_id, 1)
+        self.bot.handle_callback(
+            {
+                "id": "qdone",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"media:done:{draft_id}",
+            }
+        )
+        self.api.calls.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qig",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve_ig:{draft_id}",
+            }
+        )
+        answers = [payload for method, payload in self.api.calls if method == "answerCallbackQuery"]
+        self.assertTrue(any("Instagram is not configured" in a.get("text", "") for a in answers))
+        self.assertIsNotNone(self.bot.state.get_draft(draft_id))

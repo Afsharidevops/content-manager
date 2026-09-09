@@ -49,7 +49,7 @@ Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.2.0   Media 
 | Platform | State |
 | --- | --- |
 | Telegram | Live: link/topic drafts, daily proposals, image/video attach, Approve/Reject, channel publish |
-| Instagram | Pending: guided Meta setup checklist in `docs/INSTAGRAM-SETUP.md` |
+| Instagram | Official Meta Graph API: photos, carousels, and video via approve buttons; see `docs/INSTAGRAM-SETUP.md` |
 | Aparat / YouTube | Planned: not implemented yet |
 | Media assets | Optional: `media-studio` worker (API images now; Google Flow/Gemini via browser session) |
 
@@ -302,7 +302,7 @@ bash tests/test-manage-ux.sh
 
 - [Content layer](content/README.md) - package layout, policy schema, scoring
 - [Content production guide](docs/CONTENT-PRODUCTION-GUIDE.md) - bot flows and operations
-- [Instagram/Meta setup](docs/INSTAGRAM-SETUP.md) - pending platform checklist
+- [Instagram/Meta setup](docs/INSTAGRAM-SETUP.md) - official Graph API publishing
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing
 - [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
 - [Operations](docs/OPERATIONS.md) and [release process](docs/RELEASE-PROCESS.md)

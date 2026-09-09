@@ -1058,7 +1058,7 @@ PY
 }
 
 content_status() {
-  local profiles token channel users writer model scheduler daily_time
+  local profiles token channel users writer model scheduler daily_time ig_id ig_url
   profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
   if [[ ",$profiles," != *,content,* ]]; then
     printf 'Content Bot is not enabled in COMPOSE_PROFILES. Run ./manage.sh content-configure to enable it.\n'
@@ -1070,6 +1070,8 @@ content_status() {
   writer="$(env_value "$ENV_FILE" CONTENT_WRITER_BASE_URL)"
   model="$(env_value "$ENV_FILE" CONTENT_WRITER_MODEL)"
   scheduler="$(env_value "$ENV_FILE" CONTENT_SCHEDULER_ENABLED)"
+  ig_id="$(env_value "$ENV_FILE" INSTAGRAM_BUSINESS_ID)"
+  ig_url="$(env_value "$ENV_FILE" INSTAGRAM_MEDIA_PUBLIC_BASE_URL)"
   daily_time="$(sed -n 's/^  daily_proposal_time: //p' \
     "$ROOT_DIR/data/content-manager/config/editorial-policy.yaml" 2>/dev/null | head -n1 | tr -d '"')"
   printf 'Content Bot status\n'
@@ -1083,20 +1085,26 @@ content_status() {
   printf '  Writer endpoint: %s\n' "${writer:-not configured}"
   printf '  Writer model: %s\n' "${model:-auto}"
   printf '  Daily scheduler: %s at %s\n' "${scheduler:-true}" "${daily_time:-08:00}"
+  if [[ -n "$ig_id" && -n "$(env_value "$ENV_FILE" INSTAGRAM_ACCESS_TOKEN)" ]]; then
+    printf '  Instagram: enabled (business %s, public media URL %s)\n' "$ig_id" "${ig_url:-not set}"
+  else
+    printf '  Instagram: not configured (set INSTAGRAM_BUSINESS_ID / INSTAGRAM_ACCESS_TOKEN)\n'
+  fi
   printf '  Editorial policy: data/content-manager/config/editorial-policy.yaml\n'
   printf '  Discovery sources: data/content-manager/config/sources.yaml\n'
   printf '  Guide: docs/CONTENT-PRODUCTION-GUIDE.md\n'
 }
 
 content_connect_instagram() {
-  printf '%s\n' 'Instagram publishing is reserved for a later phase.'
-  printf '%s\n' 'The adapter keeps this as a pending manual checklist:'
+  printf '%s\n' 'Instagram/Meta setup checklist (official Graph API):'
   printf '%s\n' '  1. Convert the Instagram account to Business/Creator and link it to a Facebook Page.'
   printf '%s\n' '  2. Create a Meta Business app: https://developers.facebook.com/apps/creation/'
   printf '%s\n' '  3. Add the Instagram Graph API product and connect the Instagram account.'
   printf '%s\n' '  4. Grant instagram_basic and instagram_content_publish and generate a long-lived token.'
   printf '%s\n' 'Step-by-step guide: docs/INSTAGRAM-SETUP.md'
-  printf '%s\n' 'When the adapter ships, this command will validate the token and finish provisioning.'
+  printf '%s\n' 'Then set in your .env: INSTAGRAM_BUSINESS_ID, INSTAGRAM_ACCESS_TOKEN,'
+  printf '%s\n' 'and INSTAGRAM_MEDIA_PUBLIC_BASE_URL (public URL that serves data/content-bot/media),'
+  printf '%s\n' 'and restart the bot: ./manage.sh restart content'
 }
 
 content_configure() {

@@ -59,6 +59,11 @@ class BotSettings:
     topic_drafts_enabled: bool = True
     search_max_results: int = 5
     search_timeout: int = 25
+    instagram_business_id: str = ""
+    instagram_access_token: str = ""
+    instagram_media_public_base_url: str = ""
+    instagram_api_version: str = "v23.0"
+    instagram_poll_timeout_seconds: int = 600
 
     @classmethod
     def from_env(cls) -> "BotSettings":
@@ -84,4 +89,18 @@ class BotSettings:
             topic_drafts_enabled=_env_bool("CONTENT_TOPIC_DRAFTS_ENABLED", True),
             search_max_results=_env_int("CONTENT_SEARCH_MAX_RESULTS", 5),
             search_timeout=_env_int("CONTENT_SEARCH_TIMEOUT", 25),
+            instagram_business_id=_env("INSTAGRAM_BUSINESS_ID"),
+            instagram_access_token=_env("INSTAGRAM_ACCESS_TOKEN"),
+            instagram_media_public_base_url=_env(
+                "INSTAGRAM_MEDIA_PUBLIC_BASE_URL"
+            ),
+            instagram_api_version=_env("INSTAGRAM_API_VERSION", "v23.0"),
+            instagram_poll_timeout_seconds=_env_int(
+                "INSTAGRAM_POLL_TIMEOUT_SECONDS", 600
+            ),
         )
+
+    @property
+    def instagram_enabled(self) -> bool:
+        """True when enough Graph API configuration exists to publish."""
+        return bool(self.instagram_business_id and self.instagram_access_token)

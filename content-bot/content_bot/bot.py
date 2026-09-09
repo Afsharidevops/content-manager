@@ -206,6 +206,20 @@ class ContentBot:
         self.search_topic = search_topic or search_mod.search_topic
         self.now_fn = now_fn
         self._offset = 0
+        self._instagram = None
+
+    def _instagram_publisher(self):
+        """Lazy Instagram Graph API publisher bound to the configured account."""
+        if self._instagram is None and self.settings.instagram_enabled:
+            self._instagram = instagram_mod.InstagramPublisher(
+                self.settings.instagram_business_id,
+                self.settings.instagram_access_token,
+                media_base_url=self.settings.instagram_media_public_base_url,
+                media_root=self.settings.data_dir,
+                api_version=self.settings.instagram_api_version,
+                poll_timeout_seconds=self.settings.instagram_poll_timeout_seconds,
+            )
+        return self._instagram
 
     # ------------------------------------------------------------------ run
 
@@ -393,7 +407,13 @@ class ContentBot:
             if (
                 isinstance(record, dict)
                 and record.get("chat_id") == chat_id
-                and record.get("status") == "awaiting_media"
+                and (
+                    record.get("status") == "awaiting_media"
+                    or (
+                        record.get("status") == "media_ready"
+                        and bool(record.get("media_wait_kind"))
+                    )
+                )
             ):
                 return record
         return None
@@ -456,30 +476,76 @@ class ContentBot:
             content = self._brand_uploaded_image(content, extension)
         media_dir = Path(self.settings.data_dir) / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
-        local_path = media_dir / f"{draft_id}.{extension}"
+        collecting = attachment["kind"] == "image" and bool(draft.get("media_collect"))
+        previous_files: list = []
+        if collecting:
+            previous_files = list((draft.get("media") or {}).get("files") or [])
+        if collecting:
+            local_path = media_dir / f"{draft_id}-{len(previous_files) + 1}.{extension}"
+        else:
+            local_path = media_dir / f"{draft_id}.{extension}"
         try:
             local_path.write_bytes(content)
         except OSError as error:
             self.api.send_message(chat_id, f"Could not store the media file: {error}")
             return
         filename = local_path.name
-        media = {
-            "kind": attachment["kind"],
-            "driver": "user-upload",
-            "status": "done",
-            "artifact": filename,
-            "local_path": str(local_path),
-            "duration": "",
-        }
+        media = dict(draft.get("media") or {})
+        if not collecting:
+            media = {
+                "kind": attachment["kind"],
+                "driver": "user-upload",
+                "status": "done",
+                "artifact": filename,
+                "local_path": str(local_path),
+                "duration": "",
+            }
+        else:
+            files = list(previous_files)
+            files.append(
+                {"name": filename, "local_path": str(local_path), "kind": "image"}
+            )
+            media = {
+                "kind": "image",
+                "driver": "user-upload",
+                "status": "collecting",
+                "artifact": filename,
+                "local_path": str(local_path),
+                "duration": "",
+                "files": files,
+                "count": len(files),
+            }
         self.state.update_draft(
             draft_id,
             {
                 "status": "media_ready",
                 "media": media,
-                "media_wait_kind": None,
+                "media_wait_kind": "image" if collecting else None,
+                "media_collect": collecting or bool(draft.get("media_collect")),
             },
         )
         self._record_event(draft_id, "user_media_received", filename)
+        if collecting:
+            count = len(media["files"])
+            ask_id = draft.get("ask_message_id")
+            if ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"Photo {count} of up to 10 received. Send more photos or "
+                    "press Done on the preview to stop collecting.",
+                    telegram_mod.upload_wait_keyboard(draft_id),
+                )
+            self._delete_safe(chat_id, draft.get("preview_message_id"))
+            current = self.state.get_draft(draft_id)
+            if current is not None:
+                self.state.update_draft(draft_id, {"preview_message_id": None})
+            if not self._send_media_preview(draft_id, collecting=True):
+                self.api.send_message(
+                    chat_id,
+                    "Media received, but the preview could not be sent.",
+                )
+            return
         ask_id = draft.get("ask_message_id")
         if ask_id is not None:
             self._delete_safe(chat_id, int(ask_id))
@@ -545,6 +611,53 @@ class ContentBot:
             f"Title: {title}\n"
             f"Post: {body[:600]}"
         )
+
+    def _begin_user_image_wait(
+        self,
+        record: dict,
+        query_id: str,
+        *,
+        multi: bool,
+    ) -> None:
+        """Point the media ask message at a single or multi-photo upload."""
+        draft_id = str(record.get("id") or "")
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
+        if record.get("status") == "awaiting_media":
+            self._safe_answer(query_id, "Another media upload is already waiting.")
+            return
+        if chat_id is None or ask_id is None:
+            self._safe_answer(query_id, "Another media upload is already waiting.")
+            return
+        state: dict = {
+            "status": "awaiting_media",
+            "media_wait_kind": "image",
+            "media_collect": multi,
+        }
+        self.state.update_draft(draft_id, state)
+        if multi:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "Send several photos for this post. Send them one by one; "
+                "press Done on the preview when finished (up to 10, published "
+                "as an Instagram carousel and a Telegram album).",
+                telegram_mod.upload_wait_keyboard(draft_id),
+            )
+            self._record_event(draft_id, "media_collect_start")
+            self._safe_answer(
+                query_id,
+                "Send photos; press Done on the preview when finished.",
+            )
+        else:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "Send the photo for this post now. It will be attached "
+                "to the draft for approval.",
+                telegram_mod.upload_wait_keyboard(draft_id),
+            )
+            self._safe_answer(query_id, "Send the photo.")
 
     def _begin_user_media_wait(
         self,
@@ -867,15 +980,10 @@ class ContentBot:
             self._safe_answer(query_id, "Upload cancelled.")
             return
         if sub == "user_image":
-            if not self._begin_user_media_wait(
-                record,
-                kind="image",
-                ask_text="Send the photo for this post now. It will be attached "
-                "to the draft for approval.",
-            ):
-                self._safe_answer(query_id, "Another media upload is already waiting.")
-                return
-            self._safe_answer(query_id, "Send the photo.")
+            self._begin_user_image_wait(record, query_id, multi=False)
+            return
+        if sub == "user_images":
+            self._begin_user_image_wait(record, query_id, multi=True)
             return
         if sub == "video_prompt":
             if not self._begin_user_media_wait(
@@ -917,6 +1025,53 @@ class ContentBot:
             self._safe_answer(query_id, "Choose a duration.")
             return
         media = record.get("media") or {}
+        if sub == "done":
+            if not bool(record.get("media_collect")) or str(media.get("kind") or "") != "image":
+                self._safe_answer(query_id, "No photo collection is active for this draft.")
+                return
+            collected = list(media.get("files") or [])
+            if not collected:
+                self._safe_answer(query_id, "Send at least one photo first.")
+                return
+            first = collected[0]
+            self.state.update_draft(
+                draft_id,
+                {
+                    "status": "media_ready",
+                    "media": {
+                        "kind": "image",
+                        "driver": "user-upload",
+                        "status": "done",
+                        "artifact": str(first.get("name") or ""),
+                        "local_path": str(first.get("local_path") or ""),
+                        "duration": "",
+                        "files": collected,
+                        "count": len(collected),
+                    },
+                    "media_wait_kind": None,
+                    "media_collect": True,
+                },
+            )
+            self._record_event(draft_id, "media_collect_done", str(len(collected)))
+            chat_id = record.get("chat_id")
+            text_id = record.get("text_message_id")
+            if text_id is not None:
+                current = self.state.get_draft(draft_id)
+                if current is not None:
+                    self._edit_safe(
+                        chat_id,
+                        int(text_id),
+                        f"{self.preview_text(current)}\n\n"
+                        f"Photo collection closed with {len(collected)} photos; "
+                        "press Approve on the preview to publish.",
+                        telegram_mod.approval_keyboard(draft_id),
+                    )
+            self._delete_safe(chat_id, record.get("preview_message_id"))
+            if not self._send_media_preview(draft_id, collecting=True):
+                self._safe_answer(query_id, "Preview could not be sent.")
+                return
+            self._safe_answer(query_id, f"Collection closed with {len(collected)} photos.")
+            return
         if sub == "retry":
             driver = str(media.get("driver") or self.settings.image_driver)
             kind = str(media.get("kind") or "image")
@@ -1119,6 +1274,8 @@ class ContentBot:
         self,
         draft_id: str,
         keyboard=telegram_mod.media_preview_keyboard,
+        *,
+        collecting: bool = False,
     ) -> bool:
         """Send the stored media as a preview message; returns success."""
         record = self.state.get_draft(draft_id)
@@ -1126,9 +1283,43 @@ class ContentBot:
             return False
         media = record.get("media") or {}
         kind = str(media.get("kind") or "")
-        path = Path(str(media.get("local_path") or ""))
         chat_id = record.get("chat_id")
-        if kind not in {"image", "video"} or chat_id is None or not path.is_file():
+        if chat_id is None:
+            return False
+        files = list(media.get("files") or [])
+        use_album = collecting or len(files) >= 2
+        if use_album:
+            if kind != "image" or not files:
+                return False
+            entries: list[tuple[str, bytes]] = []
+            for item in files:
+                path = Path(str(item.get("local_path") or ""))
+                if not path.is_file():
+                    return False
+                try:
+                    entries.append((path.name, path.read_bytes()))
+                except OSError as error:
+                    log.warning(
+                        "media preview read failed for %s: %s", draft_id, error
+                    )
+                    return False
+            try:
+                sent = self.api.send_media_group(
+                    chat_id,
+                    entries,
+                    caption=f"Media preview for the draft above.\n{len(entries)} photos",
+                )
+            except telegram_mod.TelegramError as error:
+                log.warning(
+                    "media group preview send failed for %s: %s", draft_id, error
+                )
+                return False
+            message_id = sent.get("message_id")
+            if message_id is not None:
+                self.state.update_draft(draft_id, {"preview_message_id": message_id})
+            return True
+        path = Path(str(media.get("local_path") or ""))
+        if kind not in {"image", "video"} or not path.is_file():
             return False
         try:
             content = path.read_bytes()
@@ -1273,7 +1464,15 @@ class ContentBot:
         chat_id = record.get("chat_id")
         message_id = record.get("message_id")
         if action == "approve":
-            self._approve(query_id, record, chat_id, message_id)
+            self._approve(query_id, record, chat_id, message_id, targets=("telegram",))
+            return
+        if action in {"approve_ig", "approve_both"}:
+            targets = (
+                ("instagram",)
+                if action == "approve_ig"
+                else ("telegram", "instagram")
+            )
+            self._approve(query_id, record, chat_id, message_id, targets=targets)
             return
         if action == "cancel":
             self.state.update_draft(
@@ -1376,12 +1575,27 @@ class ContentBot:
         except telegram_mod.TelegramError as error:
             log.debug("callback answer skipped: %s", error)
 
-    def _approve(self, query_id: str, record: dict, chat_id, message_id) -> None:
+    def _approve(
+        self,
+        query_id: str,
+        record: dict,
+        chat_id,
+        message_id,
+        *,
+        targets: tuple[str, ...] = ("telegram",),
+    ) -> None:
         channel = self.settings.telegram_channel
-        if not channel:
+        if "telegram" in targets and not channel:
             self.api.answer_callback_query(
                 query_id,
                 "No publish channel is configured (CONTENT_TELEGRAM_CHANNEL).",
+            )
+            return
+        if "instagram" in targets and not self.settings.instagram_enabled:
+            self.api.answer_callback_query(
+                query_id,
+                "Instagram is not configured; set INSTAGRAM_BUSINESS_ID and "
+                "INSTAGRAM_ACCESS_TOKEN.",
             )
             return
         policy = workflow.load_policy(self.settings.policy_dir)
@@ -1413,10 +1627,27 @@ class ContentBot:
                 "Waiting for your media file; send it here or choose Text only first.",
             )
             return
+        if (
+            "instagram" in targets
+            and record.get("status") == "media_ready"
+            and not (record.get("media") or {}).get("files")
+            and str((record.get("media") or {}).get("kind") or "") not in {"image", "video"}
+        ):
+            self.api.answer_callback_query(
+                query_id,
+                "Instagram publishing needs photos or a video attached to the draft.",
+            )
+            return
         try:
+            instagram_result = None
+            if "instagram" in targets:
+                instagram_result = self._publish_to_instagram(record)
             self._publish_record(record)
         except telegram_mod.TelegramError as error:
             self.api.answer_callback_query(query_id, f"Publish failed: {error}")
+            return
+        except instagram_mod.InstagramError as error:
+            self.api.answer_callback_query(query_id, f"Instagram publish failed: {error}")
             return
         self.state.remember_published(
             str(record.get("content_hash") or ""),
@@ -1437,7 +1668,43 @@ class ContentBot:
                 )
             except telegram_mod.TelegramError:
                 pass
-        self.api.answer_callback_query(query_id, "Published to channel.")
+        label = " + ".join(target.capitalize() for target in targets)
+        self.api.answer_callback_query(query_id, f"Published to {label}.")
+
+    def _publish_to_instagram(self, record: dict) -> dict:
+        """Publish one approved draft to Instagram through the Graph API."""
+        publisher = self._instagram_publisher()
+        if publisher is None:
+            raise instagram_mod.InstagramError(
+                "Instagram is not configured (INSTAGRAM_BUSINESS_ID / "
+                "INSTAGRAM_ACCESS_TOKEN)."
+            )
+        media = record.get("media") or {}
+        items: list[dict] = []
+        files = list(media.get("files") or [])
+        if files:
+            items = [
+                {"kind": "image", "path": str(item.get("local_path") or "")}
+                for item in files
+            ]
+        elif str(media.get("kind") or "") in {"image", "video"}:
+            items = [
+                {
+                    "kind": str(media.get("kind") or ""),
+                    "path": str(media.get("local_path") or ""),
+                }
+            ]
+        if not items:
+            raise instagram_mod.InstagramError(
+                "Instagram publishing needs media attached to the draft; "
+                "text-only posts cannot be published to Instagram."
+            )
+        caption = instagram_mod.build_caption(
+            str(record.get("title") or ""),
+            str(record.get("body") or ""),
+            str(record.get("source_url") or ""),
+        )
+        return publisher.publish(caption, items)
 
     def _publish_record(self, record: dict) -> None:
         """Publish one approved draft to the Telegram channel."""
@@ -1445,6 +1712,30 @@ class ContentBot:
         media = record.get("media") or {}
         kind = str(media.get("kind") or "")
         local_path = str(media.get("local_path") or "")
+        files = list(media.get("files") or [])
+        if kind == "image" and len(files) >= 2:
+            messages = _media_caption_messages(record)
+            caption = messages[0]
+            entries: list[tuple[str, bytes]] = []
+            for item in files:
+                path = Path(str(item.get("local_path") or ""))
+                if not path.is_file():
+                    raise telegram_mod.TelegramError("media file is missing from storage")
+                try:
+                    entries.append((path.name, path.read_bytes()))
+                except OSError as error:
+                    raise telegram_mod.TelegramError(
+                        f"media file could not be read: {error}"
+                    ) from error
+            self.api.send_media_group(
+                channel,
+                entries,
+                caption=caption,
+                parse_mode="HTML",
+            )
+            for continuation in messages[1:]:
+                self.api.send_message(channel, continuation, parse_mode="HTML")
+            return
         if kind not in {"image", "video"} or not local_path:
             self.api.send_message(channel, self.channel_text(record), parse_mode="HTML")
             return

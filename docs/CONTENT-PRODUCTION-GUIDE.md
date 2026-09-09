@@ -212,7 +212,7 @@ Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
 | Platform | State |
 | --- | --- |
 | Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
-| Instagram | Pending: adapter designed in, manual Meta setup blocked for now; see `docs/INSTAGRAM-SETUP.md` |
+| Instagram | Official Meta Graph API: photos, carousels, and video; see `docs/INSTAGRAM-SETUP.md` |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
 
 ## Media assets
@@ -232,7 +232,7 @@ use (`docs/FLOW-UNLOCK-STANDALONE.md`), independent of the stack. See
 ```bash
 ./manage.sh pipeline-status            # Content Bot + Media Studio + API link status
 ./manage.sh content-status              # configuration summary, no secrets
-./manage.sh content-connect-instagram   # Instagram/Meta pending checklist
+./manage.sh content-connect-instagram   # Instagram/Meta setup checklist
 ./manage.sh content-configure           # reconfigure Content Bot settings only
 ./manage.sh logs content                # follow Content Bot logs
 ./manage.sh configure                   # change Content Bot settings later
