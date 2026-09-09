@@ -247,7 +247,7 @@ answer No to "Keep the Content Bot enabled?"; all data is kept.
 ## Image updates
 
 The `content-bot` image is published to Docker Hub as
-`afsharidevops/content-bot:0.1.0` (plus `:latest`) whenever Content Bot source
+`afsharidevops/content-bot:0.2.0` (plus `:latest`) whenever Content Bot source
 is pushed to the `main` branch of this repository. The server never builds the
 image locally; `install.sh` and `./manage.sh start` pull the published image.
 
@@ -261,7 +261,7 @@ See `docs/publishing/CONTENT-BOT-DOCKERHUB.md` for the publish workflow,
 required repository settings, and version bumps.
 
 The `media-studio` image is published the same way as
-`afsharidevops/media-studio:0.1.0`; see
+`afsharidevops/media-studio:0.2.0`; see
 `docs/publishing/MEDIA-STUDIO-DOCKERHUB.md`.
 
 ## Troubleshooting

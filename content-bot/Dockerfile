@@ -1,7 +1,7 @@
 FROM python:3.13-slim-bookworm
 
 LABEL org.opencontainers.image.title="Content Bot" \
-      org.opencontainers.image.version="0.1.0" \
+      org.opencontainers.image.version="0.2.0" \
       org.opencontainers.image.description="Telegram editorial bot: approve/reject drafts and publish to a channel"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

@@ -38,15 +38,19 @@ Current release state:
 
 Fork release state (Content Manager):
 
-- fork/content release: `content-manager-v0.1.0` (first fork release)
-- Content Bot image: `afsharidevops/content-bot:0.1.0`
+- fork/content release: `content-manager-v0.2.0`
+- Content Bot image: `afsharidevops/content-bot:0.2.0`
 - Content Bot mutable current tag: `afsharidevops/content-bot:latest`
+- Media Studio image: `afsharidevops/media-studio:0.2.0`
+- Media Studio mutable current tag: `afsharidevops/media-studio:latest`
 
-The Content Bot image is rebuilt and published by `.github/workflows/publish-content-bot.yml`
-on `main` pushes that touch the Content Bot build context; no image rebuild is
-needed for a plain fork release. Fork releases reuse the upstream versioning
-section only for inherited platform artifacts; the fork itself is versioned by
-the `content-manager-v*` release tags.
+The Content Bot and Media Studio images are rebuilt and published by
+`.github/workflows/publish-content-bot.yml` and
+`.github/workflows/publish-media-studio.yml` on `main` pushes that touch their
+build contexts; no image rebuild is needed for a plain fork release. Fork
+releases reuse the upstream versioning section only for inherited platform
+artifacts; the fork itself is versioned by the `content-manager-v*` release
+tags.
 
 For v0.5.9, automated acceptance passed and the release owner explicitly waived the remaining manual browser light/dark and mouse/trackpad interaction gate in order to finalize early. Record such waivers explicitly; never mark an unperformed check as passed.
 

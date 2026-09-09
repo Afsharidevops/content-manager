@@ -637,7 +637,7 @@ services:
   # read-only from the editorial working copy.
   content-bot:
     profiles: ["content"]
-    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.1.0}
+    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.2.0}
     container_name: content-bot
     restart: unless-stopped
     user: "${CONTENT_BOT_RUN_AS:-10004:10004}"
@@ -682,7 +682,7 @@ services:
   # GitHub Actions and published to Docker Hub.
   media-studio:
     profiles: ["media"]
-    image: ${MEDIA_STUDIO_IMAGE_REPOSITORY:-afsharidevops/media-studio}:${MEDIA_STUDIO_IMAGE_TAG:-0.1.0}
+    image: ${MEDIA_STUDIO_IMAGE_REPOSITORY:-afsharidevops/media-studio}:${MEDIA_STUDIO_IMAGE_TAG:-0.2.0}
     container_name: media-studio
     restart: unless-stopped
     user: "${MEDIA_STUDIO_RUN_AS:-10005:10005}"

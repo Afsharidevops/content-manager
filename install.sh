@@ -1807,7 +1807,7 @@ replace_env_value "$tmp_env" CONTENT_WRITER_API_KEY "$(dotenv_quote "$content_wr
 replace_env_value "$tmp_env" CONTENT_WRITER_MODEL "$(dotenv_quote "$content_writer_model")"
 replace_env_value "$tmp_env" CONTENT_SCHEDULER_ENABLED "$content_scheduler_enabled"
 replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_REPOSITORY "afsharidevops/media-studio"
-replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_TAG "0.1.0"
+replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_TAG "0.2.0"
 replace_env_value "$tmp_env" MEDIA_STUDIO_RUN_AS "$media_run_as"
 replace_env_value "$tmp_env" MEDIA_STUDIO_DRIVERS "$media_drivers"
 replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_BASE_URL "$(dotenv_quote "$media_writer_url")"

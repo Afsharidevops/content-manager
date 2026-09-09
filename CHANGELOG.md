@@ -12,6 +12,32 @@ platform (upstream unchanged) extended with a deterministic daily
 content-production layer. The upstream changelog below documents the inherited
 platform; this section tracks the fork additions.
 
+### Fork release — Content Manager v0.2.0 (2026-09-09)
+
+- Added `media-studio/`: a single-worker media job service with API image
+  generation through the selected writer gateway and optional Google
+  Flow/Gemini drivers driven over CDP. The `locallab-flow-unlock` extension
+  keeps `flow.google.com` usable on a laptop without stack components, and
+  `MEDIA_STUDIO_BLOCK_GEO_REDIRECT` / `MEDIA_STUDIO_FREEZE_ON_READY` keep a
+  container profile usable where Flow enforces the unsupported-country
+  redirect. Flow credit prompts are auto-approved and the download quality
+  selector is calibrated automatically.
+- The Content Bot accepts topics as well as links: a topic is searched and
+  drafted by the writer, and proposals can attach AI-generated or
+  operator-supplied images plus a video prompt flow through Media Studio.
+- Unified media publishing posts the draft and its media together with
+  caption continuation when the post exceeds one Telegram message, keeps the
+  title bold and RTL-safe, appends the source link once at the end, and
+  repairs mojibake writer replies.
+- A configurable corner brand chip (`MEDIA_STUDIO_BRAND_TEXT`) is stamped on
+  AI-generated and operator-uploaded images before approval.
+- `main` now supports both router backends (`9router` and `omniroute`) as
+  Compose profiles with install-time selection and backend switching; the
+  `hermes-omniroute-linux-stack` branch is obsolete. Installer options 5/6/7
+  keep the standalone and combined content pipeline router-free.
+- Component images advance to `0.2.0`: `afsharidevops/content-bot:0.2.0` and
+  `afsharidevops/media-studio:0.2.0` (plus `:latest`).
+
 ### Fork additions — content layer v0.1.0
 
 - Added the `content/` Python layer for deterministic discovery normalization,

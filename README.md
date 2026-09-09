@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0   Media Studio: 0.1.0
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.2.0   Media Studio: 0.2.0
 ```
 
 ## What it does
@@ -233,7 +233,7 @@ The `content-bot` image is built on GitHub Actions and published to Docker Hub
 whenever Content Bot source is pushed to `main`:
 
 ```text
-afsharidevops/content-bot:0.1.0
+afsharidevops/content-bot:0.2.0
 afsharidevops/content-bot:latest
 ```
 

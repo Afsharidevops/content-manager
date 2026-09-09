@@ -3,7 +3,7 @@
 ## Images
 
 ```text
-afsharidevops/content-bot:0.1.0
+afsharidevops/content-bot:0.2.0
 afsharidevops/content-bot:latest
 ```
 
@@ -14,7 +14,7 @@ linux/amd64
 linux/arm64
 ```
 
-Do not publish a redundant `v0.1.0` Docker tag.
+Do not publish a redundant `v0.2.0` Docker tag.
 
 ## How publishing works
 
@@ -24,11 +24,11 @@ Pushing `content-bot/`, `content/content_pipeline/`, or this workflow to the
 
 1. Runs the content-layer and Content Bot test suites.
 2. Builds the image for `linux/amd64` and `linux/arm64` with build metadata.
-3. Pushes `afsharidevops/content-bot:0.1.0` and `:latest` to Docker Hub.
+3. Pushes `afsharidevops/content-bot:0.2.0` and `:latest` to Docker Hub.
 4. Verifies the published multi-platform manifest.
 
 The workflow can also be started manually from the GitHub Actions tab
-(`workflow_dispatch`); manual runs publish the same `0.1.0` tag from `main`.
+(`workflow_dispatch`); manual runs publish the same `0.2.0` tag from `main`.
 
 ## Repository settings
 

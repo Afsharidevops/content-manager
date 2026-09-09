@@ -2,7 +2,7 @@
 
 ## Image
 
-`afsharidevops/media-studio` — tags `0.1.0` and `latest` (latest is pushed only
+`afsharidevops/media-studio` — tags `0.2.0` and `latest` (latest is pushed only
 for stable releases).
 
 ## Workflow

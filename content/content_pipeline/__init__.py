@@ -4,4 +4,4 @@ Pure, deterministic, offline-testable building blocks.  No module in this packag
 may open a network socket, read secrets, or require production credentials.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

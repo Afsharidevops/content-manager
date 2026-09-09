@@ -147,7 +147,7 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
                 self,
                 200,
                 {
-                    "version": "0.1.0",
+                    "version": "0.2.0",
                     "session_mode": settings.session_mode,
                     "cdp_url": settings.cdp_url if settings.session_mode == "cdp" else "",
                     "drivers": [
