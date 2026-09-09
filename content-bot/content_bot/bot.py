@@ -40,6 +40,77 @@ def _html_title(title: str) -> str:
     )
 
 
+_MEDIA_CAPTION_MAX = 1024
+_TEXT_MESSAGE_MAX = 4096
+
+
+def _media_caption(record: dict) -> str:
+    """Best-effort single caption (max 1024 chars) for one media post."""
+    return _media_caption_messages(record)[0]
+
+
+def _media_caption_messages(record: dict) -> list[str]:
+    """Split one media post into publishable HTML messages.
+
+    The first message is the media caption and never exceeds Telegram's
+    1024-character media caption limit. Any paragraphs that do not fit are
+    returned as continuation text messages so that no post content is lost.
+    When a continuation exists, the clickable source link moves to the end
+    of the last message instead of the caption.
+    """
+    url = str(record.get("source_url") or "").strip()
+    body = writer_mod.Writer._strip_source_url(str(record.get("body") or ""), url)
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", body) if part.strip()]
+    title_html = _html_title(record.get("title") or "")
+    link_html = f'<a href="{url}">{_html_escape(url)}</a>' if url else ""
+    suffix = f"\n\n{link_html}" if link_html else ""
+
+    def assemble(parts: list[str], *, with_link: bool) -> str:
+        body_html = "\n\n".join(_html_escape(part) for part in parts)
+        end = suffix if with_link else ""
+        return f"{title_html}\n\n{body_html}{end}"
+
+    if paragraphs and len(assemble(paragraphs, with_link=True)) <= _MEDIA_CAPTION_MAX:
+        return [assemble(paragraphs, with_link=True)]
+    caption_parts: list[str] = []
+    for part in paragraphs:
+        if len(assemble(caption_parts + [part], with_link=False)) <= _MEDIA_CAPTION_MAX:
+            caption_parts.append(part)
+        else:
+            break
+    rest = paragraphs[len(caption_parts):]
+    messages = [assemble(caption_parts, with_link=False)]
+    continuation: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for part in rest:
+        piece = _html_escape(part)
+        if len(piece) > _TEXT_MESSAGE_MAX:
+            if current:
+                continuation.append("\n\n".join(current))
+                current = []
+                current_len = 0
+            continuation.append(piece)
+            continue
+        added = len(piece) + (2 if current else 0)
+        if current and current_len + added > _TEXT_MESSAGE_MAX:
+            continuation.append("\n\n".join(current))
+            current = []
+            current_len = 0
+        current.append(piece)
+        current_len += len(piece) + (2 if len(current) > 1 else 0)
+    if current:
+        continuation.append("\n\n".join(current))
+    continuation[0] = "…\n\n" + continuation[0]
+    if suffix:
+        last = continuation[-1]
+        if len(last) + len(suffix) > _TEXT_MESSAGE_MAX:
+            continuation.append(suffix.lstrip("\n"))
+        else:
+            continuation[-1] = last + suffix
+    return messages + continuation
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -627,6 +698,13 @@ class ContentBot:
         now = self.now_fn()
         for draft_id, record in list((self.state.load().get("drafts") or {}).items()):
             if not isinstance(record, dict) or record.get("status") != "media_running":
+                if (
+                    isinstance(record, dict)
+                    and record.get("status") == "media_ready"
+                    and not record.get("preview_message_id")
+                ):
+                    if not self._send_media_preview(draft_id):
+                        self._media_failed(draft_id, "Media preview could not be sent.")
                 continue
             media = record.get("media") or {}
             job_id = str(media.get("job_id") or "")
@@ -701,7 +779,26 @@ class ContentBot:
             )
         if chat_id is not None and ask_id is not None:
             self._edit_safe(chat_id, int(ask_id), "Media ready.")
-        filename = name or f"{draft_id}.{extension}"
+        if not self._send_media_preview(draft_id):
+            self._media_failed(draft_id, "Media preview could not be sent.")
+
+    def _send_media_preview(self, draft_id: str) -> bool:
+        """Send the stored media as a preview message; returns success."""
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            return False
+        media = record.get("media") or {}
+        kind = str(media.get("kind") or "")
+        path = Path(str(media.get("local_path") or ""))
+        chat_id = record.get("chat_id")
+        if kind not in {"image", "video"} or chat_id is None or not path.is_file():
+            return False
+        try:
+            content = path.read_bytes()
+        except OSError as error:
+            log.warning("media preview read failed for %s: %s", draft_id, error)
+            return False
+        filename = path.name
         try:
             if kind == "image":
                 sent = self.api.send_photo(
@@ -709,7 +806,7 @@ class ContentBot:
                     filename,
                     content,
                     caption=f"Media preview for the draft above.\n{filename}",
-                    reply_markup=telegram_mod.media_action_keyboard(draft_id),
+                    reply_markup=telegram_mod.media_preview_keyboard(draft_id),
                 )
             else:
                 sent = self.api.send_video(
@@ -717,15 +814,15 @@ class ContentBot:
                     filename,
                     content,
                     caption=f"Media preview for the draft above.\n{filename}",
-                    reply_markup=telegram_mod.media_action_keyboard(draft_id),
+                    reply_markup=telegram_mod.media_preview_keyboard(draft_id),
                 )
         except telegram_mod.TelegramError as error:
-            self._media_failed(draft_id, f"Media preview could not be sent: {error}")
-            return
-        self.state.update_draft(
-            draft_id,
-            {"preview_message_id": sent.get("message_id")},
-        )
+            log.warning("media preview send failed for %s: %s", draft_id, error)
+            return False
+        message_id = sent.get("message_id")
+        if message_id is not None:
+            self.state.update_draft(draft_id, {"preview_message_id": message_id})
+        return True
 
     def _media_failed(self, draft_id: str, detail: str) -> None:
         record = self.state.get_draft(draft_id)
@@ -793,11 +890,16 @@ class ContentBot:
     def preview_text(self, record: dict) -> str:
         label = "Daily proposal" if record.get("kind") == "daily" else "Draft proposal"
         channel = self.settings.telegram_channel or "(no channel configured)"
+        body = str(record.get("body") or "")
+        source_url = str(record.get("source_url") or "")
+        source_line = ""
+        if source_url and source_url not in body:
+            source_line = f"\nSource: {_html_escape(source_url)}"
         return (
             f"{label}\n"
             f"{_html_title(str(record.get('title') or ''))}\n\n"
-            f"{_html_escape(str(record.get('body') or ''))}\n\n"
-            f"Source: {_html_escape(str(record.get('source_url') or ''))}\n"
+            f"{_html_escape(body)}\n"
+            f"{source_line}\n"
             f"Publish to {_html_escape(channel)}; reply with edit notes and "
             f"press Reject to revise; press Reject alone to discard."
         )
@@ -836,9 +938,38 @@ class ContentBot:
         if action == "approve":
             self._approve(query_id, record, chat_id, message_id)
             return
+        if action == "cancel":
+            self.state.update_draft(
+                draft_id,
+                {"discard_pending": False},
+            )
+            if chat_id is not None and message_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(message_id),
+                    self.preview_text(record),
+                    telegram_mod.approval_keyboard(draft_id),
+                )
+            self.api.answer_callback_query(query_id, "Draft kept.")
+            return
         if action == "reject":
             if record.get("feedback"):
                 self._revise_draft(query_id, record, chat_id, message_id)
+                return
+            if not record.get("discard_pending"):
+                self.state.update_draft(draft_id, {"discard_pending": True})
+                if chat_id is not None and message_id is not None:
+                    self._edit_safe(
+                        chat_id,
+                        int(message_id),
+                        "Really discard this draft? Press Reject again to "
+                        "delete it, or Cancel to keep it.",
+                        telegram_mod.discard_confirm_keyboard(draft_id),
+                    )
+                self.api.answer_callback_query(
+                    query_id,
+                    "Press Reject again to confirm discarding.",
+                )
                 return
             self.state.drop_draft(draft_id)
             self._delete_safe(chat_id, record.get("ask_message_id"))
@@ -878,6 +1009,7 @@ class ContentBot:
             "source_url": post["source_url"] or str(record.get("source_url") or ""),
             "updated_at": self.now_fn().isoformat(),
             "feedback": [],
+            "discard_pending": False,
         }
         self.state.update_draft(draft_id, updated)
         preview = self.preview_text({**record, **updated})
@@ -967,11 +1099,11 @@ class ContentBot:
     def _publish_record(self, record: dict) -> None:
         """Publish one approved draft to the Telegram channel."""
         channel = self.settings.telegram_channel
-        self.api.send_message(channel, self.channel_text(record), parse_mode="HTML")
         media = record.get("media") or {}
         kind = str(media.get("kind") or "")
         local_path = str(media.get("local_path") or "")
         if kind not in {"image", "video"} or not local_path:
+            self.api.send_message(channel, self.channel_text(record), parse_mode="HTML")
             return
         path = Path(local_path)
         if not path.is_file():
@@ -980,10 +1112,26 @@ class ContentBot:
             content = path.read_bytes()
         except OSError as error:
             raise telegram_mod.TelegramError(f"media file could not be read: {error}") from error
+        messages = _media_caption_messages(record)
+        caption = messages[0]
         if kind == "image":
-            self.api.send_photo(channel, path.name, content)
+            self.api.send_photo(
+                channel,
+                path.name,
+                content,
+                caption=caption,
+                parse_mode="HTML",
+            )
         else:
-            self.api.send_video(channel, path.name, content)
+            self.api.send_video(
+                channel,
+                path.name,
+                content,
+                caption=caption,
+                parse_mode="HTML",
+            )
+        for continuation in messages[1:]:
+            self.api.send_message(channel, continuation, parse_mode="HTML")
 
     # ---------------------------------------------------------------- daily
 

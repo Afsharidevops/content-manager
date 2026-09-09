@@ -74,7 +74,13 @@ def _fetch_html(query: str, *, timeout: int) -> str:
         status, body = request_bytes(
             url,
             method="GET",
-            headers={"Accept": "text/html,application/xhtml+xml"},
+            headers={
+                "Accept": "text/html,application/xhtml+xml",
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+                ),
+            },
             timeout=timeout,
             max_bytes=1_500_000,
         )

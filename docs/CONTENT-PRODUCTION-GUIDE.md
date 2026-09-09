@@ -98,9 +98,14 @@ background so other commands still work. When the media is ready:
 
 1. The bot sends a preview (photo or video) with **New attempt** and
    **Text only** buttons on it.
-2. Review the preview, then press **Approve** on the draft message to publish.
-   Publishing sends the full text post to the channel first, then the media
-   file.
+2. Review the preview, then press **Approve** on the draft message or on the
+   media preview to publish. Media posts go to the channel as one photo or
+   video whose caption contains the bold title, the post body, and the
+   clickable source link. Telegram caps media captions at 1024 characters,
+   so when the body is longer the bot keeps as many paragraphs as fit in the
+   caption and immediately sends the remaining paragraphs as continuation
+   messages; in that case the source link moves to the end of the last
+   message. Text-only posts are sent as a single regular message.
 3. Reply with edit notes and press **Reject** to revise the text only; the
    attached media stays valid for the next approval.
 4. **Reject** without notes discards the draft and its media.

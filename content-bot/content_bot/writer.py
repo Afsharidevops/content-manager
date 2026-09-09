@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from content_bot.http import HttpError, request_json
+
+LOGGER = logging.getLogger("content_bot.writer")
 
 SYSTEM_PROMPT = (
     "You write short educational Telegram posts in Persian (Farsi) for a "
@@ -109,15 +112,50 @@ class Writer:
 
     @staticmethod
     def _parse_json_object(content: str) -> dict | None:
-        start = content.find("{")
-        end = content.rfind("}")
-        if start < 0 or end <= start:
-            return None
-        try:
-            parsed = json.loads(content[start : end + 1])
-        except ValueError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
+        """Extract one JSON object, tolerating markdown fences and trailing text."""
+        content = str(content or "")
+        candidates = [content]
+        fence = re.search(r"```[a-zA-Z]*\s*(.*?)```", content, re.DOTALL)
+        if fence:
+            candidates.insert(0, fence.group(1))
+        for candidate in candidates:
+            parsed = Writer._balanced_json_object(candidate)
+            if parsed is not None:
+                return parsed
+        return None
+
+    @staticmethod
+    def _balanced_json_object(text: str) -> dict | None:
+        """Parse the first brace-balanced JSON object inside ``text``."""
+        start = text.find("{")
+        while start != -1:
+            depth = 0
+            in_string = False
+            escaped = False
+            for index in range(start, len(text)):
+                char = text[index]
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif char == "\\":
+                        escaped = True
+                    elif char == '"':
+                        in_string = False
+                    continue
+                if char == '"':
+                    in_string = True
+                elif char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            parsed = json.loads(text[start : index + 1])
+                        except ValueError:
+                            break
+                        return parsed if isinstance(parsed, dict) else None
+            start = text.find("{", start + 1)
+        return None
 
     @staticmethod
     def _clean_body(body: str) -> str:
@@ -227,13 +265,40 @@ class Writer:
     def _parse_post(content: str) -> dict | None:
         """Parse one LLM reply into ``{"title", "body"}`` or ``None``."""
         parsed = Writer._parse_json_object(content)
-        if not parsed:
-            return None
+        if parsed is None:
+            parsed = Writer._regex_fields(content)
+            if parsed is None:
+                LOGGER.warning("writer reply was not parseable; raw head: %s", str(content)[:400])
+                return None
         title = str(parsed.get("title", "")).strip()
         body_text = str(parsed.get("body", "")).strip()
         if not title or not body_text:
             return None
         return {"title": title[:120], "body": Writer._clean_body(body_text)}
+
+    @staticmethod
+    def _regex_fields(content: str) -> dict | None:
+        """Best-effort title/body extraction when the JSON object is broken."""
+        def grab(key: str) -> str:
+            match = re.search(
+                rf'"{key}"\s*:\s*"((?:[^"\\]|\\.)*)"',
+                str(content or ""),
+                re.DOTALL,
+            )
+            if not match:
+                return ""
+            value = match.group(1)
+            try:
+                value = json.loads(f'"{value}"')
+            except ValueError:
+                value = value.encode("utf-8").decode("unicode_escape", errors="ignore")
+            return str(value).strip()
+
+        title = grab("title")
+        body = grab("body")
+        if not title or not body:
+            return None
+        return {"title": title[:120], "body": Writer._clean_body(body)}
 
     @staticmethod
     def _strip_source_url(body: str, source_url: str) -> str:
@@ -247,7 +312,7 @@ class Writer:
     @staticmethod
     def _with_source_url(post: dict, source_url: str) -> dict:
         source_url = str(source_url or "").strip()
-        body = post["body"]
+        body = Writer._dedupe_source_url(post["body"], source_url)
         if source_url and source_url not in body:
             body = f"{body}\n\n{source_url}" if body else source_url
         return {
@@ -255,3 +320,24 @@ class Writer:
             "body": body,
             "source_url": source_url,
         }
+
+    @staticmethod
+    def _dedupe_source_url(body: str, source_url: str) -> str:
+        """Keep only the final URL-only line so the link is never repeated."""
+        url = str(source_url or "").strip()
+        lines = str(body or "").splitlines()
+        last_url_index = -1
+        for index, line in enumerate(lines):
+            if line.strip() == url:
+                last_url_index = index
+        if last_url_index >= 0:
+            kept = [
+                line
+                for index, line in enumerate(lines)
+                if line.strip() != url or index == last_url_index
+            ]
+            return "\n".join(kept).strip()
+        if url:
+            text = str(body or "").strip()
+            return f"{text}\n\n{url}" if text else url
+        return str(body or "").strip()

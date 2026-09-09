@@ -297,9 +297,47 @@ class BotTestCase(unittest.TestCase):
                 "data": f"reject:{draft_id}",
             }
         )
+        self.assertTrue(self.bot.state.get_draft(draft_id)["discard_pending"])
+        self.bot.handle_callback(
+            {
+                "id": "q3",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"reject:{draft_id}",
+            }
+        )
         self.assertIsNone(self.bot.state.get_draft(draft_id))
         answers = [payload for method, payload in self.api.calls if method == "answerCallbackQuery"]
-        self.assertIn("Draft rejected.", answers[0]["text"])
+        self.assertIn("Draft rejected.", answers[-1]["text"])
+
+    def test_cancel_keeps_draft(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        self.bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"reject:{draft_id}",
+            }
+        )
+        self.bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"cancel:{draft_id}",
+            }
+        )
+        record = self.bot.state.get_draft(draft_id)
+        self.assertIsNotNone(record)
+        self.assertFalse(record["discard_pending"])
 
     def test_reply_comment_then_reject_revises_draft(self):
         self.bot.handle_message(
@@ -627,13 +665,66 @@ class MediaFlowTestCase(unittest.TestCase):
                 "data": f"approve:{draft_id}",
             }
         )
-        published = [p for p in self.api.sent_messages if p.get("chat_id") == "@channel"]
-        self.assertEqual(len(published), 1)
         published_media = [
             u for u in self.api.uploads if u[0] == "sendPhoto" and u[1]["chat_id"] == "@channel"
         ]
         self.assertEqual(len(published_media), 1)
+        self.assertEqual(published_media[0][1]["parse_mode"], "HTML")
+        self.assertTrue(published_media[0][1]["caption"].startswith("<b>"))
+        self.assertNotIn(
+            "draft",
+            bot.state.load().get("drafts", {}),
+        )
         self.assertNotIn(draft_id, bot.state.load()["drafts"])
+
+    def test_long_media_post_publishes_caption_plus_continuation(self):
+        bot = self.build_bot(artifact=("image_0.png", "image"))
+        draft_id = self.send_link(bot)
+        paragraphs = [
+            f"Chapter paragraph {index} with filler words repeated over and over to make the article long."
+            for index in range(60)
+        ]
+        body = "\n\n".join(paragraphs) + "\n\nhttps://example.com/layers"
+        bot.state.update_draft(
+            draft_id,
+            {"body": body, "source_url": "https://example.com/layers"},
+        )
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:image:{draft_id}",
+            }
+        )
+        self.media.status_by_job[self.media.job_ids[0]] = "done"
+        bot.maybe_poll_media_jobs()
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published_media = [
+            u for u in self.api.uploads if u[0] == "sendPhoto" and u[1]["chat_id"] == "@channel"
+        ]
+        self.assertEqual(len(published_media), 1)
+        caption = published_media[0][1]["caption"]
+        self.assertLessEqual(len(caption), 1024)
+        self.assertNotIn('href="https://example.com/layers"', caption)
+        channel_texts = [
+            m for m in self.api.sent_messages if m["chat_id"] == "@channel"
+        ]
+        self.assertGreaterEqual(len(channel_texts), 1)
+        self.assertTrue(all(len(m["text"]) <= 4096 for m in channel_texts))
+        self.assertTrue(channel_texts[0]["text"].startswith("…"))
+        self.assertTrue(channel_texts[-1]["text"].endswith("</a>"))
+        self.assertIn('href="https://example.com/layers"', channel_texts[-1]["text"])
+        combined = caption + "\n\n" + "\n\n".join(m["text"] for m in channel_texts)
+        for paragraph in paragraphs:
+            self.assertIn(paragraph, combined)
 
     def test_video_duration_then_preview_and_publish(self):
         bot = self.build_bot(artifact=("flow_video.mp4", "video"))
@@ -673,3 +764,73 @@ class MediaFlowTestCase(unittest.TestCase):
             u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == "@channel"
         ]
         self.assertEqual(len(published_media), 1)
+
+
+class MediaCaptionTest(unittest.TestCase):
+    def test_short_body_fits_in_caption(self):
+        from content_bot.bot import _media_caption
+
+        record = {
+            "title": "تیتر نمونه",
+            "body": "بدنه کوتاه برای تست.\n\nhttps://example.com/x",
+            "source_url": "https://example.com/x",
+        }
+        caption = _media_caption(record)
+        self.assertLessEqual(len(caption), 1024)
+        self.assertTrue(caption.startswith("<b>"))
+        self.assertIn('href="https://example.com/x"', caption)
+        self.assertTrue(caption.endswith("</a>"))
+
+    def test_long_body_caption_fits_and_link_moves_to_last_message(self):
+        from content_bot.bot import _media_caption, _media_caption_messages
+
+        long_body = "\n\n".join(
+            f"پاراگراف شماره {index} با کمی متن تکراری برای بلند کردن کپشن" for index in range(80)
+        )
+        record = {
+            "title": "تیتر بلند",
+            "body": f"{long_body}\n\nhttps://example.com/y",
+            "source_url": "https://example.com/y",
+        }
+        caption = _media_caption(record)
+        self.assertLessEqual(len(caption), 1024)
+        self.assertNotIn('href="https://example.com/y"', caption)
+        messages = _media_caption_messages(record)
+        self.assertIn('href="https://example.com/y"', messages[-1])
+
+    def test_short_body_is_a_single_media_message(self):
+        from content_bot.bot import _media_caption, _media_caption_messages
+
+        record = {
+            "title": "A short post",
+            "body": "One paragraph that easily fits the caption.\n\nhttps://example.com/z",
+            "source_url": "https://example.com/z",
+        }
+        messages = _media_caption_messages(record)
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0], _media_caption(record))
+        self.assertLessEqual(len(messages[0]), 1024)
+
+    def test_long_body_is_split_into_caption_and_continuation(self):
+        from content_bot.bot import _media_caption_messages
+
+        paragraphs = [
+            f"Paragraph number {index} with repeated filler text to inflate the caption size."
+            for index in range(40)
+        ]
+        record = {
+            "title": "A long post",
+            "body": "\n\n".join(paragraphs) + "\n\nhttps://example.com/long",
+            "source_url": "https://example.com/long",
+        }
+        messages = _media_caption_messages(record)
+        self.assertGreater(len(messages), 1)
+        self.assertLessEqual(len(messages[0]), 1024)
+        self.assertTrue(all(len(message) <= 4096 for message in messages))
+        self.assertNotIn('href="https://example.com/long"', messages[0])
+        self.assertTrue(messages[1].startswith("…"))
+        self.assertTrue(messages[-1].endswith("</a>"))
+        self.assertIn('href="https://example.com/long"', messages[-1])
+        combined = "\n\n".join(messages)
+        for paragraph in paragraphs:
+            self.assertIn(paragraph, combined)

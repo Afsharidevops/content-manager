@@ -164,6 +164,21 @@ class TelegramApi:
             params["parse_mode"] = parse_mode
         return self._call("editMessageText", params)
 
+    def edit_message_caption(
+        self,
+        chat_id,
+        message_id: int,
+        caption: str,
+        reply_markup: dict | None = None,
+        parse_mode: str | None = None,
+    ) -> object:
+        params = {"chat_id": chat_id, "message_id": message_id, "caption": caption}
+        if reply_markup is not None:
+            params["reply_markup"] = reply_markup
+        if parse_mode is not None:
+            params["parse_mode"] = parse_mode
+        return self._call("editMessageCaption", params)
+
     def delete_message(self, chat_id, message_id: int) -> bool:
         result = self._call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
         return result is True
@@ -233,6 +248,34 @@ def media_action_keyboard(draft_id: str) -> dict:
             [
                 {"text": "New attempt", "callback_data": f"media:retry:{draft_id}"},
                 {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
+            ]
+        ]
+    }
+
+
+def media_preview_keyboard(draft_id: str) -> dict:
+    """Approve/Reject plus media actions on one generated preview message."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Approve", "callback_data": f"approve:{draft_id}"},
+                {"text": "Reject", "callback_data": f"reject:{draft_id}"},
+            ],
+            [
+                {"text": "New attempt", "callback_data": f"media:retry:{draft_id}"},
+                {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
+            ],
+        ]
+    }
+
+
+def discard_confirm_keyboard(draft_id: str) -> dict:
+    """Second step before a draft is actually discarded."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Confirm discard", "callback_data": f"reject:{draft_id}"},
+                {"text": "Cancel", "callback_data": f"cancel:{draft_id}"},
             ]
         ]
     }

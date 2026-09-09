@@ -128,3 +128,61 @@ class WriterTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WriterParseTest(unittest.TestCase):
+    def test_plain_json_object(self):
+        payload = json.dumps({"title": "عنوان", "body": "متن"})
+        self.assertEqual(Writer._parse_json_object(payload), {"title": "عنوان", "body": "متن"})
+
+    def test_fenced_json_is_parsed(self):
+        payload = '```json\n{"title": "تیتر", "body": "بدنه"}\n```'
+        self.assertEqual(Writer._parse_json_object(payload), {"title": "تیتر", "body": "بدنه"})
+
+    def test_trailing_text_after_json_is_ignored(self):
+        payload = '{"title": "تیتر", "body": "بدنه"}\nاین هم یک توضیح اضافه است.'
+        self.assertEqual(Writer._parse_json_object(payload), {"title": "تیتر", "body": "بدنه"})
+
+    def test_nested_braces_inside_string_do_not_break_parsing(self):
+        payload = '{"title": "a {b} c", "body": "یک {متن} با بریس"}'
+        self.assertEqual(
+            Writer._parse_json_object(payload),
+            {"title": "a {b} c", "body": "یک {متن} با بریس"},
+        )
+
+    def test_invalid_content_returns_none(self):
+        self.assertIsNone(Writer._parse_json_object("no json here"))
+
+
+class WriterBrokenJsonTest(unittest.TestCase):
+    def test_parse_post_extracts_fields_from_broken_wrapper(self):
+        payload = (
+            '{"ok": true, "answer": \'json: {"title": "تیتر درست", '
+            '"body": "بدنه با \\\\n جدا شده"}\'}'
+        )
+        post = Writer._parse_post(payload)
+        self.assertIsNotNone(post)
+        self.assertEqual(post["title"], "تیتر درست")
+        self.assertIn("بدنه با", post["body"])
+
+    def test_regex_fields_returns_none_without_body(self):
+        self.assertIsNone(Writer._regex_fields('{"title": "فقط تیتر"}'))
+
+
+class WriterSourceDedupeTest(unittest.TestCase):
+    def test_dedupe_keeps_single_final_url(self):
+        url = "https://example.com/post"
+        body = f"متن اول\n\n{url}\n\n{url}"
+        cleaned = Writer._dedupe_source_url(body, url)
+        self.assertEqual(cleaned.count(url), 1)
+        self.assertTrue(cleaned.strip().endswith(url))
+
+    def test_missing_url_is_appended(self):
+        body = Writer._dedupe_source_url("بدون لینک", "https://example.com/x")
+        self.assertTrue(body.endswith("https://example.com/x"))
+
+    def test_with_source_url_normalizes_duplicates(self):
+        url = "https://example.com/x"
+        post = Writer._with_source_url({"title": "تیتر", "body": f"{url}\nمتن\n{url}"}, url)
+        self.assertEqual(post["body"].count(url), 1)
+        self.assertTrue(post["body"].strip().endswith(url))

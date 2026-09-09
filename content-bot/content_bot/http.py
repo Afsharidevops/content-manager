@@ -65,6 +65,7 @@ def request_multipart(
         data=b"".join(parts),
         headers=headers,
         content_type=f"multipart/form-data; boundary={boundary}",
+        method=None,
         timeout=timeout,
         max_bytes=max_bytes,
     )
