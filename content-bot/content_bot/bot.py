@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from content_bot import extract, fetch, state as state_mod, telegram as telegram_mod
+from content_bot import mediastudio as media_mod, search as search_mod
 from content_bot import workflow, writer as writer_mod
 from content_bot.config import BotSettings
 from content_pipeline.normalize import canonicalize_url, content_hash as canonical_content_hash
@@ -61,6 +62,8 @@ class ContentBot:
         store=None,
         fetch_page=None,
         fetch_feed=None,
+        media=None,
+        search_topic=None,
         now_fn=_now_utc,
     ):
         self.settings = settings
@@ -77,9 +80,16 @@ class ContentBot:
                 reasoning_effort=settings.writer_reasoning_effort,
             )
         self.writer = writer
+        if media is None and settings.media_studio_url:
+            media = media_mod.MediaStudio(
+                settings.media_studio_url,
+                settings.media_studio_token,
+            )
+        self.media = media
         self.state = store or state_mod.StateStore(Path(settings.data_dir) / "state.json")
         self.fetch_page = fetch_page or fetch.fetch_page
         self.fetch_feed = fetch_feed or fetch.fetch_feed
+        self.search_topic = search_topic or search_mod.search_topic
         self.now_fn = now_fn
         self._offset = 0
 
@@ -91,6 +101,7 @@ class ContentBot:
             try:
                 self.poll_once()
                 self.maybe_run_daily()
+                self.maybe_poll_media_jobs()
             except telegram_mod.TelegramError as error:
                 log.warning("Telegram API error: %s", error)
             except Exception:
@@ -203,13 +214,10 @@ class ContentBot:
                 )
             return
         match = URL_RE.search(text)
-        if not match:
-            self.api.send_message(
-                chat_id,
-                "Send a link and I will draft a post for your approval.",
-            )
+        if match:
+            self.request_on_demand(match.group(0), chat_id)
             return
-        self.request_on_demand(match.group(0), chat_id)
+        self.request_on_topic(text, chat_id)
 
     def _forget_link(self, url: str, chat_id) -> None:
         digest = canonical_content_hash(canonicalize_url(url))
@@ -231,9 +239,11 @@ class ContentBot:
             "/status - configuration and counters\n"
             "/forget_link <url> - allow a published link to be drafted again\n"
             "Send any http(s) link - draft a post with Approve/Reject buttons\n"
+            "Send a topic without a link - search the web and draft a post\n"
+            "After a draft, choose Text only / image / video, then approve\n"
             "Reply to a proposal with edit notes, then press Reject to revise;\n"
             "press Reject without notes to discard. Approved drafts are\n"
-            "published to the configured Telegram channel."
+            "published to the configured Telegram channel with any media."
         )
 
     def status_text(self) -> str:
@@ -246,6 +256,8 @@ class ContentBot:
             f"Operator users: {len(self.settings.telegram_users)}\n"
             f"Publish channel: {self.settings.telegram_channel or 'not configured'}\n"
             f"Writer endpoint: {self.settings.writer_base_url or 'not configured'}\n"
+            f"Media Studio: {self.settings.media_studio_url or 'not configured'}\n"
+            f"Web search: {'enabled' if self.settings.search_enabled else 'disabled'}\n"
             f"Pending drafts: {drafts}\n"
             f"Published today: {today}\n"
             f"Total published: {published}"
@@ -258,22 +270,100 @@ class ContentBot:
             self.api.send_message(chat_id, f"Could not fetch the link: {error}")
             return
         article = extract.extract_article(html_text, url)
-        if len(article["text"]) < MIN_ARTICLE_CHARS:
+        body_text = article["text"]
+        if len(body_text) < MIN_ARTICLE_CHARS and self.settings.search_enabled:
             self.api.send_message(
                 chat_id,
-                "The page did not contain enough readable text to work with.",
+                "The page has little readable text; searching for more context.",
             )
-            return
+            try:
+                results = self.search_topic(
+                    article["title"] or url,
+                    limit=self.settings.search_max_results,
+                    timeout=self.settings.search_timeout,
+                )
+            except search_mod.SearchError as error:
+                self.api.send_message(chat_id, f"Search failed: {error}")
+                return
+            if not results:
+                self.api.send_message(
+                    chat_id,
+                    "The page did not contain enough readable text to work with.",
+                )
+                return
+            body_text = "\n\n".join(
+                [body_text]
+                + [
+                    f"{result['title']}\n{result['snippet']}"
+                    for result in results
+                    if result.get("snippet") or result.get("title")
+                ]
+            )
         raw_item = {
             "title": article["title"] or url,
             "url": url,
             "published_at": article["published_at"],
             "summary": article["description"],
-            "text": article["text"],
+            "text": body_text,
             "source": None,
             "category": "",
             "tags": [],
         }
+        self._accept_item(raw_item, chat_id)
+
+    def request_on_topic(self, query: str, chat_id) -> None:
+        """Draft from a plain topic by searching the web for context."""
+        query = (query or "").strip()
+        if not query:
+            return
+        if not self.settings.topic_drafts_enabled:
+            self.api.send_message(
+                chat_id,
+                "Topic drafting is disabled (CONTENT_TOPIC_DRAFTS_ENABLED=false).",
+            )
+            return
+        if not self.settings.search_enabled:
+            self.api.send_message(
+                chat_id,
+                "Web search is disabled (CONTENT_SEARCH_ENABLED=false).",
+            )
+            return
+        self.api.send_message(chat_id, f"Searching for: {query}")
+        try:
+            results = self.search_topic(
+                query,
+                limit=self.settings.search_max_results,
+                timeout=self.settings.search_timeout,
+            )
+        except search_mod.SearchError as error:
+            self.api.send_message(chat_id, f"Search failed: {error}")
+            return
+        if not results:
+            self.api.send_message(
+                chat_id,
+                "No usable search results were found for that topic.",
+            )
+            return
+        first = results[0]
+        body_text = "\n\n".join(
+            f"{result['title']}\n{result['snippet']}"
+            for result in results
+            if result.get("snippet") or result.get("title")
+        )
+        raw_item = {
+            "title": first.get("title") or query,
+            "url": first.get("url") or "",
+            "published_at": "",
+            "summary": first.get("snippet") or "",
+            "text": body_text,
+            "source": "search",
+            "category": "",
+            "tags": [],
+        }
+        self._accept_item(raw_item, chat_id)
+
+    def _accept_item(self, raw_item: dict, chat_id) -> None:
+        """Run the shared editorial pipeline for one operator-sent item."""
         policy = workflow.load_policy(self.settings.policy_dir)
         on_demand = workflow.on_demand_settings(policy)
         item, rejection = workflow.evaluate_single(
@@ -300,7 +390,9 @@ class ContentBot:
             )
             return
         try:
-            post = self.writer.generate_post(item)
+            lessons = self.state.lessons(6)
+            guidance = "\n".join(f"- {lesson}" for lesson in lessons)
+            post = self.writer.generate_post(item, guidance=guidance)
         except writer_mod.WriterError as error:
             self.api.send_message(chat_id, f"Copy generation failed: {error}")
             return
@@ -317,6 +409,11 @@ class ContentBot:
             "content_hash": str(item.get("content_hash") or ""),
             "category": str(item.get("category") or ""),
             "created_at": self.now_fn().isoformat(),
+            "status": "text",
+            "text_message_id": None,
+            "ask_message_id": None,
+            "media": None,
+            "history": [],
         }
         sent = self.api.send_message(
             chat_id,
@@ -325,12 +422,373 @@ class ContentBot:
             parse_mode="HTML",
         )
         record["message_id"] = sent.get("message_id")
+        record["text_message_id"] = sent.get("message_id")
         self.state.add_draft(draft_id, record)
+        self._record_event(draft_id, "draft_sent")
+        if kind == "on_demand" and self.media is not None:
+            self._send_media_ask(record)
+
+    def _send_media_ask(self, record: dict) -> None:
+        """Offer media generation for one fresh on-demand draft."""
+        draft_id = str(record["id"])
+        chat_id = record.get("chat_id")
+        try:
+            ask = self.api.send_message(
+                chat_id,
+                "Should I also create media for this post?",
+                telegram_mod.media_choice_keyboard(draft_id),
+            )
+        except telegram_mod.TelegramError:
+            log.warning("media ask could not be sent for draft %s", draft_id)
+            return
+        self.state.update_draft(
+            draft_id,
+            {"ask_message_id": ask.get("message_id"), "status": "media_ask"},
+        )
+        self._record_event(draft_id, "media_ask_sent")
+
+    def _record_event(self, draft_id: str, event: str, detail: str = "") -> None:
+        """Append one audit event to a draft without failing the caller."""
+        try:
+            record = self.state.get_draft(draft_id)
+            if record is None:
+                return
+            history = list(record.get("history") or [])
+            history.append(
+                {
+                    "at": self.now_fn().isoformat(),
+                    "event": event,
+                    "detail": str(detail)[:400],
+                }
+            )
+            self.state.update_draft(draft_id, {"history": history})
+        except Exception:  # noqa: BLE001
+            log.debug("history event skipped for draft %s", draft_id)
+
+    # ------------------------------------------------------------- media
+
+    def _media_callback(self, query_id: str, sub: str, draft_id: str) -> None:
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            self._safe_answer(query_id, "This draft is no longer active.")
+            return
+        if sub == "none":
+            self.state.update_draft(
+                draft_id,
+                {
+                    "status": "text_only",
+                    "media": {"kind": "none"},
+                    "media_duration_asked": False,
+                },
+            )
+            self._record_event(draft_id, "media_none")
+            self._safe_answer(
+                query_id,
+                "Text-only post. Press Approve on the draft message to publish.",
+            )
+            return
+        if sub == "video":
+            ask_id = record.get("ask_message_id")
+            chat_id = record.get("chat_id")
+            if chat_id is None or ask_id is None:
+                self._safe_answer(query_id, "No active media question was found.")
+                return
+            if record.get("media_duration_asked"):
+                self.state.update_draft(draft_id, {"media_duration_asked": False})
+                self._start_media_job(
+                    draft_id,
+                    self.settings.video_driver,
+                    "video",
+                    "",
+                    query_id=query_id,
+                )
+                return
+            self.state.update_draft(draft_id, {"media_duration_asked": True})
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "Choose an approximate video length.",
+                telegram_mod.media_duration_keyboard(draft_id),
+            )
+            self._safe_answer(query_id, "Choose a duration.")
+            return
+        media = record.get("media") or {}
+        if sub == "retry":
+            driver = str(media.get("driver") or self.settings.image_driver)
+            kind = str(media.get("kind") or "image")
+            duration = str(media.get("duration") or "")
+            self._start_media_job(
+                draft_id,
+                driver,
+                kind,
+                duration,
+                query_id=query_id,
+            )
+            return
+        if sub == "image":
+            self._start_media_job(
+                draft_id,
+                self.settings.image_driver,
+                "image",
+                "",
+                query_id=query_id,
+            )
+            return
+        if sub == "video30":
+            self._start_media_job(
+                draft_id,
+                self.settings.video_driver,
+                "video",
+                "up_to_30_seconds",
+                query_id=query_id,
+            )
+            return
+        self._safe_answer(query_id, "Unknown media choice.")
+
+    def _start_media_job(
+        self,
+        draft_id: str,
+        driver: str,
+        kind: str,
+        duration: str,
+        *,
+        query_id: str = "",
+    ) -> None:
+        if self.media is None:
+            self._safe_answer(
+                query_id,
+                "Media Studio is not configured (CONTENT_MEDIA_STUDIO_URL).",
+            )
+            return
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            self._safe_answer(query_id, "This draft is no longer active.")
+            return
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
+        title = str(record.get("title") or "").strip()
+        body = re.sub(r"\s+", " ", str(record.get("body") or "")).strip()
+        if not body and title:
+            body = title
+        duration_hint = ""
+        if duration == "up_to_30_seconds":
+            duration_hint = " Aim for a clip under 30 seconds."
+        prompt = (
+            f"Create a {kind} that illustrates the following social media post. "
+            f"Do not include text overlays or watermarks.{duration_hint}\n"
+            f"Title: {title}\nPost: {body[:800]}"
+        )
+        try:
+            job_id = self.media.submit(driver, prompt, params={"duration": duration})
+        except media_mod.MediaStudioError as error:
+            self._record_event(draft_id, "media_submit_failed", str(error))
+            if chat_id is not None and ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"Media job could not start: {error}",
+                    telegram_mod.media_retry_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, f"Media job failed: {error}")
+            return
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_running",
+                "media_duration_asked": False,
+                "media": {
+                    "kind": kind,
+                    "driver": driver,
+                    "duration": duration,
+                    "job_id": job_id,
+                    "status": "running",
+                    "artifact": "",
+                    "local_path": "",
+                    "created_at": self.now_fn().isoformat(),
+                },
+            },
+        )
+        self._record_event(draft_id, "media_job_started", f"{driver} {job_id}")
+        old_preview = record.get("preview_message_id")
+        if old_preview is not None:
+            self._delete_safe(chat_id, int(old_preview))
+        if chat_id is not None and ask_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                f"Creating the {kind} now; this can take several minutes.",
+            )
+        self._safe_answer(query_id, f"{kind.capitalize()} job started.")
+
+    def maybe_poll_media_jobs(self) -> None:
+        """Advance drafts whose media job finished while the bot polled."""
+        if self.media is None:
+            return
+        now = self.now_fn()
+        for draft_id, record in list((self.state.load().get("drafts") or {}).items()):
+            if not isinstance(record, dict) or record.get("status") != "media_running":
+                continue
+            media = record.get("media") or {}
+            job_id = str(media.get("job_id") or "")
+            if not job_id:
+                continue
+            created = self._parse_dt(media.get("created_at"))
+            if created is not None and (now - created).total_seconds() > self.settings.media_job_timeout_seconds:
+                self._media_failed(draft_id, "Media job timed out.")
+                continue
+            try:
+                job = self.media.job(job_id)
+            except media_mod.MediaStudioError as error:
+                log.warning("media job %s lookup failed: %s", job_id, error)
+                continue
+            status = str(job.get("status") or "")
+            if status in {"queued", "running", ""}:
+                continue
+            if status == "done":
+                self._media_finished(draft_id, job)
+            else:
+                detail = str(job.get("error") or "media job failed")
+                self._media_failed(draft_id, detail)
+
+    def _media_finished(self, draft_id: str, job: dict) -> None:
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            return
+        artifact = self.media.pick_artifact(job)
+        if artifact is None:
+            self._media_failed(draft_id, "Job finished without a usable media artifact.")
+            return
+        name, kind = artifact
+        job_id = str((record.get("media") or {}).get("job_id") or "")
+        try:
+            content = self.media.download(job_id, name)
+        except media_mod.MediaStudioError as error:
+            self._media_failed(draft_id, str(error))
+            return
+        extension = name.rsplit(".", 1)[-1].lower() if "." in name else ("mp4" if kind == "video" else "png")
+        media_dir = Path(self.settings.data_dir) / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        local_path = str(media_dir / f"{draft_id}.{extension}")
+        try:
+            Path(local_path).write_bytes(content)
+        except OSError as error:
+            self._media_failed(draft_id, f"Could not store the media file: {error}")
+            return
+        updated_media = dict(record.get("media") or {})
+        updated_media.update(
+            {
+                "status": "done",
+                "artifact": name,
+                "kind": kind,
+                "local_path": local_path,
+            }
+        )
+        self.state.update_draft(
+            draft_id,
+            {"status": "media_ready", "media": updated_media},
+        )
+        self._record_event(draft_id, "media_ready", name)
+        chat_id = record.get("chat_id")
+        text_id = record.get("text_message_id")
+        ask_id = record.get("ask_message_id")
+        if chat_id is not None and text_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(text_id),
+                f"{self.preview_text(record)}\n\n"
+                "Media preview is ready below.",
+                telegram_mod.approval_keyboard(draft_id),
+            )
+        if chat_id is not None and ask_id is not None:
+            self._edit_safe(chat_id, int(ask_id), "Media ready.")
+        filename = name or f"{draft_id}.{extension}"
+        try:
+            if kind == "image":
+                sent = self.api.send_photo(
+                    chat_id,
+                    filename,
+                    content,
+                    caption=f"Media preview for the draft above.\n{filename}",
+                    reply_markup=telegram_mod.media_action_keyboard(draft_id),
+                )
+            else:
+                sent = self.api.send_video(
+                    chat_id,
+                    filename,
+                    content,
+                    caption=f"Media preview for the draft above.\n{filename}",
+                    reply_markup=telegram_mod.media_action_keyboard(draft_id),
+                )
+        except telegram_mod.TelegramError as error:
+            self._media_failed(draft_id, f"Media preview could not be sent: {error}")
+            return
+        self.state.update_draft(
+            draft_id,
+            {"preview_message_id": sent.get("message_id")},
+        )
+
+    def _media_failed(self, draft_id: str, detail: str) -> None:
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            return
+        media = dict(record.get("media") or {})
+        media.update({"status": "failed", "error": str(detail)[:300]})
+        self.state.update_draft(draft_id, {"status": "media_failed", "media": media})
+        self._record_event(draft_id, "media_failed", str(detail))
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
+        if chat_id is not None and ask_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                f"Media generation failed: {detail}",
+                telegram_mod.media_retry_keyboard(draft_id),
+            )
+
+    @staticmethod
+    def _parse_dt(value):
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def _edit_safe(self, chat_id, message_id: int, text: str, keyboard=None) -> None:
+        try:
+            self.api.edit_message_text(
+                chat_id,
+                int(message_id),
+                text,
+                keyboard,
+                parse_mode="HTML",
+            )
+        except telegram_mod.TelegramError:
+            try:
+                self.api.edit_message_text(chat_id, int(message_id), text, keyboard)
+            except telegram_mod.TelegramError:
+                try:
+                    self.api.send_message(chat_id, text, keyboard)
+                except telegram_mod.TelegramError:
+                    pass
+
+    def _delete_safe(self, chat_id, message_id) -> None:
+        if message_id is None or chat_id is None:
+            return
+        try:
+            self.api.delete_message(chat_id, int(message_id))
+        except telegram_mod.TelegramError:
+            pass
 
     def _save_feedback(self, draft: dict, text: str) -> None:
         feedback = list(draft.get("feedback") or [])
         feedback.append(text)
         self.state.update_draft(str(draft["id"]), {"feedback": feedback})
+        self.state.add_lesson(text)
+        self._record_event(str(draft["id"]), "feedback_saved", text)
 
     def preview_text(self, record: dict) -> str:
         label = "Daily proposal" if record.get("kind") == "daily" else "Draft proposal"
@@ -358,6 +816,13 @@ class ContentBot:
             self.api.answer_callback_query(query_id, "Not allowed.")
             return
         data = str(callback.get("data") or "")
+        if data.startswith("media:"):
+            tokens = data.split(":", 2)
+            if len(tokens) == 3:
+                self._media_callback(query_id, tokens[1], tokens[2])
+            else:
+                self.api.answer_callback_query(query_id, "Unknown media action.")
+            return
         action, separator, draft_id = data.partition(":")
         if not separator or not draft_id:
             self.api.answer_callback_query(query_id, "Unknown action.")
@@ -376,6 +841,8 @@ class ContentBot:
                 self._revise_draft(query_id, record, chat_id, message_id)
                 return
             self.state.drop_draft(draft_id)
+            self._delete_safe(chat_id, record.get("ask_message_id"))
+            self._delete_safe(chat_id, record.get("preview_message_id"))
             if chat_id is not None and message_id is not None:
                 try:
                     self.api.edit_message_text(chat_id, int(message_id), "Rejected.")
@@ -465,8 +932,14 @@ class ContentBot:
                     f"Daily publish limit reached ({limit}).",
                 )
                 return
+        if record.get("status") == "media_running":
+            self.api.answer_callback_query(
+                query_id,
+                "Media is still being generated; wait or choose Text only first.",
+            )
+            return
         try:
-            self.api.send_message(channel, self.channel_text(record), parse_mode="HTML")
+            self._publish_record(record)
         except telegram_mod.TelegramError as error:
             self.api.answer_callback_query(query_id, f"Publish failed: {error}")
             return
@@ -478,6 +951,8 @@ class ContentBot:
         )
         draft_id = str(record.get("id") or "")
         self.state.drop_draft(draft_id)
+        self._delete_safe(chat_id, record.get("ask_message_id"))
+        self._delete_safe(chat_id, record.get("preview_message_id"))
         if chat_id is not None and message_id is not None:
             try:
                 self.api.edit_message_text(
@@ -488,6 +963,27 @@ class ContentBot:
             except telegram_mod.TelegramError:
                 pass
         self.api.answer_callback_query(query_id, "Published to channel.")
+
+    def _publish_record(self, record: dict) -> None:
+        """Publish one approved draft to the Telegram channel."""
+        channel = self.settings.telegram_channel
+        self.api.send_message(channel, self.channel_text(record), parse_mode="HTML")
+        media = record.get("media") or {}
+        kind = str(media.get("kind") or "")
+        local_path = str(media.get("local_path") or "")
+        if kind not in {"image", "video"} or not local_path:
+            return
+        path = Path(local_path)
+        if not path.is_file():
+            raise telegram_mod.TelegramError("media file is missing from storage")
+        try:
+            content = path.read_bytes()
+        except OSError as error:
+            raise telegram_mod.TelegramError(f"media file could not be read: {error}") from error
+        if kind == "image":
+            self.api.send_photo(channel, path.name, content)
+        else:
+            self.api.send_video(channel, path.name, content)
 
     # ---------------------------------------------------------------- daily
 

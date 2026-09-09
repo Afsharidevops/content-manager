@@ -139,7 +139,7 @@ class Writer:
             lines.append(line)
         return "\n".join(lines).strip()
 
-    def generate_post(self, item: dict) -> dict:
+    def generate_post(self, item: dict, *, guidance: str = "") -> dict:
         """Return ``{"title", "body", "source_url"}`` for one approved item."""
         excerpt = str(item.get("text") or item.get("summary") or "")[:4000]
         source = {
@@ -151,9 +151,15 @@ class Writer:
             "excerpt": excerpt,
         }
         user_message = json.dumps(source, ensure_ascii=True, indent=2)
+        system_content = SYSTEM_PROMPT
+        guidance = " ".join(str(guidance or "").split())
+        if guidance:
+            system_content = (
+                f"{SYSTEM_PROMPT}\n\nChannel owner notes to honor when writing:\n{guidance}"
+            )
         content = self._chat(
             [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": user_message},
             ]
         )

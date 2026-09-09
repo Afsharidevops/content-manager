@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Locallab Flow Unlock",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Locallab: keeps flow.google.com usable when Google redirects unsupported regions to the unsupported-country page.",
   "permissions": [
     "declarativeNetRequest"
@@ -19,7 +19,6 @@
     {
       "matches": [
         "https://flow.google.com/*",
-        "https://flow.google-*.com/*",
         "https://labs.google/fx/tools/flow*"
       ],
       "js": [

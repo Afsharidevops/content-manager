@@ -31,7 +31,7 @@ class FakeWriter:
         self.calls = []
         self.revisions = []
 
-    def generate_post(self, item):
+    def generate_post(self, item, guidance=""):
         self.calls.append(item)
         return {
             "title": "Generated title",
@@ -55,6 +55,7 @@ class FakeApi(TelegramApi):
         super().__init__("123:TESTTOKENABCDEFGHIJKLMN")
         self.calls = []
         self.sent_messages = []
+        self.uploads = []
 
     def _transport(self, url, payload):
         method = url.rsplit("/", 1)[-1]
@@ -65,6 +66,47 @@ class FakeApi(TelegramApi):
             self.sent_messages.append(payload)
             return {"ok": True, "result": {"message_id": 100 + len(self.sent_messages)}}
         return {"ok": True, "result": True}
+
+    def _upload(self, method, fields, *, file_field, filename, file_bytes):
+        self.uploads.append((method, fields, file_field, filename, file_bytes))
+        return {"ok": True, "result": {"message_id": 200 + len(self.uploads)}}
+
+
+class FakeMedia:
+    def __init__(self, artifact=("image_0.png", "image")):
+        self.submits = []
+        self.downloads = []
+        self.job_ids = []
+        self.status_by_job = {}
+        self.artifact = artifact
+
+    def submit(self, driver, prompt, params=None):
+        self.submits.append((driver, prompt, params or {}))
+        job_id = f"job-{len(self.submits)}"
+        self.job_ids.append(job_id)
+        self.status_by_job[job_id] = "running"
+        return job_id
+
+    def job(self, job_id):
+        status = self.status_by_job.get(job_id, "running")
+        artifacts = (
+            [{"name": self.artifact[0], "kind": self.artifact[1], "size": 4}]
+            if status == "done"
+            else []
+        )
+        return {"id": job_id, "status": status, "artifacts": artifacts}
+
+    def download(self, job_id, name):
+        self.downloads.append((job_id, name))
+        if self.artifact[1] == "video":
+            return b"\x00\x00\x00\x18ftypmp42video"
+        return b"\x89PNG\r\n\x1a\nimage"
+
+    def pick_artifact(self, job):
+        for artifact in job.get("artifacts") or []:
+            if artifact.get("kind") in {"image", "video"} and artifact.get("name"):
+                return artifact["name"], artifact["kind"]
+        return None
 
 
 class BotTestCase(unittest.TestCase):
@@ -453,3 +495,181 @@ class BotTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _media_settings(tmp_dir: str) -> BotSettings:
+    return BotSettings(
+        bot_token="123:TESTTOKENABCDEFGHIJKLMN",
+        telegram_channel="@channel",
+        telegram_users=frozenset({11}),
+        policy_dir=str(POLICY_DIR),
+        data_dir=tmp_dir,
+        scheduler_enabled=False,
+        media_studio_url="http://media-studio:8850",
+    )
+
+
+class MediaFlowTestCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.settings = _media_settings(self.tmp.name)
+        self.api = FakeApi()
+        self.writer = FakeWriter()
+        self.media = FakeMedia()
+
+    def build_bot(self, *, artifact=("image_0.png", "image"), search=None):
+        self.media = FakeMedia(artifact=artifact)
+        return ContentBot(
+            self.settings,
+            api=self.api,
+            writer=self.writer,
+            media=self.media,
+            search_topic=search or (lambda query, **kwargs: []),
+            fetch_page=lambda url: HTML_PAGE,
+            fetch_feed=lambda url: b"",
+            now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
+        )
+
+    def send_link(self, bot):
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        drafts = bot.state.load()["drafts"]
+        self.assertEqual(len(drafts), 1)
+        return next(iter(drafts))
+
+    def test_topic_message_searches_and_drafts(self):
+        queries = []
+
+        def fake_search(query, *, limit=5, timeout=25):
+            queries.append(query)
+            return [
+                {
+                    "title": "Containers explained",
+                    "url": "https://example.com/containers",
+                    "snippet": "A long enough snippet explaining container images for the draft.",
+                }
+            ]
+
+        bot = self.build_bot(search=fake_search)
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "container images for beginners",
+            }
+        )
+        self.assertEqual(queries, ["container images for beginners"])
+        self.assertEqual(len(self.writer.calls), 1)
+        self.assertTrue(
+            any("Searching for" in m["text"] for m in self.api.sent_messages)
+        )
+        self.assertTrue(
+            any(m["text"].startswith("Draft proposal") for m in self.api.sent_messages)
+        )
+
+    def test_short_page_falls_back_to_search(self):
+        bot = self.build_bot(
+            search=lambda query, **kwargs: [
+                {
+                    "title": "Extra context",
+                    "url": "https://example.com/more",
+                    "snippet": "Rich context found by search for the same topic.",
+                }
+            ]
+        )
+        bot.fetch_page = lambda url: "<html><body><article>too short</article></body></html>"
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        self.assertEqual(len(self.writer.calls), 1)
+        draft_id = next(iter(bot.state.load()["drafts"]))
+        self.assertEqual(
+            bot.state.load()["drafts"][draft_id]["source_url"],
+            "https://example.com/layers",
+        )
+
+    def test_image_choice_generates_preview_and_publishes(self):
+        bot = self.build_bot(artifact=("image_0.png", "image"))
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:image:{draft_id}",
+            }
+        )
+        self.assertEqual(self.media.submits[0][0], "api-image")
+        self.assertEqual(bot.state.load()["drafts"][draft_id]["status"], "media_running")
+        self.media.status_by_job[self.media.job_ids[0]] = "done"
+        bot.maybe_poll_media_jobs()
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(state["status"], "media_ready")
+        self.assertEqual(state["media"]["artifact"], "image_0.png")
+        preview = [u for u in self.api.uploads if u[0] == "sendPhoto" and u[1]["chat_id"] == 11]
+        self.assertEqual(len(preview), 1)
+        self.assertTrue(bot.state.lessons(1) == [])
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published = [p for p in self.api.sent_messages if p.get("chat_id") == "@channel"]
+        self.assertEqual(len(published), 1)
+        published_media = [
+            u for u in self.api.uploads if u[0] == "sendPhoto" and u[1]["chat_id"] == "@channel"
+        ]
+        self.assertEqual(len(published_media), 1)
+        self.assertNotIn(draft_id, bot.state.load()["drafts"])
+
+    def test_video_duration_then_preview_and_publish(self):
+        bot = self.build_bot(artifact=("flow_video.mp4", "video"))
+        draft_id = self.send_link(bot)
+        ask_id = bot.state.load()["drafts"][draft_id]["ask_message_id"]
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": ask_id},
+                "data": f"media:video:{draft_id}",
+            }
+        )
+        self.assertEqual(len(self.media.submits), 0)
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": ask_id},
+                "data": f"media:video:{draft_id}",
+            }
+        )
+        self.assertEqual(self.media.submits[0][0], "flow-video")
+        self.media.status_by_job[self.media.job_ids[0]] = "done"
+        bot.maybe_poll_media_jobs()
+        preview = [u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == 11]
+        self.assertEqual(len(preview), 1)
+        bot.handle_callback(
+            {
+                "id": "q3",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published_media = [
+            u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == "@channel"
+        ]
+        self.assertEqual(len(published_media), 1)

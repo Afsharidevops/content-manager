@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
+from content_bot.http import HttpError as _HttpError
+from content_bot.http import request_multipart
 from content_bot.http import HttpError, request_json
 
 
@@ -25,6 +29,88 @@ class TelegramApi:
             description = data.get("description") if isinstance(data, dict) else str(data)
             raise TelegramError(f"Telegram {method} failed: {description}")
         return data.get("result")
+
+    def _upload(
+        self,
+        method: str,
+        fields: dict,
+        *,
+        file_field: str,
+        filename: str,
+        file_bytes: bytes,
+    ) -> object:
+        """Upload one file through a Telegram Bot API media method."""
+        try:
+            status, body = request_multipart(
+                f"{self.root}/{method}",
+                fields=fields,
+                file_field=file_field,
+                filename=filename,
+                file_bytes=file_bytes,
+                timeout=240,
+            )
+        except _HttpError as error:
+            raise TelegramError(f"Telegram {method} HTTP {error.status}") from error
+        except ConnectionError as error:
+            raise TelegramError(f"Telegram {method} network error: {error}") from error
+        try:
+            data = json.loads(body.decode("utf-8", "replace"))
+        except ValueError as error:
+            raise TelegramError(f"Telegram {method} returned invalid JSON") from error
+        if not isinstance(data, dict) or data.get("ok") is not True:
+            description = data.get("description") if isinstance(data, dict) else str(data)
+            raise TelegramError(f"Telegram {method} failed: {description}")
+        return data.get("result")
+
+    def send_photo(
+        self,
+        chat_id,
+        filename: str,
+        file_bytes: bytes,
+        *,
+        caption: str = "",
+        parse_mode: str | None = None,
+        reply_markup: dict | None = None,
+    ) -> dict:
+        """Send one photo with an optional HTML caption."""
+        fields = {"chat_id": chat_id, "caption": caption}
+        if parse_mode is not None:
+            fields["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            fields["reply_markup"] = json.dumps(reply_markup)
+        result = self._upload(
+            "sendPhoto",
+            fields,
+            file_field="photo",
+            filename=filename,
+            file_bytes=file_bytes,
+        )
+        return result if isinstance(result, dict) else {}
+
+    def send_video(
+        self,
+        chat_id,
+        filename: str,
+        file_bytes: bytes,
+        *,
+        caption: str = "",
+        parse_mode: str | None = None,
+        reply_markup: dict | None = None,
+    ) -> dict:
+        """Send one video with an optional HTML caption."""
+        fields = {"chat_id": chat_id, "caption": caption}
+        if parse_mode is not None:
+            fields["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            fields["reply_markup"] = json.dumps(reply_markup)
+        result = self._upload(
+            "sendVideo",
+            fields,
+            file_field="video",
+            filename=filename,
+            file_bytes=file_bytes,
+        )
+        return result if isinstance(result, dict) else {}
 
     def get_me(self) -> dict:
         result = self._call("getMe")
@@ -97,6 +183,56 @@ def approval_keyboard(draft_id: str) -> dict:
             [
                 {"text": "Approve", "callback_data": f"approve:{draft_id}"},
                 {"text": "Reject", "callback_data": f"reject:{draft_id}"},
+            ]
+        ]
+    }
+
+
+def media_choice_keyboard(draft_id: str) -> dict:
+    """Ask whether the draft needs generated media."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
+                {"text": "Create image", "callback_data": f"media:image:{draft_id}"},
+                {"text": "Create video", "callback_data": f"media:video:{draft_id}"},
+            ]
+        ]
+    }
+
+
+def media_duration_keyboard(draft_id: str) -> dict:
+    """Pick an approximate duration for a generated video."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "~10 seconds", "callback_data": f"media:video:{draft_id}"},
+                {"text": "Up to 30 seconds", "callback_data": f"media:video30:{draft_id}"},
+            ],
+            [{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}],
+        ]
+    }
+
+
+def media_retry_keyboard(draft_id: str) -> dict:
+    """Offer another attempt after a failed media job."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Retry", "callback_data": f"media:retry:{draft_id}"},
+                {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
+            ]
+        ]
+    }
+
+
+def media_action_keyboard(draft_id: str) -> dict:
+    """Actions available on one generated media preview message."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "New attempt", "callback_data": f"media:retry:{draft_id}"},
+                {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
             ]
         ]
     }

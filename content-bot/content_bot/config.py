@@ -50,6 +50,15 @@ class BotSettings:
     policy_dir: str = "/policy"
     data_dir: str = "/data"
     scheduler_enabled: bool = True
+    media_studio_url: str = ""
+    media_studio_token: str = ""
+    media_job_timeout_seconds: int = 1200
+    image_driver: str = "api-image"
+    video_driver: str = "flow-video"
+    search_enabled: bool = True
+    topic_drafts_enabled: bool = True
+    search_max_results: int = 5
+    search_timeout: int = 25
 
     @classmethod
     def from_env(cls) -> "BotSettings":
@@ -66,4 +75,13 @@ class BotSettings:
             policy_dir=_env("CONTENT_POLICY_DIR", "/policy"),
             data_dir=_env("CONTENT_DATA_DIR", "/data"),
             scheduler_enabled=_env_bool("CONTENT_SCHEDULER_ENABLED", True),
+            media_studio_url=_env("CONTENT_MEDIA_STUDIO_URL"),
+            media_studio_token=_env("CONTENT_MEDIA_STUDIO_TOKEN"),
+            media_job_timeout_seconds=_env_int("CONTENT_MEDIA_JOB_TIMEOUT_SECONDS", 1200),
+            image_driver=_env("CONTENT_MEDIA_IMAGE_DRIVER", "api-image"),
+            video_driver=_env("CONTENT_MEDIA_VIDEO_DRIVER", "flow-video"),
+            search_enabled=_env_bool("CONTENT_SEARCH_ENABLED", True),
+            topic_drafts_enabled=_env_bool("CONTENT_TOPIC_DRAFTS_ENABLED", True),
+            search_max_results=_env_int("CONTENT_SEARCH_MAX_RESULTS", 5),
+            search_timeout=_env_int("CONTENT_SEARCH_TIMEOUT", 25),
         )

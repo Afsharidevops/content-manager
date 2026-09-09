@@ -9,6 +9,7 @@ from pathlib import Path
 
 PUBLISHED_HISTORY_LIMIT = 300
 CATEGORY_HISTORY_LIMIT = 20
+MEMORY_LESSONS_LIMIT = 30
 
 
 class StateStore:
@@ -142,3 +143,21 @@ class StateStore:
             history.append(category)
             data["last_categories"] = history[-CATEGORY_HISTORY_LIMIT:]
         self.save()
+
+    def add_lesson(self, lesson: str) -> None:
+        """Store one owner feedback lesson for future copy guidance."""
+        lesson = " ".join(str(lesson or "").split())
+        if not lesson:
+            return
+        data = self.load()
+        lessons = data.setdefault("memory", {}).setdefault("lessons", [])
+        if lesson not in lessons:
+            lessons.append(lesson)
+            data["memory"]["lessons"] = lessons[-MEMORY_LESSONS_LIMIT:]
+            self.save()
+
+    def lessons(self, limit: int = 6) -> list[str]:
+        """Return the most recent owner feedback lessons."""
+        data = self.load()
+        lessons = (data.get("memory") or {}).get("lessons") or []
+        return [str(lesson) for lesson in lessons[-max(1, int(limit)):]]

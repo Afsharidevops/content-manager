@@ -64,6 +64,53 @@ The token and key are stored in `.env` with mode `0600` and are never printed.
 
 Commands in the bot chat: `/start`, `/help`, `/status`.
 
+## Topics and short pages
+
+- Send a plain message without a link (for example "post about container
+  image layers") and the bot searches the web for context, then drafts the
+  post from the best results. Disable this with
+  `CONTENT_TOPIC_DRAFTS_ENABLED=false`.
+- A link whose page contains almost no readable text is enriched with a
+  search before drafting instead of being rejected; the original link stays
+  the post source. Disable the search fallback with
+  `CONTENT_SEARCH_ENABLED=false`.
+- The default search provider is DuckDuckGo's HTML endpoint and needs no API
+  key. Search tuning: `CONTENT_SEARCH_MAX_RESULTS` (default 5) and
+  `CONTENT_SEARCH_TIMEOUT` (default 25 seconds).
+
+## Media generation for a draft
+
+When Media Studio is configured (`CONTENT_MEDIA_STUDIO_URL`), every fresh
+on-demand draft is followed by a "Should I also create media for this post?"
+question with three choices:
+
+- **Text only** - the draft stays a normal text post.
+- **Create image** - the bot submits an image job (`CONTENT_MEDIA_IMAGE_DRIVER`,
+  default `api-image`) and shows the result for review.
+- **Create video** - the bot first asks for an approximate length (~10
+  seconds, or up to 30 seconds), then submits a video job
+  (`CONTENT_MEDIA_VIDEO_DRIVER`, default `flow-video`). Google Flow currently
+  returns one clip of roughly 8-10 seconds per job; longer clips need the
+  multi-scene work listed in `docs/CONTENT-PRODUCTION-ARCHITECTURE.md`.
+
+While a job runs the ask message shows progress; the bot keeps polling in the
+background so other commands still work. When the media is ready:
+
+1. The bot sends a preview (photo or video) with **New attempt** and
+   **Text only** buttons on it.
+2. Review the preview, then press **Approve** on the draft message to publish.
+   Publishing sends the full text post to the channel first, then the media
+   file.
+3. Reply with edit notes and press **Reject** to revise the text only; the
+   attached media stays valid for the next approval.
+4. **Reject** without notes discards the draft and its media.
+
+Owner feedback given in replies is stored in the bot state as lessons and is
+injected into later copy prompts as guidance (recent six lessons). Media job
+history is kept on each draft record (`status`, `history`) under
+`data/content-bot/state.json`; downloaded files live in
+`data/content-bot/media/`.
+
 ## Policy-driven behavior (no code changes)
 
 All tunable behavior lives in `data/content-manager/config/editorial-policy.yaml`
@@ -117,7 +164,7 @@ Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
 
 | Platform | State |
 | --- | --- |
-| Telegram | Live: on-demand drafts and scheduled proposals with Approve/Reject |
+| Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
 | Instagram | Pending: adapter designed in, manual Meta setup blocked for now; see `docs/INSTAGRAM-SETUP.md` |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
 
@@ -127,10 +174,11 @@ Media Studio generates images through the same OpenAI-compatible gateway as
 the Content Bot (`api-image` driver, no Google account required) and can drive
 Google Flow video and Gemini images through a signed-in browser session. It
 runs as its own container with a JSON job API on `127.0.0.1:8850`; the
-Content Bot/Telegram wiring to submit jobs and publish returned media is the
-next integration step. The Google Flow region unlock is available standalone
-for laptop use (`docs/FLOW-UNLOCK-STANDALONE.md`), independent of the stack.
-See `docs/MEDIA-STUDIO.md` for install, sessions, API, and calibration.
+Content Bot submits image/video jobs and publishes returned media after
+approval. The Google Flow region unlock is available standalone for laptop
+use (`docs/FLOW-UNLOCK-STANDALONE.md`), independent of the stack. See
+`docs/MEDIA-STUDIO.md` for install, sessions, API, and calibration, and
+`docs/CONTENT-PRODUCTION-ARCHITECTURE.md` for the end-to-end flow design.
 
 ## Operations
 

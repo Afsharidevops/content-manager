@@ -21,7 +21,9 @@ Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0   Media 
 
 - **On-demand drafts** - send any `http(s)` link to the Content Bot. It fetches
   the page, filters it against the editorial policy, drafts a post, and shows
-  **Approve/Reject** buttons.
+  **Approve/Reject** buttons. A link with almost no readable text is enriched
+  with a web search, and a plain topic message (no link) is searched and
+  drafted the same way.
 - **Daily proposals** - the bot reads `sources.yaml`, proposes the best scored
   candidates on a schedule, and sends them to the operator with the same
   approval buttons.
@@ -34,6 +36,9 @@ Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0   Media 
   right. Reject without notes discards the draft.
 - **Platform adapters** - the pipeline is platform-agnostic; publishing
   currently supports Telegram.
+- **Media attach (optional)** - after a draft the bot asks whether the post
+  needs an image or a video, submits the job to Media Studio, shows the media
+  preview for approval, and publishes the post plus media to the channel.
 - **Media generation (optional)** - Media Studio turns prompts into images or
   video through an OpenAI-compatible API (`api-image`, no Google account) and,
   optionally, through a signed-in Google Flow/Gemini session. See
@@ -43,7 +48,7 @@ Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.1.0   Media 
 
 | Platform | State |
 | --- | --- |
-| Telegram | Live: on-demand drafts, daily proposals, Approve/Reject, channel publish |
+| Telegram | Live: link/topic drafts, daily proposals, image/video attach, Approve/Reject, channel publish |
 | Instagram | Pending: guided Meta setup checklist in `docs/INSTAGRAM-SETUP.md` |
 | Aparat / YouTube | Planned: not implemented yet |
 | Media assets | Optional: `media-studio` worker (API images now; Google Flow/Gemini via browser session) |
@@ -153,6 +158,10 @@ working copy under `data/content-manager/config/`. Key settings:
 | `CONTENT_WRITER_API_KEY` | Writer key (Smart Router client key when enabled) |
 | `CONTENT_WRITER_MODEL` | Writer model/alias |
 | `CONTENT_SCHEDULER_ENABLED` | Enable the daily scheduler (`true`) |
+| `CONTENT_MEDIA_STUDIO_URL` | Media Studio job API (blank disables media asks) |
+| `CONTENT_MEDIA_STUDIO_TOKEN` | Bearer token for the Media Studio API |
+| `CONTENT_SEARCH_ENABLED` | Web search for topics and short pages (`true`) |
+| `CONTENT_TOPIC_DRAFTS_ENABLED` | Draft from plain topic messages (`true`) |
 | `CONTENT_BOT_IMAGE_REPOSITORY` / `CONTENT_BOT_IMAGE_TAG` | Published image to pull |
 
 Editorial behavior comes from the policy files:
