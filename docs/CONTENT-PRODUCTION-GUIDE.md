@@ -51,6 +51,9 @@ The token and key are stored in `.env` with mode `0600` and are never printed.
    and sends you a preview with **Approve** and **Reject** buttons. Titles are
    rendered bold and right-aligned on Telegram, so the writer starts titles
    with a Persian word and keeps Latin brand names later in the title.
+   Body paragraphs are RTL-safe as well: every mixed Persian/Latin line is
+   marked to keep a right-to-left base direction, and the writer is told to
+   open each paragraph with a Persian word.
 4. **Approve** publishes the post to the configured channel and records the
    source hash so the same link is never posted twice. Approvals of links you
    send yourself are never limited and do not consume the scheduled daily
@@ -78,26 +81,39 @@ Commands in the bot chat: `/start`, `/help`, `/status`.
   key. Search tuning: `CONTENT_SEARCH_MAX_RESULTS` (default 5) and
   `CONTENT_SEARCH_TIMEOUT` (default 25 seconds).
 
-## Media generation for a draft
+## Media for a draft
 
-When Media Studio is configured (`CONTENT_MEDIA_STUDIO_URL`), every fresh
-on-demand draft is followed by a "Should I also create media for this post?"
-question with three choices:
+Every fresh on-demand draft is followed by an "Add media to this post?"
+question with four choices:
 
 - **Text only** - the draft stays a normal text post.
-- **Create image** - the bot submits an image job (`CONTENT_MEDIA_IMAGE_DRIVER`,
-  default `api-image`) and shows the result for review.
-- **Create video** - the bot first asks for an approximate length (~10
-  seconds, or up to 30 seconds), then submits a video job
-  (`CONTENT_MEDIA_VIDEO_DRIVER`, default `flow-video`). Google Flow currently
-  returns one clip of roughly 8-10 seconds per job; longer clips need the
-  multi-scene work listed in `docs/CONTENT-PRODUCTION-ARCHITECTURE.md`.
+- **AI image** - the bot submits an image job to Media Studio
+  (`CONTENT_MEDIA_IMAGE_DRIVER`, default `api-image`) and shows the result for
+  review.
+- **Send my image** - the bot waits for a photo you send in the chat and
+  attaches it to the draft. Uploaded files are never branded or altered.
+- **My video (get a prompt)** - the bot composes a ready-to-use video prompt
+  from the post title and body. Create the clip yourself in any tool (for
+  example Google Flow), then send the video file back in the chat; the bot
+  attaches it to the draft for approval.
 
-While a job runs the ask message shows progress; the bot keeps polling in the
-background so other commands still work. When the media is ready:
+While the bot waits for an upload, the media question shows a **Cancel
+upload** button and new drafts are blocked until the upload is cancelled or
+completed. Sending a file while no draft is waiting is rejected with an
+explanation; sending the wrong media kind for a waiting draft keeps the draft
+waiting.
 
-1. The bot sends a preview (photo or video) with **New attempt** and
-   **Text only** buttons on it.
+Experimental AI video jobs (`CONTENT_MEDIA_VIDEO_DRIVER`, default
+`flow-video`) can still be triggered from older media questions, but Google
+Flow requires interactive confirmations (credit usage and storyboard
+approval) plus a signed-in browser session, so it is not recommended for
+automated runs; see `docs/CONTENT-PRODUCTION-ARCHITECTURE.md`.
+
+When the media is ready:
+
+1. The bot sends a preview (photo or video). AI-generated previews offer
+   **New attempt** and **Text only**; uploaded files offer **Approve**,
+   **Reject**, and **Text only**.
 2. Review the preview, then press **Approve** on the draft message or on the
    media preview to publish. Media posts go to the channel as one photo or
    video whose caption contains the bold title, the post body, and the
@@ -233,3 +249,12 @@ The `media-studio` image is published the same way as
 - **Writer errors**: confirm `CONTENT_WRITER_BASE_URL` is reachable from the
   content-bot container (the Smart Router service name is `smart-router`) and
   that the model/combo exists in 9router.
+- **Garbled Persian draft**: some writer endpoints occasionally return Persian
+  text decoded as a legacy charset (words that look like `Ø§Ú¯Ø±`). The bot
+  detects and repairs that pattern, and refuses to publish copy it cannot
+  repair; send the link or topic again in that case.
+- **A paragraph looks scrambled in Telegram**: the bot already forces every
+  mixed Persian/Latin line to render right-to-left, but a paragraph whose
+  first visible word is English can still read awkwardly. Reply to the draft
+  with "start each paragraph with a Persian word" and press **Reject** to get
+  a corrected revision.

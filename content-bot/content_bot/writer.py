@@ -5,10 +5,33 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 
 from content_bot.http import HttpError, request_json
 
 LOGGER = logging.getLogger("content_bot.writer")
+
+
+_MOJIBAKE_TELLS = set("ØÙÚÛÜ§±¯¨ŠŒž…")
+_RTL_BIDI = {"R", "AL"}
+_LTR_BIDI = {"L"}
+
+
+def _count_rtl(text: str) -> int:
+    """Count characters with a right-to-left bidirectional class."""
+    return sum(1 for char in str(text or "") if unicodedata.bidirectional(char) in _RTL_BIDI)
+
+
+def _first_strong_direction(line: str) -> str:
+    """Return "R" or "L" for the first strong bidi character, or ""."""
+    for char in str(line or ""):
+        bidi = unicodedata.bidirectional(char)
+        if bidi in _RTL_BIDI:
+            return "R"
+        if bidi in _LTR_BIDI:
+            return "L"
+    return ""
+
 
 SYSTEM_PROMPT = (
     "You write short educational Telegram posts in Persian (Farsi) for a "
@@ -22,7 +45,11 @@ SYSTEM_PROMPT = (
     "provided source article; never describe the input record itself or "
     "mention fields such as title, url, or excerpt. Do not invent facts. "
     "Do not use Markdown, hashtags, labels, quotes, or backslash characters. "
-    "Keep paragraphs short and separate them with single blank lines. End the "
+    "Keep paragraphs short and separate them with single blank lines. Start "
+    "every paragraph with a Persian word; never begin a paragraph with a "
+    "Latin-script name, number, or symbol. Place English product and tool "
+    "names inside the sentence right after the Persian opening phrase so "
+    "the whole paragraph stays one natural right-to-left flow. End the "
     "body with one final line containing only the full source URL."
 )
 
@@ -41,8 +68,11 @@ REVISE_PROMPT = (
     "Never mention the feedback, the revision process, or the source record "
     "inside the post. Do not invent facts. Do not use Markdown, hashtags, "
     "labels, quotes, or backslash characters. Keep "
-    "paragraphs short and separate them with single blank lines. End the body "
-    "with one final line containing only the full source URL."
+    "paragraphs short and separate them with single blank lines. Start "
+    "every paragraph with a Persian word and never begin a paragraph with "
+    "a Latin-script name, number, or symbol, so paragraphs keep one "
+    "right-to-left flow. End the body with one final line containing only "
+    "the full source URL."
 )
 
 
@@ -177,6 +207,33 @@ class Writer:
             lines.append(line)
         return "\n".join(lines).strip()
 
+    @staticmethod
+    def _repair_mojibake(value: str) -> str:
+        """Reverse UTF-8 Persian text that arrived decoded as one legacy charset."""
+        text = str(value or "")
+        if not text or _count_rtl(text):
+            return text
+        for codec in ("cp1252", "latin-1"):
+            try:
+                raw = text.encode(codec)
+            except UnicodeEncodeError:
+                continue
+            try:
+                decoded = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            if decoded and _count_rtl(decoded):
+                return decoded
+        return text
+
+    @staticmethod
+    def _still_mojibake(value: str) -> bool:
+        """True when text still looks like UTF-8 read as Latin-1 (unrecoverable)."""
+        text = str(value or "")
+        if not text or _count_rtl(text):
+            return False
+        return sum(1 for char in text if char in _MOJIBAKE_TELLS) >= 3
+
     def generate_post(self, item: dict, *, guidance: str = "") -> dict:
         """Return ``{"title", "body", "source_url"}`` for one approved item."""
         excerpt = str(item.get("text") or item.get("summary") or "")[:4000]
@@ -203,8 +260,11 @@ class Writer:
         )
         post = self._parse_post(content)
         if post is None:
+            repaired = Writer._repair_mojibake(content)
+            if Writer._still_mojibake(repaired):
+                raise WriterError("writer returned garbled text; try the request again")
             title = str(item.get("title") or "").strip()[:120] or "Untitled"
-            post = {"title": title, "body": self._clean_body(content)}
+            post = {"title": title, "body": Writer._clean_body(repaired)}
         return self._with_source_url(post, str(source["url"] or ""))
 
     def revise_post(
@@ -270,9 +330,12 @@ class Writer:
             if parsed is None:
                 LOGGER.warning("writer reply was not parseable; raw head: %s", str(content)[:400])
                 return None
-        title = str(parsed.get("title", "")).strip()
-        body_text = str(parsed.get("body", "")).strip()
+        title = Writer._repair_mojibake(str(parsed.get("title", ""))).strip()
+        body_text = Writer._repair_mojibake(str(parsed.get("body", ""))).strip()
         if not title or not body_text:
+            return None
+        if Writer._still_mojibake(title) or Writer._still_mojibake(body_text):
+            LOGGER.warning("writer reply contained garbled text; raw head: %s", str(content)[:400])
             return None
         return {"title": title[:120], "body": Writer._clean_body(body_text)}
 

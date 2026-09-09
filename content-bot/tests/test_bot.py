@@ -56,6 +56,9 @@ class FakeApi(TelegramApi):
         self.calls = []
         self.sent_messages = []
         self.uploads = []
+        self.downloads = []
+        self.download_bytes = b"fake-media-bytes"
+        self.file_size = len(self.download_bytes)
 
     def _transport(self, url, payload):
         method = url.rsplit("/", 1)[-1]
@@ -65,7 +68,21 @@ class FakeApi(TelegramApi):
         if method == "sendMessage":
             self.sent_messages.append(payload)
             return {"ok": True, "result": {"message_id": 100 + len(self.sent_messages)}}
+        if method == "getFile":
+            return {
+                "ok": True,
+                "result": {
+                    "file_path": f"docs/{payload['file_id']}.bin",
+                    "file_size": self.file_size,
+                },
+            }
+        if method == "deleteMessage":
+            return {"ok": True, "result": True}
         return {"ok": True, "result": True}
+
+    def download_file(self, file_path, max_bytes=25_000_000):
+        self.downloads.append(file_path)
+        return self.download_bytes
 
     def _upload(self, method, fields, *, file_field, filename, file_bytes):
         self.uploads.append((method, fields, file_field, filename, file_bytes))
@@ -677,6 +694,188 @@ class MediaFlowTestCase(unittest.TestCase):
         )
         self.assertNotIn(draft_id, bot.state.load()["drafts"])
 
+    def test_media_ask_offers_ai_image_upload_and_video_prompt(self):
+        bot = self.build_bot()
+        self.send_link(bot)
+        asks = [m for m in self.api.sent_messages if "Add media to this post" in m["text"]]
+        self.assertEqual(len(asks), 1)
+        labels = []
+        for row in asks[0]["reply_markup"]["inline_keyboard"]:
+            labels.extend(button["text"] for button in row)
+        self.assertIn("AI image", labels)
+        self.assertIn("Send my image", labels)
+        self.assertIn("My video (get a prompt)", labels)
+
+    def test_user_uploaded_photo_attaches_and_publishes(self):
+        bot = self.build_bot(artifact=("image_0.png", "image"))
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "awaiting_media")
+        self.assertEqual(record["media_wait_kind"], "image")
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "small", "file_size": 10, "width": 10, "height": 10},
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100},
+                ],
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ready")
+        self.assertEqual(record["media"]["driver"], "user-upload")
+        self.assertEqual(record["media"]["kind"], "image")
+        self.assertTrue(Path(record["media"]["local_path"]).is_file())
+        preview = [
+            u for u in self.api.uploads if u[0] == "sendPhoto" and u[1]["chat_id"] == 11
+        ]
+        self.assertEqual(len(preview), 1)
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published = [
+            u for u in self.api.uploads if u[0] == "sendPhoto" and u[1]["chat_id"] == "@channel"
+        ]
+        self.assertEqual(len(published), 1)
+        self.assertTrue(published[0][1]["caption"].startswith("<b>"))
+
+    def test_video_prompt_then_uploaded_video_publishes(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:video_prompt:{draft_id}",
+            }
+        )
+        edits = [
+            payload["text"]
+            for method, payload in self.api.calls
+            if method == "editMessageText" and isinstance(payload, dict)
+        ]
+        self.assertTrue(
+            any("Video prompt for this draft" in text for text in edits)
+        )
+        self.assertTrue(any("<pre>" in text for text in edits))
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "awaiting_media")
+        self.assertEqual(record["media_wait_kind"], "video")
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "video": {
+                    "file_id": "vid1",
+                    "mime_type": "video/mp4",
+                    "file_name": "clip.mp4",
+                },
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ready")
+        self.assertEqual(record["media"]["kind"], "video")
+        self.assertEqual(record["media"]["driver"], "user-upload")
+        self.assertTrue(record["media"]["local_path"].endswith(".mp4"))
+        preview = [
+            u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == 11
+        ]
+        self.assertEqual(len(preview), 1)
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published = [
+            u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == "@channel"
+        ]
+        self.assertEqual(len(published), 1)
+
+    def test_upload_without_pending_draft_is_rejected(self):
+        bot = self.build_bot()
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [{"file_id": "x", "file_size": 1}],
+            }
+        )
+        self.assertTrue(
+            any(
+                "No draft is waiting for media" in message["text"]
+                for message in self.api.sent_messages
+            )
+        )
+
+    def test_upload_wrong_kind_keeps_waiting(self):
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "video": {"file_id": "vid1", "mime_type": "video/mp4"},
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "awaiting_media")
+        self.assertTrue(
+            any(
+                "waiting for an image" in message["text"]
+                for message in self.api.sent_messages
+            )
+        )
+
+    def test_cancel_upload_returns_to_media_ask(self):
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        ask_id = bot.state.load()["drafts"][draft_id]["ask_message_id"]
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": ask_id},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": ask_id},
+                "data": f"media:cancel_upload:{draft_id}",
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ask")
+        self.assertIsNone(record.get("media_wait_kind"))
+
     def test_long_media_post_publishes_caption_plus_continuation(self):
         bot = self.build_bot(artifact=("image_0.png", "image"))
         draft_id = self.send_link(bot)
@@ -834,3 +1033,55 @@ class MediaCaptionTest(unittest.TestCase):
         combined = "\n\n".join(messages)
         for paragraph in paragraphs:
             self.assertIn(paragraph, combined)
+
+
+class BotRtlRenderTest(unittest.TestCase):
+    """Mixed Persian/Latin lines keep a right-to-left base direction."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        settings = BotSettings(
+            bot_token="123:TESTTOKENABCDEFGHIJKLMN",
+            telegram_channel="@channel",
+            telegram_users=frozenset({11}),
+            policy_dir=str(POLICY_DIR),
+            data_dir=self.tmp.name,
+            scheduler_enabled=False,
+        )
+        self.bot = ContentBot(
+            settings,
+            api=FakeApi(),
+            writer=FakeWriter(),
+            fetch_page=lambda url: HTML_PAGE,
+            fetch_feed=lambda url: b"",
+            now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
+        )
+        self.record = {
+            "kind": "on_demand",
+            "title": "معرفی ابزار",
+            "body": "Argo Workflows یک ابزار متنباز است.\n\n"
+            "اگر با Kubernetes کار میکنید، این ابزار گزینه مناسبی است.\n\n"
+            "https://example.com/argo",
+            "source_url": "https://example.com/argo",
+        }
+
+    def test_latin_start_lines_are_prefixed_with_rtl_mark(self):
+        from content_bot.bot import _rtl_body_html
+
+        html = _rtl_body_html(self.record["body"])
+        self.assertIn("\u200fArgo Workflows یک ابزار", html)
+        self.assertIn("\n\nاگر با Kubernetes", html)
+
+    def test_pure_english_lines_keep_ltr(self):
+        from content_bot.bot import _rtl_body_html
+
+        html = _rtl_body_html("Only English words here.\n\nhttps://example.com/x")
+        self.assertEqual(html.count("\u200f"), 0)
+
+    def test_preview_and_channel_text_force_rtl_on_mixed_lines(self):
+        preview = self.bot.preview_text(self.record)
+        self.assertIn("\u200fArgo Workflows", preview)
+        channel = self.bot.channel_text(self.record)
+        self.assertIn("\u200fArgo Workflows", channel)
+        self.assertNotIn("\u200fاگر با Kubernetes", channel)

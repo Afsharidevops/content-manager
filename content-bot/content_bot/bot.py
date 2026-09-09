@@ -7,6 +7,7 @@ import logging
 import re
 import secrets
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -40,6 +41,48 @@ def _html_title(title: str) -> str:
     )
 
 
+# Invisible right-to-left mark: forces a Telegram line to keep an RTL base
+# direction even when the first visible character is Latin (product names,
+# numbers, punctuation), which otherwise scrambles Persian word order.
+_RTL_LINE_PREFIX = "‏"
+_RTL_BIDI_TYPES = {"R", "AL"}
+_LTR_BIDI_TYPES = {"L"}
+
+
+def _first_strong_direction(line: str) -> str:
+    """Return "R" or "L" for the first strong bidi character, or ""."""
+    for char in str(line or ""):
+        bidi = unicodedata.bidirectional(char)
+        if bidi in _RTL_BIDI_TYPES:
+            return "R"
+        if bidi in _LTR_BIDI_TYPES:
+            return "L"
+    return ""
+
+
+def _needs_rtl_prefix(line: str) -> bool:
+    """True when a line mixes Persian with a Latin start and would render LTR."""
+    text = str(line or "")
+    if not text:
+        return False
+    has_rtl = any(unicodedata.bidirectional(char) in _RTL_BIDI_TYPES for char in text)
+    return has_rtl and _first_strong_direction(text) == "L"
+
+
+def _rtl_body_html(body: str) -> str:
+    """Escape post body for Telegram HTML with per-line RTL direction marks."""
+    lines: list[str] = []
+    for raw in str(body or "").splitlines():
+        if not raw.strip():
+            lines.append("")
+            continue
+        escaped = _html_escape(raw)
+        if _needs_rtl_prefix(raw):
+            escaped = f"{_RTL_LINE_PREFIX}{escaped}"
+        lines.append(escaped)
+    return "\n".join(lines)
+
+
 _MEDIA_CAPTION_MAX = 1024
 _TEXT_MESSAGE_MAX = 4096
 
@@ -66,7 +109,7 @@ def _media_caption_messages(record: dict) -> list[str]:
     suffix = f"\n\n{link_html}" if link_html else ""
 
     def assemble(parts: list[str], *, with_link: bool) -> str:
-        body_html = "\n\n".join(_html_escape(part) for part in parts)
+        body_html = "\n\n".join(_rtl_body_html(part) for part in parts)
         end = suffix if with_link else ""
         return f"{title_html}\n\n{body_html}{end}"
 
@@ -84,7 +127,7 @@ def _media_caption_messages(record: dict) -> list[str]:
     current: list[str] = []
     current_len = 0
     for part in rest:
-        piece = _html_escape(part)
+        piece = _rtl_body_html(part)
         if len(piece) > _TEXT_MESSAGE_MAX:
             if current:
                 continuation.append("\n\n".join(current))
@@ -245,6 +288,11 @@ class ContentBot:
             log.debug("ignoring message from disallowed user %s", sender)
             return
         chat_id = chat.get("id")
+        attachment = self._attachment_from_message(message)
+        if attachment is not None:
+            if chat_id is not None:
+                self._receive_user_media(chat_id, attachment)
+            return
         text = str(message.get("text") or "").strip()
         if not text:
             return
@@ -284,11 +332,221 @@ class ContentBot:
                     "Send /forget_link <url> to allow a previously published link to be drafted again.",
                 )
             return
+        if self._awaiting_draft(chat_id) is not None:
+            self.api.send_message(
+                chat_id,
+                "A media upload is still pending. Press Cancel upload on the "
+                "media question first, then send the link or topic again.",
+            )
+            return
         match = URL_RE.search(text)
         if match:
             self.request_on_demand(match.group(0), chat_id)
             return
         self.request_on_topic(text, chat_id)
+
+    MAX_USER_MEDIA_BYTES = 20_000_000
+
+    @staticmethod
+    def _attachment_from_message(message: dict) -> dict | None:
+        """Extract (kind, file_id, file_name) from a photo/video message."""
+        photo = message.get("photo")
+        if isinstance(photo, list):
+            sizes = [p for p in photo if isinstance(p, dict) and p.get("file_id")]
+            if sizes:
+                best = max(
+                    sizes,
+                    key=lambda p: p.get("file_size") or p.get("width") or 0,
+                )
+                return {
+                    "kind": "image",
+                    "file_id": best["file_id"],
+                    "file_name": "upload.jpg",
+                }
+        video = message.get("video")
+        if isinstance(video, dict) and video.get("file_id"):
+            mime = str(video.get("mime_type") or "").lower()
+            name = str(video.get("file_name") or "")
+            if not name:
+                name = "video.webm" if "webm" in mime else "video.mp4"
+            return {"kind": "video", "file_id": video["file_id"], "file_name": name}
+        document = message.get("document")
+        if isinstance(document, dict) and document.get("file_id"):
+            mime = str(document.get("mime_type") or "").lower()
+            if mime.startswith("video/"):
+                name = str(document.get("file_name") or "")
+                if not name:
+                    name = "video.webm" if "webm" in mime else "video.mp4"
+                return {"kind": "video", "file_id": document["file_id"], "file_name": name}
+        return None
+
+    @staticmethod
+    def _safe_extension(file_name: str, kind: str) -> str:
+        base = Path(file_name or "").suffix.lstrip(".").lower()
+        if base and re.fullmatch(r"[a-z0-9]{2,5}", base):
+            return base
+        return "jpg" if kind == "image" else "mp4"
+
+    def _awaiting_draft(self, chat_id) -> dict | None:
+        drafts = self.state.load().get("drafts") or {}
+        for record in drafts.values():
+            if (
+                isinstance(record, dict)
+                and record.get("chat_id") == chat_id
+                and record.get("status") == "awaiting_media"
+            ):
+                return record
+        return None
+
+    def _receive_user_media(self, chat_id, attachment: dict) -> None:
+        draft = self._awaiting_draft(chat_id)
+        if draft is None:
+            self.api.send_message(
+                chat_id,
+                "No draft is waiting for media. Send a link or a topic first, "
+                "pick an image or video option, then send the file.",
+            )
+            return
+        draft_id = str(draft.get("id") or "")
+        expected = str(draft.get("media_wait_kind") or "")
+        if expected and expected != attachment["kind"]:
+            label = "image" if expected == "image" else "video"
+            article = "an" if expected == "image" else "a"
+            self.api.send_message(
+                chat_id,
+                f"This draft is waiting for {article} {label}; please send "
+                f"{article} {label} file.",
+            )
+            return
+        try:
+            file_info = self.api.get_file(str(attachment["file_id"]))
+        except telegram_mod.TelegramError as error:
+            self.api.send_message(chat_id, f"Could not download the file: {error}")
+            return
+        if int(file_info.get("file_size") or 0) > self.MAX_USER_MEDIA_BYTES:
+            self.api.send_message(
+                chat_id,
+                "The file is larger than 20 MB; Telegram limits bot downloads. "
+                "Send a smaller file.",
+            )
+            return
+        file_path = str(file_info.get("file_path") or "")
+        if not file_path:
+            self.api.send_message(
+                chat_id,
+                "Telegram did not return a download path for that file.",
+            )
+            return
+        try:
+            content = self.api.download_file(
+                file_path,
+                max_bytes=self.MAX_USER_MEDIA_BYTES + 1_000_000,
+            )
+        except telegram_mod.TelegramError as error:
+            self.api.send_message(chat_id, f"Could not download the file: {error}")
+            return
+        if not content:
+            self.api.send_message(chat_id, "The downloaded file is empty.")
+            return
+        extension = self._safe_extension(
+            str(attachment.get("file_name") or ""),
+            str(attachment["kind"]),
+        )
+        media_dir = Path(self.settings.data_dir) / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        local_path = media_dir / f"{draft_id}.{extension}"
+        try:
+            local_path.write_bytes(content)
+        except OSError as error:
+            self.api.send_message(chat_id, f"Could not store the media file: {error}")
+            return
+        filename = local_path.name
+        media = {
+            "kind": attachment["kind"],
+            "driver": "user-upload",
+            "status": "done",
+            "artifact": filename,
+            "local_path": str(local_path),
+            "duration": "",
+        }
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_ready",
+                "media": media,
+                "media_wait_kind": None,
+            },
+        )
+        self._record_event(draft_id, "user_media_received", filename)
+        ask_id = draft.get("ask_message_id")
+        if ask_id is not None:
+            self._delete_safe(chat_id, int(ask_id))
+            self.state.update_draft(draft_id, {"ask_message_id": None})
+        text_id = draft.get("text_message_id")
+        if text_id is not None:
+            current = self.state.get_draft(draft_id)
+            if current is None:
+                current = dict(draft)
+                current["media"] = media
+            self._edit_safe(
+                chat_id,
+                int(text_id),
+                f"{self.preview_text(current)}\n\n"
+                "Media received. Press Approve on the media message to publish.",
+                telegram_mod.approval_keyboard(draft_id),
+            )
+        if not self._send_media_preview(
+            draft_id,
+            keyboard=telegram_mod.user_media_preview_keyboard,
+        ):
+            self.api.send_message(
+                chat_id,
+                "Media received, but the preview could not be sent.",
+            )
+
+    def _user_video_prompt(self, record: dict) -> str:
+        title = str(record.get("title") or "").strip()
+        body = re.sub(r"\s+", " ", str(record.get("body") or "")).strip()
+        if not body and title:
+            body = title
+        source = str(record.get("source_url") or "").strip()
+        if source:
+            body = writer_mod.Writer._strip_source_url(body, source)
+        return (
+            "Create one short video clip (8-12 seconds, landscape 16:9, no "
+            "burned-in text, no watermark) that illustrates this post. Keep "
+            "the style clean, modern, and photorealistic.\n"
+            f"Title: {title}\n"
+            f"Post: {body[:600]}"
+        )
+
+    def _begin_user_media_wait(
+        self,
+        record: dict,
+        *,
+        kind: str,
+        ask_text: str,
+    ) -> bool:
+        """Point the media ask message at an upload; returns False when busy."""
+        draft_id = str(record.get("id") or "")
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
+        if record.get("status") == "awaiting_media":
+            return False
+        if chat_id is None or ask_id is None:
+            return False
+        self._edit_safe(
+            chat_id,
+            int(ask_id),
+            ask_text,
+            telegram_mod.upload_wait_keyboard(draft_id),
+        )
+        self.state.update_draft(
+            draft_id,
+            {"status": "awaiting_media", "media_wait_kind": kind},
+        )
+        self._record_event(draft_id, "media_upload_wait", kind)
+        return True
 
     def _forget_link(self, url: str, chat_id) -> None:
         digest = canonical_content_hash(canonicalize_url(url))
@@ -311,7 +569,9 @@ class ContentBot:
             "/forget_link <url> - allow a published link to be drafted again\n"
             "Send any http(s) link - draft a post with Approve/Reject buttons\n"
             "Send a topic without a link - search the web and draft a post\n"
-            "After a draft, choose Text only / image / video, then approve\n"
+            "After a draft choose Text only, AI image, send your own image,\n"
+            "or get a video prompt and send the finished file back; then\n"
+            "approve the media preview.\n"
             "Reply to a proposal with edit notes, then press Reject to revise;\n"
             "press Reject without notes to discard. Approved drafts are\n"
             "published to the configured Telegram channel with any media."
@@ -506,7 +766,8 @@ class ContentBot:
         try:
             ask = self.api.send_message(
                 chat_id,
-                "Should I also create media for this post?",
+                "Add media to this post? Text only / AI image / send your own "
+                "image / video prompt (you create the video).",
                 telegram_mod.media_choice_keyboard(draft_id),
             )
         except telegram_mod.TelegramError:
@@ -550,6 +811,7 @@ class ContentBot:
                     "status": "text_only",
                     "media": {"kind": "none"},
                     "media_duration_asked": False,
+                    "media_wait_kind": None,
                 },
             )
             self._record_event(draft_id, "media_none")
@@ -557,6 +819,51 @@ class ContentBot:
                 query_id,
                 "Text-only post. Press Approve on the draft message to publish.",
             )
+            return
+        if sub == "cancel_upload":
+            if record.get("status") != "awaiting_media":
+                self._safe_answer(query_id, "No upload is waiting for this draft.")
+                return
+            chat_id = record.get("chat_id")
+            ask_id = record.get("ask_message_id")
+            self.state.update_draft(
+                draft_id,
+                {"status": "media_ask", "media_wait_kind": None},
+            )
+            self._record_event(draft_id, "media_upload_cancelled")
+            if chat_id is not None and ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    "Should I also create media for this post?",
+                    telegram_mod.media_choice_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, "Upload cancelled.")
+            return
+        if sub == "user_image":
+            if not self._begin_user_media_wait(
+                record,
+                kind="image",
+                ask_text="Send the photo for this post now. It will be attached "
+                "to the draft for approval.",
+            ):
+                self._safe_answer(query_id, "Another media upload is already waiting.")
+                return
+            self._safe_answer(query_id, "Send the photo.")
+            return
+        if sub == "video_prompt":
+            if not self._begin_user_media_wait(
+                record,
+                kind="video",
+                ask_text="Video prompt for this draft:\n\n"
+                f"<pre>{_html_escape(self._user_video_prompt(record))}</pre>\n\n"
+                "Create the video with the tool of your choice (for example "
+                "Google Flow), then send the video file here. It will be "
+                "attached to the draft for approval.",
+            ):
+                self._safe_answer(query_id, "Another media upload is already waiting.")
+                return
+            self._safe_answer(query_id, "Prompt sent; waiting for your video file.")
             return
         if sub == "video":
             ask_id = record.get("ask_message_id")
@@ -782,7 +1089,11 @@ class ContentBot:
         if not self._send_media_preview(draft_id):
             self._media_failed(draft_id, "Media preview could not be sent.")
 
-    def _send_media_preview(self, draft_id: str) -> bool:
+    def _send_media_preview(
+        self,
+        draft_id: str,
+        keyboard=telegram_mod.media_preview_keyboard,
+    ) -> bool:
         """Send the stored media as a preview message; returns success."""
         record = self.state.get_draft(draft_id)
         if record is None:
@@ -806,7 +1117,7 @@ class ContentBot:
                     filename,
                     content,
                     caption=f"Media preview for the draft above.\n{filename}",
-                    reply_markup=telegram_mod.media_preview_keyboard(draft_id),
+                    reply_markup=keyboard(draft_id),
                 )
             else:
                 sent = self.api.send_video(
@@ -814,7 +1125,7 @@ class ContentBot:
                     filename,
                     content,
                     caption=f"Media preview for the draft above.\n{filename}",
-                    reply_markup=telegram_mod.media_preview_keyboard(draft_id),
+                    reply_markup=keyboard(draft_id),
                 )
         except telegram_mod.TelegramError as error:
             log.warning("media preview send failed for %s: %s", draft_id, error)
@@ -898,7 +1209,7 @@ class ContentBot:
         return (
             f"{label}\n"
             f"{_html_title(str(record.get('title') or ''))}\n\n"
-            f"{_html_escape(body)}\n"
+            f"{_rtl_body_html(body)}\n"
             f"{source_line}\n"
             f"Publish to {_html_escape(channel)}; reply with edit notes and "
             f"press Reject to revise; press Reject alone to discard."
@@ -907,7 +1218,7 @@ class ContentBot:
     @staticmethod
     def channel_text(record: dict) -> str:
         title = _html_title(str(record.get("title") or ""))
-        return f"{title}\n\n{_html_escape(str(record.get('body') or ''))}"
+        return f"{title}\n\n{_rtl_body_html(str(record.get('body') or ''))}"
 
     # ------------------------------------------------------------ callbacks
 
@@ -1068,6 +1379,12 @@ class ContentBot:
             self.api.answer_callback_query(
                 query_id,
                 "Media is still being generated; wait or choose Text only first.",
+            )
+            return
+        if record.get("status") == "awaiting_media":
+            self.api.answer_callback_query(
+                query_id,
+                "Waiting for your media file; send it here or choose Text only first.",
             )
             return
         try:

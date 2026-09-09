@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from content_bot.http import HttpError as _HttpError
-from content_bot.http import request_multipart
+from content_bot.http import request_bytes, request_multipart
 from content_bot.http import HttpError, request_json
 
 
@@ -15,7 +15,9 @@ class TelegramError(RuntimeError):
 
 class TelegramApi:
     def __init__(self, token: str, api_base: str = "https://api.telegram.org"):
-        self.root = f"{api_base.rstrip('/')}/bot{token}"
+        self.api_base = api_base.rstrip("/")
+        self.token = token
+        self.root = f"{self.api_base}/bot{token}"
 
     def _transport(self, url: str, payload: dict | None) -> object:
         return request_json(url, payload=payload, timeout=35)
@@ -190,6 +192,22 @@ class TelegramApi:
         result = self._call("answerCallbackQuery", params)
         return result is True
 
+    def get_file(self, file_id: str) -> dict:
+        """Resolve one Telegram file id to a download path."""
+        result = self._call("getFile", {"file_id": file_id})
+        return result if isinstance(result, dict) else {}
+
+    def download_file(self, file_path: str, max_bytes: int = 25_000_000) -> bytes:
+        """Download one Telegram file by its Bot API file path."""
+        url = f"{self.api_base}/file/bot{self.token}/{file_path}"
+        try:
+            status, body = request_bytes(url, timeout=90, max_bytes=max_bytes)
+        except ConnectionError as error:
+            raise TelegramError(f"Telegram file download network error: {error}") from error
+        if status >= 400:
+            raise TelegramError(f"Telegram file download HTTP {status}")
+        return body
+
 
 def approval_keyboard(draft_id: str) -> dict:
     """Inline keyboard for one draft proposal."""
@@ -204,14 +222,44 @@ def approval_keyboard(draft_id: str) -> dict:
 
 
 def media_choice_keyboard(draft_id: str) -> dict:
-    """Ask whether the draft needs generated media."""
+    """Ask how the draft should get media."""
     return {
         "inline_keyboard": [
             [
                 {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
-                {"text": "Create image", "callback_data": f"media:image:{draft_id}"},
-                {"text": "Create video", "callback_data": f"media:video:{draft_id}"},
+                {"text": "AI image", "callback_data": f"media:image:{draft_id}"},
+                {"text": "Send my image", "callback_data": f"media:user_image:{draft_id}"},
+            ],
+            [
+                {
+                    "text": "My video (get a prompt)",
+                    "callback_data": f"media:video_prompt:{draft_id}",
+                },
+            ],
+        ]
+    }
+
+
+def upload_wait_keyboard(draft_id: str) -> dict:
+    """Shown while the bot waits for the operator to send a media file."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Cancel upload", "callback_data": f"media:cancel_upload:{draft_id}"},
             ]
+        ]
+    }
+
+
+def user_media_preview_keyboard(draft_id: str) -> dict:
+    """Approve/Reject plus text-only fallback for an operator-uploaded file."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Approve", "callback_data": f"approve:{draft_id}"},
+                {"text": "Reject", "callback_data": f"reject:{draft_id}"},
+            ],
+            [{"text": "Text only", "callback_data": f"media:none:{draft_id}"}],
         ]
     }
 

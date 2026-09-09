@@ -186,3 +186,63 @@ class WriterSourceDedupeTest(unittest.TestCase):
         post = Writer._with_source_url({"title": "تیتر", "body": f"{url}\nمتن\n{url}"}, url)
         self.assertEqual(post["body"].count(url), 1)
         self.assertTrue(post["body"].strip().endswith(url))
+
+
+class WriterEncodingTest(unittest.TestCase):
+    """Writer replies in legacy single-byte mojibake are repaired or refused."""
+
+    def _generate(self, content: str) -> dict:
+        writer = StubWriter([content])
+        return writer.generate_post(
+            {"title": "Source title", "url": "https://example.com/x", "text": "src"}
+        )
+
+    def test_latin1_mojibake_body_is_repaired(self):
+        clean = "اگر با Kubernetes کار میکنید، Argo Workflows یک ابزار متنباز است."
+        mojibake = clean.encode("utf-8").decode("latin-1")
+        payload = json.dumps(
+            {"title": "معرفی ابزار", "body": mojibake},
+            ensure_ascii=True,
+        )
+        post = self._generate(payload)
+        self.assertEqual(post["title"], "معرفی ابزار")
+        self.assertIn("اگر با Kubernetes کار میکنید", post["body"])
+        self.assertNotIn("Ø§Ú¯Ø±", post["body"])
+
+    def test_cp1252_mojibake_body_is_repaired(self):
+        clean = "میکنید و جایی رسیدهاید که باید چند کار را موازی اجرا کنید."
+        mojibake = clean.encode("utf-8").decode("cp1252")
+        payload = json.dumps({"title": "تیتر", "body": mojibake}, ensure_ascii=True)
+        post = self._generate(payload)
+        self.assertIn("میکنید", post["body"])
+        self.assertNotIn("Û", post["body"])
+
+    def test_clean_persian_and_english_replies_are_untouched(self):
+        persian = json.dumps(
+            {"title": "تیتر فارسی", "body": "متن فارسی ساده."},
+            ensure_ascii=True,
+        )
+        post = self._generate(persian)
+        self.assertEqual(post["title"], "تیتر فارسی")
+        self.assertTrue(post["body"].startswith("متن فارسی ساده."))
+        english = json.dumps(
+            {"title": "Plain title", "body": "Plain English body."},
+            ensure_ascii=True,
+        )
+        post = self._generate(english)
+        self.assertEqual(post["title"], "Plain title")
+        self.assertTrue(post["body"].startswith("Plain English body."))
+
+    def test_unrecoverable_garbled_reply_raises(self):
+        garbled = "Ø§Ú¯Ø± Ø¨Ø§ \ufffd \u00d8\u00a7\u00da\u00af\u00d8\u00b1"
+        payload = json.dumps({"title": garbled[:20], "body": garbled}, ensure_ascii=False)
+        with self.assertRaisesRegex(WriterError, "garbled"):
+            self._generate(payload)
+
+    def test_parse_post_repairs_garbled_body_directly(self):
+        clean = "ابزار Argo Workflows برای Kubernetes طراحی شده است."
+        mojibake = clean.encode("utf-8").decode("latin-1")
+        content = '{"title": "معرفی ابزار", "body": "%s"}' % mojibake.replace('"', '\\"')
+        post = Writer._parse_post(content)
+        self.assertIsNotNone(post)
+        self.assertIn("ابزار Argo Workflows", post["body"])

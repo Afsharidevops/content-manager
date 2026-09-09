@@ -97,6 +97,23 @@ platform; this section tracks the fork additions.
   so a previously published link can be drafted again; the Telegram command
   menu is registered on startup in the default and private-chat scopes.
 
+### Fork additions — media handoff, uploads, RTL-safe copy (2026-09-09)
+
+- The media question after a draft now offers four choices: text only, an
+  AI-generated image, a photo the operator uploads, or a ready-to-use video
+  prompt so the operator creates the clip elsewhere and uploads it.
+- Upload handling is guarded per draft: a Cancel button, wrong-kind rejection,
+  size checks, and blocked new drafts while an upload is pending; uploaded
+  files are stored locally and are never branded or altered.
+- Media preview buttons now match the media source: retry options for
+  AI-generated media and Approve/Reject options for operator uploads.
+- Mixed Persian/Latin post bodies render RTL-safe in Telegram: every line that
+  needs it carries a right-to-left mark, and writer prompts require paragraphs
+  to open with a Persian word so Latin product names never flip the line.
+- Writer replies that arrive as legacy-charset mojibake are repaired
+  automatically; replies that cannot be repaired are refused instead of being
+  published as garbage.
+
 ---
 
 ## Hermes Linux Stack — v0.5.9 Changelog — 2026-08-13
