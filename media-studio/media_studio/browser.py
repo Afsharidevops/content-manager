@@ -163,7 +163,7 @@ def snapshot_page(page, out_dir: str, prefix: str = "snapshot") -> list[str]:
     elements = []
     try:
         locator = page.locator(
-            "button, [role='button'], a, input, textarea, [contenteditable='true'], select, [role='menuitem'], [role='tab']"
+            "button, [role='button'], a, input, textarea, [contenteditable='true'], select, [role='menuitem'], [role='tab'], video"
         )
         count = min(locator.count(), 400)
         for index in range(count):
@@ -180,6 +180,7 @@ def snapshot_page(page, out_dir: str, prefix: str = "snapshot") -> list[str]:
                             aria: node.getAttribute('aria-label') || '',
                             name: node.getAttribute('name') || '',
                             placeholder: node.getAttribute('placeholder') || '',
+                            src: (node.currentSrc || node.src || node.getAttribute('src') || '').slice(0, 200),
                             text: (node.innerText || node.textContent || '').trim().slice(0, 80),
                             visible: !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length),
                             display: style.display,

@@ -160,6 +160,12 @@ wait window, then download `probe.json` and `probe.png` to pick selectors.
   credits should not be bursted.
 - Video generation can take minutes; `MEDIA_STUDIO_JOB_TIMEOUT_SECONDS`
   defaults to 900 and Flow export waits up to 180 seconds.
+- Flow may ask for credit-usage approval before generating. Set
+  `MEDIA_STUDIO_FLOW_AUTO_APPROVE=true` to accept the prompt automatically;
+  leave it false to review every generation.
+- Downloads open the Flow quality menu and save the entry selected by
+  `MEDIA_STUDIO_FLOW_QUALITY` (`270p` GIF, `720p` original, `1080p` or `4K`
+  upscaled; default `720p`).
 - Job state is a JSON document (`data/media-studio/jobs.json`); artifacts are
   immutable files under `data/media-studio/artifacts/<job_id>/`.
 - For credentials: only the operator's own Chrome holds Google cookies; the

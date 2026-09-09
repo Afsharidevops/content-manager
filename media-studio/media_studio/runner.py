@@ -119,7 +119,13 @@ class JobQueue:
                     with open_page(self._settings) as opened:
                         ctx.page = opened
                         page = opened
-                        artifacts = driver.run(ctx)
+                        try:
+                            artifacts = driver.run(ctx)
+                        except Exception:
+                            # Snapshot while the page is still open; the page
+                            # closes before the outer error handler runs.
+                            self._capture_failure(job.id, ctx, page, log)
+                            raise
                 else:
                     artifacts = driver.run(ctx)
             registered = self._register_artifacts(job.id, artifacts)
