@@ -27,6 +27,9 @@ if [[ "$1" == compose ]]; then
     exec)
       if [[ " $* " == *" PROVISION_N8N=true "* ]]; then
         printf 'N8N_API_KEY=fixture-router-key\n'
+      elif [[ " $* " == *" omniroute "* ]]; then
+        printf 'OMNIROUTE_N8N_API_KEY=fixture-omniroute-key\n'
+        printf 'OMNIROUTE_N8N_API_KEY_ID=fixture-omniroute-key-id\n'
       fi
       ;;
     up|config|ps|run|logs|pull|stop|restart) ;;
@@ -82,7 +85,7 @@ SH
 chmod 755 "$FAKE_BIN/docker"
 
 new_fixture() {
-  local name="$1" mode="${2:-off}" stack
+  local name="$1" mode="${2:-off}" profiles="${3:-9router,hermes,n8n}" stack
   stack="$TEST_DIR/$name"
   mkdir -p "$stack/data/hermes" "$stack/data/stack-secrets" "$stack/scripts"
   : > "$stack/scripts/bootstrap-openwebui.mjs"
@@ -90,7 +93,7 @@ new_fixture() {
   chmod 755 "$stack/manage.sh"
   : > "$stack/docker-compose.yml"
   cat > "$stack/.env" <<EOF
-COMPOSE_PROFILES=9router,hermes,n8n
+COMPOSE_PROFILES=$profiles
 N8N_MCP_MODE=$mode
 N8N_IMAGE=n8nio/n8n:latest
 EOF
@@ -295,5 +298,35 @@ if printf '%s\n' eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJtY3Atc2VydmVyLWFwaSJ9.fixture-s
   exit 1
 fi
 grep -q 'Refusing unsafe data/stack-secrets path' "$stack/output"
+
+# With OmniRoute as the backend (no Smart Router), hosted chat reconciliation
+# targets the OmniRoute API and the auto/best-chat alias. The dedicated key is
+# provisioned through the OmniRoute management API and stored with mode 0600.
+stack="$(new_fixture omniroute-reconcile off omniroute,hermes,n8n)"
+printf '%s\n' eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJtY3Atc2VydmVyLWFwaSJ9.fixture-signature | run_manage "$stack" "$stack/valid.out" set-n8n-instance-mcp-token
+: > "$stack/fake-docker.log"
+if ! run_manage "$stack" "$stack/instance.out" set-n8n-mcp-mode instance; then
+  printf 'OmniRoute Instance mode transition failed:\n' >&2
+  command grep -v -F -e eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJtY3Atc2VydmVyLWFwaSJ9.fixture-signature -e valid-trigger-token "$stack/instance.out" >&2 || true
+  exit 1
+fi
+grep -q '^N8N_MCP_MODE=instance$' "$stack/.env"
+grep -q 'reconcile mode=instance router=http://omniroute:20129/v1 model=auto/best-chat' "$stack/fake-docker.log"
+test "$(stat -c '%a' "$stack/data/stack-secrets/omniroute-n8n-router.env")" = 600
+grep -q '^OMNIROUTE_N8N_API_KEY=fixture-omniroute-key$' "$stack/data/stack-secrets/omniroute-n8n-router.env"
+grep -q '^OMNIROUTE_N8N_API_KEY_ID=fixture-omniroute-key-id$' "$stack/data/stack-secrets/omniroute-n8n-router.env"
+! grep -Fq fixture-omniroute-key "$stack/instance.out"
+
+# set-backend-api-key on an OmniRoute-only host updates every local consumer:
+# Hermes direct provider credentials and the Open WebUI connection key.
+stack="$(new_fixture omniroute-backend-key off omniroute,hermes,open-webui)"
+run_manage "$stack" "$stack/key.out" set-backend-api-key fixture-endpoint-key
+grep -q '^OPENWEBUI_OPENAI_API_KEY=fixture-endpoint-key$' "$stack/.env"
+grep -q '^NINEROUTER_API_KEY=fixture-endpoint-key$' "$stack/data/hermes/.env"
+grep -q 'Direct backend API key updated for local consumers.' "$stack/key.out"
+if run_manage "$stack" "$stack/nocon.out" set-backend-api-key 'bad key'; then
+  printf 'Invalid backend API key unexpectedly passed.\n' >&2
+  exit 1
+fi
 
 printf 'n8n management command tests passed.\n'

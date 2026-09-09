@@ -2,9 +2,7 @@ name: Smart Router CI
 
 on:
   push:
-    branches:
-      - main
-      - hermes-omniroute-linux-stack
+    branches: [main]
     paths:
       - 'smart-router/**'
       - '.github/workflows/smart-router-ci.yml'

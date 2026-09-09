@@ -42,6 +42,7 @@ ROOT_DIR="$SOURCE_DIR"
 ENV_FILE="$ROOT_DIR/.env"
 HERMES_DIR="$ROOT_DIR/data/hermes"
 NINEROUTER_DIR="$ROOT_DIR/data/9router"
+OMNIROUTE_DIR="$ROOT_DIR/data/omniroute"
 OPENWEBUI_DIR="$ROOT_DIR/data/open-webui"
 SMART_ROUTER_DIR="$ROOT_DIR/data/smart-router"
 N8N_DIR="$ROOT_DIR/data/n8n"
@@ -504,6 +505,29 @@ profile_enabled() {
   [[ ",$configured," == *",$profile,"* ]]
 }
 
+router_backend_label() {
+  if [[ "$install_omniroute" == true ]]; then
+    printf 'OmniRoute'
+  else
+    printf '9router'
+  fi
+}
+
+choose_router_backend() {
+  local default_label="${1:-9router}" label
+  printf '%s\n' 'Router backend:'
+  printf '%s\n' '  1) 9router   - single-port OpenAI-compatible gateway with automatic key provisioning'
+  printf '%s\n' '  2) OmniRoute - dashboard on 20128 and OpenAI-compatible API on 20129; auto/best-* aliases'
+  while true; do
+    label="$(prompt "Choose router backend" "$default_label")"
+    case "$label" in
+      9router|1) install_nine=true; return 0 ;;
+      omniroute|2) install_omniroute=true; return 0 ;;
+      *) warn "Choose 9router or OmniRoute." >&2 ;;
+    esac
+  done
+}
+
 printf '\nContent Manager - Easy Installer\n'
 printf '%s\n' '================================'
 printf '%s\n' 'Hermes Linux Stack v0.5.9 platform extended with the Content Manager daily content pipeline layer.'
@@ -514,6 +538,7 @@ else
   warn "No private LAN IPv4 address was detected; localhost will be suggested."
 fi
 configure_nine=false
+configure_omniroute=false
 configure_hermes=false
 configure_webui=false
 configure_smart_router=false
@@ -528,6 +553,10 @@ content_was_enabled=false
 media_was_enabled=false
 change_bind_ips=false
 n8n_ready=false
+install_omniroute=false
+omniroute_was_enabled=false
+nine_was_enabled=false
+router_backend_changed=false
 
 if [[ "$CONTENT_RECONFIGURE" == true && ! -f "$ENV_FILE" ]]; then
   die "--content-reconfigure requires an existing installation; run ./install.sh once to provision it."
@@ -539,6 +568,14 @@ fi
 if [[ -f "$ENV_FILE" ]]; then
   existing_install=true
   install_nine=false; profile_enabled 9router && install_nine=true
+  install_omniroute=false; profile_enabled omniroute && install_omniroute=true
+  if [[ "$install_nine" == true && "$install_omniroute" == true ]]; then
+    warn "Both router backends are enabled in COMPOSE_PROFILES; keeping 9router and disabling OmniRoute. Use this wizard again to switch backends."
+    omniroute_was_enabled=true
+    install_omniroute=false
+  fi
+  nine_was_enabled="$install_nine"
+  [[ "$install_omniroute" == true ]] && omniroute_was_enabled=true
   install_hermes=false; profile_enabled hermes && install_hermes=true
   install_webui=false; profile_enabled open-webui && install_webui=true
   install_smart_router=false; profile_enabled smart-router && install_smart_router=true
@@ -574,9 +611,27 @@ if [[ -f "$ENV_FILE" ]]; then
     fi
   else
     if [[ "$install_nine" == true ]]; then
-      confirm "Reconfigure existing 9router settings?" n && configure_nine=true
-    elif confirm "Add 9router?" n; then
-      install_nine=true; configure_nine=true
+      if confirm "Reconfigure existing 9router settings?" n; then
+        configure_nine=true
+      elif confirm "Switch the router backend from 9router to OmniRoute?" n; then
+        install_nine=false
+        install_omniroute=true
+        configure_omniroute=true
+        router_backend_changed=true
+      fi
+    elif [[ "$install_omniroute" == true ]]; then
+      if confirm "Reconfigure existing OmniRoute settings?" n; then
+        configure_omniroute=true
+      elif confirm "Switch the router backend from OmniRoute to 9router?" n; then
+        install_omniroute=false
+        install_nine=true
+        configure_nine=true
+        router_backend_changed=true
+      fi
+    elif confirm "Add a router backend (9router or OmniRoute)?" n; then
+      choose_router_backend
+      [[ "$install_nine" == true ]] && configure_nine=true
+      [[ "$install_omniroute" == true ]] && configure_omniroute=true
     fi
     if [[ "$install_hermes" == true ]]; then
       confirm "Reconfigure existing Hermes Agent settings?" n && configure_hermes=true
@@ -595,10 +650,19 @@ if [[ -f "$ENV_FILE" ]]; then
       elif confirm "Reconfigure existing Smart Router settings?" n; then
         configure_smart_router=true
       fi
-    elif [[ "$install_nine" == true && "$install_hermes" == true ]] \
+    elif [[ "$install_hermes" == true && ( "$install_nine" == true || "$install_omniroute" == true ) ]] \
       && confirm "Enable Hermes Smart Router v0.5.9 (recommended)?" y; then
       install_smart_router=true
       configure_smart_router=true
+    fi
+    if [[ "$router_backend_changed" == true ]]; then
+      if [[ "$install_smart_router" == true ]]; then
+        configure_smart_router=true
+        info "The router backend changed; Smart Router upstream settings will be updated for $(router_backend_label)."
+      elif [[ "$install_hermes" == true ]]; then
+        configure_hermes=true
+        info "The router backend changed; Hermes provider settings will be updated for $(router_backend_label)."
+      fi
     fi
     if [[ "$install_n8n" == true ]]; then
       if ! confirm "Keep n8n workflow automation enabled?" y; then
@@ -636,65 +700,101 @@ if [[ -f "$ENV_FILE" ]]; then
     confirm "Change published container bind IPs only?" n && change_bind_ips=true
   fi
 else
-  printf '%s\n' '1) Install both 9router and Hermes Agent (recommended)'
-  printf '%s\n' '2) Install 9router only'
+  printf '%s\n' '1) Install a router backend and Hermes Agent (recommended; choose 9router or OmniRoute)'
+  printf '%s\n' '2) Install a router backend only (choose 9router or OmniRoute)'
   printf '%s\n' '3) Install Hermes Agent only'
   printf '%s\n' '4) Install Open WebUI only'
   printf '%s\n' '5) Install Content Bot only (external OpenAI-compatible model API)'
   printf '%s\n' '6) Install Media Studio only (API image generation; Google Flow/Gemini optional)'
+  printf '%s\n' '7) Install Content pipeline only (Content Bot + Media Studio, external model API)'
   while true; do
     selection="$(prompt "Choose installation" "1")"
+    install_router=false
     case "$selection" in
-      1) install_nine=true; install_hermes=true; install_webui=false; break ;;
-      2) install_nine=true; install_hermes=false; install_webui=false; break ;;
+      1) install_router=true; install_hermes=true; install_webui=false; break ;;
+      2) install_router=true; install_hermes=false; install_webui=false; break ;;
       3) install_nine=false; install_hermes=true; install_webui=false; break ;;
       4) install_nine=false; install_hermes=false; install_webui=true; break ;;
       5) install_nine=false; install_hermes=false; install_webui=false; break ;;
       6) install_nine=false; install_hermes=false; install_webui=false; break ;;
-      *) warn "Choose 1, 2, 3, 4, 5, or 6." >&2 ;;
+      7) install_nine=false; install_hermes=false; install_webui=false; break ;;
+      *) warn "Choose 1, 2, 3, 4, 5, 6, or 7." >&2 ;;
     esac
   done
 
-  if [[ "$selection" != 4 && "$selection" != 5 && "$selection" != 6 ]] && confirm "Also install Open WebUI?" n; then
+  if [[ "$install_router" == true ]]; then
+    choose_router_backend
+    [[ "$install_nine" == true ]] && configure_nine=true
+    [[ "$install_omniroute" == true ]] && configure_omniroute=true
+  else
+    install_nine=false
+    install_omniroute=false
+  fi
+
+  if [[ "$selection" != 4 && "$selection" != 5 && "$selection" != 6 && "$selection" != 7 ]] \
+    && confirm "Also install Open WebUI?" n; then
     install_webui=true
   fi
-  configure_nine="$install_nine"
   configure_hermes="$install_hermes"
   configure_webui="$install_webui"
   install_smart_router=false
-  if [[ "$install_nine" == true && "$install_hermes" == true ]] \
+  if [[ "$install_hermes" == true && ( "$install_nine" == true || "$install_omniroute" == true ) ]] \
     && confirm "Enable Hermes Smart Router v0.5.9 (recommended)?" y; then
     install_smart_router=true
     configure_smart_router=true
   fi
   install_n8n=false
-  if [[ "$selection" != 5 && "$selection" != 6 ]] && confirm "Add optional n8n workflow automation?" n; then
+  if [[ "$selection" != 5 && "$selection" != 6 && "$selection" != 7 ]] \
+    && confirm "Add optional n8n workflow automation?" n; then
     install_n8n=true
     configure_n8n=true
   fi
   install_content=false
-  if [[ "$selection" == 5 ]]; then
-    install_content=true
-    configure_content=true
-  elif [[ "$install_nine" == true || "$install_smart_router" == true ]] \
-    && confirm "Add the Content Bot (Telegram approve/publish bot with Approve/Reject buttons)?" \
-      "$([[ "$install_smart_router" == true ]] && printf y || printf n)"; then
-    install_content=true
-    configure_content=true
-  fi
+  case "$selection" in
+    5|7)
+      install_content=true
+      configure_content=true
+      ;;
+    6)
+      if confirm "Also install the Content Bot (Telegram approve/publish bot; external OpenAI-compatible API when no router is installed) to drive this Media Studio?" n; then
+        install_content=true
+        configure_content=true
+      fi
+      ;;
+    *)
+      if [[ "$install_nine" == true || "$install_omniroute" == true || "$install_smart_router" == true ]] \
+        && confirm "Add the Content Bot (Telegram approve/publish bot with Approve/Reject buttons)?" \
+          "$([[ "$install_smart_router" == true ]] && printf y || printf n)"; then
+        install_content=true
+        configure_content=true
+      fi
+      ;;
+  esac
   install_media=false
-  if [[ "$selection" == 6 ]]; then
-    install_media=true
-    configure_media=true
-  elif confirm "Add Media Studio (optional media worker; api-image works without Google, flow-video/gemini-image need a signed-in Google session)?" n; then
-    install_media=true
-    configure_media=true
-  fi
+  case "$selection" in
+    6|7)
+      install_media=true
+      configure_media=true
+      ;;
+    5)
+      if confirm "Also install Media Studio (AI images, uploaded-photo branding, optional Google Flow video) for this Content Bot pipeline?" n; then
+        install_media=true
+        configure_media=true
+      fi
+      ;;
+    *)
+      if confirm "Add Media Studio (optional media worker; api-image works without Google, flow-video/gemini-image need a signed-in Google session)?" n; then
+        install_media=true
+        configure_media=true
+      fi
+      ;;
+  esac
   install_caddy=false
 fi
 
 profiles=""
 [[ "$install_nine" == true ]] && profiles="9router"
+[[ "$install_omniroute" == true ]] && profiles="omniroute"
 [[ "$install_smart_router" == true ]] && profiles="${profiles:+$profiles,}smart-router"
 [[ "$install_hermes" == true ]] && profiles="${profiles:+$profiles,}hermes"
 [[ "$install_webui" == true ]] && profiles="${profiles:+$profiles,}open-webui"
@@ -702,7 +802,7 @@ profiles=""
 [[ "$install_content" == true ]] && profiles="${profiles:+$profiles,}content"
 [[ "$install_media" == true ]] && profiles="${profiles:+$profiles,}media"
 
-mkdir -p "$HERMES_DIR" "$NINEROUTER_DIR" "$OPENWEBUI_DIR" "$SMART_ROUTER_DIR" "$N8N_DIR" "$CADDY_DIR" \
+mkdir -p "$HERMES_DIR" "$NINEROUTER_DIR" "$OMNIROUTE_DIR" "$OPENWEBUI_DIR" "$SMART_ROUTER_DIR" "$N8N_DIR" "$CADDY_DIR" \
   "$ROOT_DIR/data/content-bot" "$ROOT_DIR/data/media-studio"
 mkdir -p "$HERMES_DIR/lazy-packages" "$HERMES_DIR/npm-packages" "$ROOT_DIR/data/stack-secrets"
 chmod 700 "$ROOT_DIR/data/stack-secrets"
@@ -782,12 +882,63 @@ if [[ "$configure_nine" == true ]]; then
   fi
 fi
 
+omni_bind="$(existing_env_value OMNIROUTE_BIND_IP)"; omni_bind="${omni_bind:-${lan_ip:-127.0.0.1}}"
+omni_port="$(existing_env_value OMNIROUTE_PORT)"; omni_port="${omni_port:-20128}"
+omni_api_bind="$(existing_env_value OMNIROUTE_API_BIND_IP)"; omni_api_bind="${omni_api_bind:-$omni_bind}"
+omni_api_port="$(existing_env_value OMNIROUTE_API_PORT)"; omni_api_port="${omni_api_port:-20129}"
+omni_password="$(existing_env_value OMNIROUTE_INITIAL_PASSWORD)"; omni_password="${omni_password:-not-installed}"
+omni_require_key="$(existing_env_value OMNIROUTE_REQUIRE_API_KEY)"; omni_require_key="${omni_require_key:-false}"
+omni_cookie_secure="$(existing_env_value OMNIROUTE_AUTH_COOKIE_SECURE)"; omni_cookie_secure="${omni_cookie_secure:-false}"
+omni_public_url="$(existing_env_value OMNIROUTE_PUBLIC_BASE_URL)"; omni_public_url="${omni_public_url:-http://localhost:20128}"
+existing_omni_jwt="$(existing_env_value OMNIROUTE_JWT_SECRET)"
+existing_omni_key_secret="$(existing_env_value OMNIROUTE_API_KEY_SECRET)"
+existing_omni_salt="$(existing_env_value OMNIROUTE_MACHINE_ID_SALT)"
+omni_jwt="${existing_omni_jwt:-$(random_hex 32)}"
+omni_key_secret="${existing_omni_key_secret:-$(random_hex 32)}"
+omni_salt="${existing_omni_salt:-$(random_hex 32)}"
+omni_management_key="$(existing_env_value OMNIROUTE_MANAGEMENT_API_KEY)"
+omni_storage_key="$(existing_env_value OMNIROUTE_STORAGE_ENCRYPTION_KEY)"
+omni_key_version="$(existing_env_value OMNIROUTE_STORAGE_ENCRYPTION_KEY_VERSION)"; omni_key_version="${omni_key_version:-v1}"
+omni_ws_secret="$(existing_env_value OMNIROUTE_WS_BRIDGE_SECRET)"
+omni_allow_key_reveal="$(existing_env_value OMNIROUTE_ALLOW_API_KEY_REVEAL)"; omni_allow_key_reveal="${omni_allow_key_reveal:-false}"
+omni_memory_mb="$(existing_env_value OMNIROUTE_MEMORY_MB)"; omni_memory_mb="${omni_memory_mb:-512}"
+
+if [[ "$configure_omniroute" == true ]]; then
+  printf '\nOmniRoute settings\n'
+  printf '%s\n' '------------------'
+  omni_bind="$(prompt_bind_ip "OmniRoute dashboard host bind address" "$(suggested_bind_ip "$omni_bind")")"
+  omni_port="$(prompt_port "OmniRoute dashboard port" "$omni_port")"
+  omni_api_bind="$omni_bind"
+  omni_api_port="$(prompt_port "OmniRoute OpenAI-compatible API port" "$omni_api_port")"
+  omni_password="$(prompt_secret "Initial OmniRoute dashboard password")"
+  omni_public_url="$(prompt "Public dashboard URL (or local URL)" "http://$(service_url_host "$omni_bind"):$omni_port")"
+  if [[ "$omni_public_url" == https://* ]]; then omni_cookie_secure="true"; fi
+  if confirm "Require an OmniRoute Bearer API key on /v1 routes?" n; then
+    if [[ -n "$(existing_env_value SMART_ROUTER_UPSTREAM_API_KEY)" ]]; then
+      omni_require_key="true"
+      if [[ "$router_backend_changed" == true && "$install_smart_router" == true ]]; then
+        warn "The previous backend key is cleared on a backend switch. After the stack starts, create an OmniRoute endpoint key and run ./manage.sh set-backend-api-key KEY before enabling Smart Router route mode."
+      fi
+    else
+      omni_require_key="false"
+      warn "No SMART_ROUTER_UPSTREAM_API_KEY exists yet. Keep OmniRoute API auth off for first boot, create a key in OmniRoute, then run ./manage.sh set-backend-api-key KEY and enable OMNIROUTE_REQUIRE_API_KEY=true."
+    fi
+  else
+    omni_require_key="false"
+  fi
+fi
+
 openwebui_bind="$(existing_env_value OPENWEBUI_BIND_IP)"; openwebui_bind="${openwebui_bind:-${lan_ip:-127.0.0.1}}"
 openwebui_port="$(existing_env_value OPENWEBUI_PORT)"; openwebui_port="${openwebui_port:-3000}"
 openwebui_url="$(existing_env_value OPENWEBUI_URL)"; openwebui_url="${openwebui_url:-http://localhost:3000}"
 existing_openwebui_secret="$(existing_env_value OPENWEBUI_SECRET_KEY)"
 openwebui_secret="${existing_openwebui_secret:-$(random_hex 32)}"
-openwebui_api_url="$(existing_env_value OPENWEBUI_OPENAI_BASE_URL)"; openwebui_api_url="${openwebui_api_url:-http://nine-router:20128/v1}"
+openwebui_api_url="$(existing_env_value OPENWEBUI_OPENAI_BASE_URL)"
+if [[ -z "$openwebui_api_url" && "$install_omniroute" == true ]]; then
+  openwebui_api_url="http://omniroute:20129/v1"
+elif [[ -z "$openwebui_api_url" ]]; then
+  openwebui_api_url="http://nine-router:20128/v1"
+fi
 openwebui_api_key="$(existing_env_value OPENWEBUI_OPENAI_API_KEY)"; openwebui_api_key="${openwebui_api_key:-local-no-auth}"
 openwebui_signup="$(existing_env_value OPENWEBUI_ENABLE_SIGNUP)"; openwebui_signup="${openwebui_signup:-true}"
 
@@ -810,6 +961,11 @@ provider_name="9router"
 provider_url="http://nine-router:20128/v1"
 provider_key="local-no-auth"
 model_name="ai"
+if [[ "$install_omniroute" == true ]]; then
+  provider_name="OmniRoute"
+  provider_url="http://omniroute:20129/v1"
+  model_name="auto"
+fi
 telegram_token="$(existing_hermes_env_value TELEGRAM_BOT_TOKEN)"
 telegram_ids="$(existing_hermes_env_value TELEGRAM_ALLOWED_USERS)"
 telegram_home="$(existing_hermes_env_value TELEGRAM_HOME_CHANNEL)"
@@ -829,13 +985,50 @@ smart_router_provider_health_enabled="$(existing_env_value SMART_ROUTER_PROVIDER
 smart_router_coding_model="$(existing_env_value SMART_ROUTER_CODING_MODEL)"
 smart_router_vision_model="$(existing_env_value SMART_ROUTER_VISION_MODEL)"
 smart_router_secret="$(existing_env_value SMART_ROUTER_HMAC_SECRET)"; smart_router_secret="${smart_router_secret:-$(random_hex 32)}"
-smart_router_fast_model="$(existing_env_value SMART_ROUTER_FAST_MODEL)"; smart_router_fast_model="${smart_router_fast_model:-combo-fast}"
-smart_router_standard_model="$(existing_env_value SMART_ROUTER_STANDARD_MODEL)"; smart_router_standard_model="${smart_router_standard_model:-combo-standard}"
-smart_router_strong_model="$(existing_env_value SMART_ROUTER_STRONG_MODEL)"; smart_router_strong_model="${smart_router_strong_model:-combo-strong}"
-smart_router_coding_model="${smart_router_coding_model:-combo-strong}"
-smart_router_vision_model="${smart_router_vision_model:-combo-strong}"
-smart_router_observe_model="$(existing_env_value SMART_ROUTER_OBSERVE_MODEL)"; smart_router_observe_model="${smart_router_observe_model:-ai}"
-smart_router_fail_open_model="$(existing_env_value SMART_ROUTER_FAIL_OPEN_MODEL)"; smart_router_fail_open_model="${smart_router_fail_open_model:-ai}"
+smart_router_fast_model="$(existing_env_value SMART_ROUTER_FAST_MODEL)"
+smart_router_standard_model="$(existing_env_value SMART_ROUTER_STANDARD_MODEL)"
+smart_router_strong_model="$(existing_env_value SMART_ROUTER_STRONG_MODEL)"
+smart_router_observe_model="$(existing_env_value SMART_ROUTER_OBSERVE_MODEL)"
+smart_router_fail_open_model="$(existing_env_value SMART_ROUTER_FAIL_OPEN_MODEL)"
+if [[ "$install_omniroute" == true ]]; then
+  smart_router_fast_model="${smart_router_fast_model:-auto/best-fast}"
+  smart_router_standard_model="${smart_router_standard_model:-auto/best-chat}"
+  smart_router_strong_model="${smart_router_strong_model:-auto/best-reasoning}"
+  smart_router_coding_model="${smart_router_coding_model:-auto/best-coding}"
+  smart_router_vision_model="${smart_router_vision_model:-auto/best-vision}"
+  smart_router_observe_model="${smart_router_observe_model:-auto/best-chat}"
+  smart_router_fail_open_model="${smart_router_fail_open_model:-auto}"
+else
+  smart_router_fast_model="${smart_router_fast_model:-combo-fast}"
+  smart_router_standard_model="${smart_router_standard_model:-combo-standard}"
+  smart_router_strong_model="${smart_router_strong_model:-combo-strong}"
+  smart_router_coding_model="${smart_router_coding_model:-combo-strong}"
+  smart_router_vision_model="${smart_router_vision_model:-combo-strong}"
+  smart_router_observe_model="${smart_router_observe_model:-ai}"
+  smart_router_fail_open_model="${smart_router_fail_open_model:-ai}"
+fi
+if [[ "$router_backend_changed" == true && "$install_smart_router" == true ]]; then
+  # The model namespaces differ between backends (combo-* combos versus
+  # OmniRoute auto/best-* aliases), so a backend switch resets route profiles
+  # to the canonical defaults of the newly selected backend.
+  if [[ "$install_omniroute" == true ]]; then
+    smart_router_fast_model="auto/best-fast"
+    smart_router_standard_model="auto/best-chat"
+    smart_router_strong_model="auto/best-reasoning"
+    smart_router_coding_model="auto/best-coding"
+    smart_router_vision_model="auto/best-vision"
+    smart_router_observe_model="auto/best-chat"
+    smart_router_fail_open_model="auto"
+  else
+    smart_router_fast_model="combo-fast"
+    smart_router_standard_model="combo-standard"
+    smart_router_strong_model="combo-strong"
+    smart_router_coding_model="combo-strong"
+    smart_router_vision_model="combo-strong"
+    smart_router_observe_model="ai"
+    smart_router_fail_open_model="ai"
+  fi
+fi
 smart_router_ttl="$(existing_env_value SMART_ROUTER_SESSION_TTL_SECONDS)"; smart_router_ttl="${smart_router_ttl:-2700}"
 smart_router_max_age="$(existing_env_value SMART_ROUTER_MAX_SESSION_AGE_SECONDS)"; smart_router_max_age="${smart_router_max_age:-43200}"
 smart_router_demotion="$(existing_env_value SMART_ROUTER_DEMOTION_TURNS)"; smart_router_demotion="${smart_router_demotion:-5}"
@@ -930,12 +1123,16 @@ if [[ "$configure_smart_router" == true && "$install_smart_router" == true ]]; t
     [[ "$smart_router_require_auth" == true ]] || warn "Authentication is disabled. Keep the Smart Router bound to loopback unless you fully understand the exposure risk."
   fi
   if confirm "Enable provider/model health registry and circuit-breaker fallback?" "$([[ "$smart_router_provider_health_enabled" == true ]] && printf y || printf n)"; then smart_router_provider_health_enabled=true; else smart_router_provider_health_enabled=false; fi
-  smart_router_fast_model="$(prompt "Fast route-profile 9router model/combo" "$smart_router_fast_model")"
-  smart_router_standard_model="$(prompt "Standard route-profile 9router model/combo" "$smart_router_standard_model")"
-  smart_router_strong_model="$(prompt "Strong route-profile 9router model/combo" "$smart_router_strong_model")"
-  smart_router_coding_model="$(prompt "Coding route-profile 9router model/combo" "$smart_router_coding_model")"
-  smart_router_vision_model="$(prompt "Vision route-profile 9router model/combo" "$smart_router_vision_model")"
-  info "The fast/standard/strong values are Smart Router route-profile defaults. 9router controls the actual provider/model composition behind those combo names."
+  smart_router_fast_model="$(prompt "Fast route-profile $(router_backend_label) model/alias" "$smart_router_fast_model")"
+  smart_router_standard_model="$(prompt "Standard route-profile $(router_backend_label) model/alias" "$smart_router_standard_model")"
+  smart_router_strong_model="$(prompt "Strong route-profile $(router_backend_label) model/alias" "$smart_router_strong_model")"
+  smart_router_coding_model="$(prompt "Coding route-profile $(router_backend_label) model/alias" "$smart_router_coding_model")"
+  smart_router_vision_model="$(prompt "Vision route-profile $(router_backend_label) model/alias" "$smart_router_vision_model")"
+  if [[ "$install_omniroute" == true ]]; then
+    info "The fast/standard/strong values are Smart Router route-profile defaults. OmniRoute resolves the auto/best-* aliases behind them."
+  else
+    info "The fast/standard/strong values are Smart Router route-profile defaults. 9router controls the actual provider/model composition behind those combo names."
+  fi
   info "Dashboard URL after start: http://$(service_url_host "$smart_router_bind"):$smart_router_port/dashboard"
   info "Operations Center URL after start: http://$(service_url_host "$smart_router_bind"):$smart_router_port/control/"
 fi
@@ -1023,6 +1220,9 @@ elif [[ "$install_nine" == true ]]; then
   openwebui_api_url="http://nine-router:20128/v1"
   provider_url="http://nine-router:20128/v1"
   [[ "$model_name" == auto* ]] && model_name="ai"
+elif [[ "$install_omniroute" == true ]]; then
+  openwebui_api_url="http://omniroute:20129/v1"
+  provider_url="http://omniroute:20129/v1"
 fi
 
 if [[ "$change_bind_ips" == true ]]; then
@@ -1030,6 +1230,9 @@ if [[ "$change_bind_ips" == true ]]; then
   printf '%s\n' '----------------------------'
   if [[ "$install_nine" == true && "$configure_nine" != true ]]; then
     nine_bind="$(prompt_bind_ip "9router bind IP" "$(suggested_bind_ip "$nine_bind")")"
+  fi
+  if [[ "$install_omniroute" == true && "$configure_omniroute" != true ]]; then
+    omni_bind="$(prompt_bind_ip "OmniRoute bind IP" "$(suggested_bind_ip "$omni_bind")")"
   fi
   if [[ "$install_hermes" == true && "$configure_hermes" != true ]]; then
     hermes_bind="$(prompt_bind_ip "Hermes API/dashboard bind IP" "$(suggested_bind_ip "$hermes_bind")")"
@@ -1044,6 +1247,7 @@ if [[ "$change_bind_ips" == true ]]; then
     caddy_bind="$(prompt_bind_ip "Caddy HTTP/HTTPS bind IP" "$caddy_bind")"
   fi
   if [[ ( "$install_nine" == true && "$nine_bind" == 0.0.0.0 ) \
+    || ( "$install_omniroute" == true && "$omni_bind" == 0.0.0.0 ) \
     || ( "$install_hermes" == true && "$hermes_bind" == 0.0.0.0 ) \
     || ( "$install_webui" == true && "$openwebui_bind" == 0.0.0.0 ) \
     || ( "$install_n8n" == true && "$n8n_bind" == 0.0.0.0 ) \
@@ -1058,17 +1262,22 @@ if [[ "$configure_hermes" == true ]]; then
   hermes_bind="$(prompt_bind_ip "Hermes API/dashboard host bind address" "$(suggested_bind_ip "$hermes_bind")")"
   if [[ "$install_smart_router" == true ]]; then
     provider_url="http://smart-router:8080/v1"
-    info "Hermes will reach 9router through the Smart Router in ${smart_router_mode} mode."
+    info "Hermes will reach $(router_backend_label) through the Smart Router in ${smart_router_mode} mode."
   elif [[ "$install_nine" == true ]]; then
     provider_url="http://nine-router:20128/v1"
     info "Hermes will reach 9router through the private Docker network."
+  elif [[ "$install_omniroute" == true ]]; then
+    provider_url="http://omniroute:20129/v1"
+    info "Hermes will reach OmniRoute through the private Docker network."
   else
     provider_url="$(prompt "OpenAI-compatible API base URL (include /v1)" "http://host.docker.internal:20128/v1")"
   fi
-  provider_name="$(prompt "Hermes provider name" "9router")"
+  provider_name="$(prompt "Hermes provider name" "$(router_backend_label)")"
   if [[ "$install_smart_router" == true ]]; then
     model_name="auto"
     info "Hermes model is set to auto; explicit /model selections still pass through unchanged."
+  elif [[ "$install_omniroute" == true ]]; then
+    model_name="$(prompt "OmniRoute model name" "$model_name")"
   else
     model_name="$(prompt "9router model/combo name" "ai")"
   fi
@@ -1076,6 +1285,14 @@ if [[ "$configure_hermes" == true ]]; then
   if [[ "$install_nine" == true ]]; then
     provider_key="auto-generated-after-9router-starts"
     info "A dedicated 9router API key will be configured automatically for Hermes."
+  elif [[ "$install_omniroute" == true ]]; then
+    if [[ "$install_smart_router" == true ]]; then
+      provider_key="auto-generated-after-smart-router-starts"
+      info "Smart Router client authentication will be configured automatically for Hermes."
+    else
+      provider_key="$(prompt_secret "OmniRoute API key (Enter if REQUIRE_API_KEY=false)" true)"
+      provider_key="${provider_key:-local-no-auth}"
+    fi
   else
     provider_key="$(prompt_secret "9router/OpenAI-compatible API key")"
   fi
@@ -1134,16 +1351,24 @@ if [[ "$configure_webui" == true ]]; then
   openwebui_port="$(prompt_port "Open WebUI port" "3000")"
   openwebui_url="$(prompt "Open WebUI public URL (or local URL)" "http://$(service_url_host "$openwebui_bind"):$openwebui_port")"
 
-  if [[ "$install_nine" == true ]]; then
+  if [[ "$install_nine" == true || "$install_omniroute" == true ]]; then
     if [[ "$install_smart_router" == true ]]; then
       openwebui_api_url="http://smart-router:8080/v1"
-      info "Open WebUI will reach 9router through the Smart Router."
-    else
+      info "Open WebUI will reach $(router_backend_label) through the Smart Router."
+    elif [[ "$install_nine" == true ]]; then
       openwebui_api_url="http://nine-router:20128/v1"
       info "Open WebUI will reach 9router through the private Docker network."
+    else
+      openwebui_api_url="http://omniroute:20129/v1"
+      info "Open WebUI will reach OmniRoute through the private Docker network."
     fi
-    openwebui_api_key="auto-generated-after-9router-starts"
-    info "A dedicated 9router API key and OpenCode-Free model will be configured automatically."
+    if [[ "$install_nine" == true ]]; then
+      openwebui_api_key="auto-generated-after-9router-starts"
+      info "A dedicated 9router API key and OpenCode-Free model will be configured automatically."
+    else
+      openwebui_api_key="${provider_key:-local-no-auth}"
+      info "OmniRoute model providers are managed in its dashboard; the /v1 connection is preconfigured."
+    fi
   else
     openwebui_api_url="$(prompt "OpenAI-compatible API base URL for Open WebUI" "http://host.docker.internal:20128/v1")"
     openwebui_api_key="$(prompt_secret "OpenAI-compatible API key for Open WebUI")"
@@ -1162,7 +1387,7 @@ caddy_hermes_dashboard_domain=""
 caddy_hermes_api_domain=""
 caddy_n8n_domain=""
 
-if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_webui" == true \
+if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_omniroute" == true || "$install_webui" == true \
   || "$install_n8n" == true || "$hermes_dashboard" == 1 || "$api_enabled" == true ) ]]; then
   if [[ "$install_caddy" == true ]]; then
     confirm "Reconfigure existing Caddy domains?" n && configure_caddy=true
@@ -1181,11 +1406,17 @@ if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_w
     fi
 
     declare -A selected_domains=()
-    if [[ "$install_nine" == true ]] && confirm "Publish 9router with a domain?" y; then
-      caddy_nine_domain="$(prompt_domain "9router domain")"
+    if [[ "$install_nine" == true || "$install_omniroute" == true ]] \
+      && confirm "Publish $(router_backend_label) with a domain?" y; then
+      caddy_nine_domain="$(prompt_domain "$(router_backend_label) domain")"
       selected_domains["$caddy_nine_domain"]=1
-      nine_public_url="https://$caddy_nine_domain"
-      nine_cookie_secure="true"
+      if [[ "$install_nine" == true ]]; then
+        nine_public_url="https://$caddy_nine_domain"
+        nine_cookie_secure="true"
+      else
+        omni_public_url="https://$caddy_nine_domain"
+        omni_cookie_secure="true"
+      fi
     fi
     if [[ "$install_webui" == true ]] && confirm "Publish Open WebUI with a domain?" y; then
       caddy_webui_domain="$(prompt_domain "Open WebUI domain")"
@@ -1219,8 +1450,11 @@ if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_w
       install_caddy=false
     else
       warn "Caddy needs public DNS records plus inbound TCP 80/443 and UDP 443."
-      if [[ -n "$caddy_nine_domain" && "$nine_require_key" != true ]]; then
+      if [[ -n "$caddy_nine_domain" && "$install_nine" == true && "$nine_require_key" != true ]]; then
         warn "9router /v1 will be public without Bearer-key enforcement. Enable REQUIRE_API_KEY after creating a 9router endpoint key."
+      fi
+      if [[ -n "$caddy_nine_domain" && "$install_omniroute" == true && "$omni_require_key" != true ]]; then
+        warn "OmniRoute /v1 will be public without Bearer-key enforcement. Create an endpoint key in OmniRoute, run ./manage.sh set-backend-api-key KEY, then enable OMNIROUTE_REQUIRE_API_KEY=true."
       fi
       if [[ -n "$caddy_webui_domain" && "$openwebui_signup" == true ]]; then
         warn "Create the first Open WebUI administrator promptly, then disable signup in its Admin Panel."
@@ -1268,10 +1502,12 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
       content_writer_default="http://smart-router:8080/v1"
     elif [[ "$install_nine" == true ]]; then
       content_writer_default="http://nine-router:20128/v1"
+    elif [[ "$install_omniroute" == true ]]; then
+      content_writer_default="http://omniroute:20129/v1"
     fi
   fi
   content_external_api=false
-  if [[ "$install_smart_router" != true && "$install_nine" != true ]]; then
+  if [[ "$install_smart_router" != true && "$install_nine" != true && "$install_omniroute" != true ]]; then
     content_external_api=true
     printf '%s\n' 'No local router is installed: the Content Bot will call your own OpenAI-compatible API.'
     printf '%s\n' 'Example: base URL https://api.openai.com/v1, API key sk-..., model gpt-4o-mini.'
@@ -1290,6 +1526,8 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
   fi
   if [[ "$content_external_api" == true && -z "$content_writer_model" ]]; then
     content_writer_model_default=""
+  elif [[ "$install_omniroute" == true && "$install_smart_router" != true && -z "$content_writer_model" ]]; then
+    content_writer_model_default="auto/best-chat"
   else
     content_writer_model_default="${content_writer_model:-auto}"
   fi
@@ -1306,9 +1544,9 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
 fi
 
 # Media Studio settings. The api-image driver reuses the writer endpoint
-# selected above (Smart Router, 9router, or an external hosted API) so Media
-# Studio works without any Google subscription. flow-video and gemini-image
-# are optional and need a signed-in Google session.
+# selected above (Smart Router, 9router/OmniRoute, or an external hosted API)
+# so Media Studio works without any Google subscription. flow-video and
+# gemini-image are optional and need a signed-in Google session.
 media_drivers="$(existing_env_value MEDIA_STUDIO_DRIVERS)"
 media_drivers="${media_drivers:-api-image,flow-video}"
 media_api_token="$(existing_env_value MEDIA_STUDIO_API_TOKEN)"
@@ -1326,14 +1564,14 @@ if [[ "$install_media" == true && "$configure_media" == true ]]; then
     media_drivers="$(prompt "Enabled drivers, comma-separated (api-image, flow-video, gemini-image)" "$media_drivers")"
     media_drivers="$(printf '%s' "$media_drivers" | tr ',' ' ' | tr -s ' ' | tr ' ' ',')"
     media_drivers_valid=true
-    while IFS=',' read -r -a driver_list <<< "$media_drivers"; do
+    if IFS=',' read -r -a driver_list <<< "$media_drivers"; then
       for driver in "${driver_list[@]}"; do
         case "$driver" in
           api-image|flow-video|gemini-image) ;;
           *) media_drivers_valid=false ;;
         esac
       done
-    done
+    fi
     [[ "$media_drivers_valid" == true && -n "$media_drivers" ]] && break
     warn "Choose from api-image, flow-video, and gemini-image only." >&2
   done
@@ -1470,6 +1708,25 @@ replace_env_value "$tmp_env" NINEROUTER_MACHINE_ID_SALT "$nine_salt"
 replace_env_value "$tmp_env" NINEROUTER_REQUIRE_API_KEY "$nine_require_key"
 replace_env_value "$tmp_env" NINEROUTER_AUTH_COOKIE_SECURE "$nine_cookie_secure"
 replace_env_value "$tmp_env" NINEROUTER_PUBLIC_BASE_URL "$(dotenv_quote "$nine_public_url")"
+replace_env_value "$tmp_env" OMNIROUTE_IMAGE_REPOSITORY "diegosouzapw/omniroute"
+replace_env_value "$tmp_env" OMNIROUTE_IMAGE_TAG "latest"
+replace_env_value "$tmp_env" OMNIROUTE_BIND_IP "$omni_bind"
+replace_env_value "$tmp_env" OMNIROUTE_PORT "$omni_port"
+replace_env_value "$tmp_env" OMNIROUTE_API_BIND_IP "$omni_api_bind"
+replace_env_value "$tmp_env" OMNIROUTE_API_PORT "$omni_api_port"
+replace_env_value "$tmp_env" OMNIROUTE_INITIAL_PASSWORD "$(dotenv_quote "$omni_password")"
+replace_env_value "$tmp_env" OMNIROUTE_JWT_SECRET "$omni_jwt"
+replace_env_value "$tmp_env" OMNIROUTE_API_KEY_SECRET "$omni_key_secret"
+replace_env_value "$tmp_env" OMNIROUTE_MANAGEMENT_API_KEY "${omni_management_key:-CHANGE_ME}"
+replace_env_value "$tmp_env" OMNIROUTE_STORAGE_ENCRYPTION_KEY "${omni_storage_key:-CHANGE_ME}"
+replace_env_value "$tmp_env" OMNIROUTE_STORAGE_ENCRYPTION_KEY_VERSION "${omni_key_version:-v1}"
+replace_env_value "$tmp_env" OMNIROUTE_MACHINE_ID_SALT "$omni_salt"
+replace_env_value "$tmp_env" OMNIROUTE_WS_BRIDGE_SECRET "${omni_ws_secret:-CHANGE_ME}"
+replace_env_value "$tmp_env" OMNIROUTE_REQUIRE_API_KEY "$omni_require_key"
+replace_env_value "$tmp_env" OMNIROUTE_AUTH_COOKIE_SECURE "$omni_cookie_secure"
+replace_env_value "$tmp_env" OMNIROUTE_PUBLIC_BASE_URL "$(dotenv_quote "$omni_public_url")"
+replace_env_value "$tmp_env" OMNIROUTE_ALLOW_API_KEY_REVEAL "${omni_allow_key_reveal:-false}"
+replace_env_value "$tmp_env" OMNIROUTE_MEMORY_MB "${omni_memory_mb:-512}"
 replace_env_value "$tmp_env" HERMES_BIND_IP "$hermes_bind"
 replace_env_value "$tmp_env" HERMES_API_PORT "$hermes_api_port"
 replace_env_value "$tmp_env" HERMES_DASHBOARD_PORT "$hermes_dashboard_port"
@@ -1503,6 +1760,25 @@ replace_env_value "$tmp_env" SMART_ROUTER_STANDARD_MODEL "$smart_router_standard
 replace_env_value "$tmp_env" SMART_ROUTER_STRONG_MODEL "$smart_router_strong_model"
 replace_env_value "$tmp_env" SMART_ROUTER_CODING_MODEL "$smart_router_coding_model"
 replace_env_value "$tmp_env" SMART_ROUTER_VISION_MODEL "$smart_router_vision_model"
+replace_env_value "$tmp_env" SMART_ROUTER_OBSERVE_MODEL "$smart_router_observe_model"
+if [[ "$install_smart_router" == true ]]; then
+  # Point the Smart Router upstream at the active backend. Manual overrides are
+  # preserved unless the backend itself changed in this run.
+  existing_upstream="$(read_unique_env_value "$tmp_env" SMART_ROUTER_UPSTREAM_BASE_URL)"
+  if [[ "$router_backend_changed" == true || -z "$existing_upstream" ]]; then
+    if [[ "$install_omniroute" == true ]]; then
+      replace_env_value "$tmp_env" SMART_ROUTER_UPSTREAM_BASE_URL "http://omniroute:20129/v1"
+      replace_env_value "$tmp_env" SMART_ROUTER_UPSTREAM_HEALTH_URL "http://omniroute:20128/api/monitoring/health"
+    else
+      replace_env_value "$tmp_env" SMART_ROUTER_UPSTREAM_BASE_URL "http://nine-router:20128/v1"
+      replace_env_value "$tmp_env" SMART_ROUTER_UPSTREAM_HEALTH_URL "http://nine-router:20128/api/health"
+    fi
+  fi
+  if [[ "$router_backend_changed" == true ]]; then
+    # A backend key from the previous backend cannot authenticate upstream.
+    replace_env_value "$tmp_env" SMART_ROUTER_UPSTREAM_API_KEY ""
+  fi
+fi
 replace_env_value "$tmp_env" OPENWEBUI_BIND_IP "$openwebui_bind"
 replace_env_value "$tmp_env" OPENWEBUI_PORT "$openwebui_port"
 replace_env_value "$tmp_env" OPENWEBUI_URL "$(dotenv_quote "$openwebui_url")"
@@ -1540,6 +1816,33 @@ replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_MODEL "$(dotenv_quote "$media_w
 replace_env_value "$tmp_env" MEDIA_STUDIO_API_TOKEN "$(dotenv_quote "$media_api_token")"
 replace_env_value "$tmp_env" MEDIA_STUDIO_BLOCK_GEO_REDIRECT "$media_block_geo"
 replace_env_value "$tmp_env" MEDIA_STUDIO_FREEZE_ON_READY "$media_freeze"
+# A combined Content Bot + Media Studio install wires the bot to the local
+# Media Studio API: the same API token and job drivers that match the enabled
+# Media Studio drivers. A pre-existing CONTENT_MEDIA_STUDIO_URL (for example a
+# remote Media Studio used by a content-only server) is preserved.
+if [[ "$install_content" == true && "$install_media" == true ]]; then
+  if [[ -z "$(read_unique_env_value "$tmp_env" CONTENT_MEDIA_STUDIO_URL)" ]]; then
+    replace_env_value "$tmp_env" CONTENT_MEDIA_STUDIO_URL "http://media-studio:8850"
+  fi
+  replace_env_value "$tmp_env" CONTENT_MEDIA_STUDIO_TOKEN "$(dotenv_quote "$media_api_token")"
+  if [[ ",$media_drivers," == *,api-image,* ]]; then
+    replace_env_value "$tmp_env" CONTENT_MEDIA_IMAGE_DRIVER "api-image"
+  elif [[ ",$media_drivers," == *,gemini-image,* ]]; then
+    replace_env_value "$tmp_env" CONTENT_MEDIA_IMAGE_DRIVER "gemini-image"
+  fi
+  if [[ ",$media_drivers," == *,flow-video,* ]]; then
+    replace_env_value "$tmp_env" CONTENT_MEDIA_VIDEO_DRIVER "flow-video"
+  fi
+fi
+# When Media Studio is disabled while the Content Bot stays enabled, drop the
+# auto-wired local link so the bot stops offering media jobs. A custom remote
+# Media Studio URL is preserved for split deployments.
+if [[ "$install_content" == true && "$install_media" != true && "$media_was_enabled" == true ]]; then
+  if [[ "$(read_unique_env_value "$tmp_env" CONTENT_MEDIA_STUDIO_URL)" == "http://media-studio:8850" ]]; then
+    replace_env_value "$tmp_env" CONTENT_MEDIA_STUDIO_URL ""
+    replace_env_value "$tmp_env" CONTENT_MEDIA_STUDIO_TOKEN ""
+  fi
+fi
 mv "$tmp_env" "$ENV_FILE"
 
 # Generate any v0.5.x placeholder secrets without rotating existing values.
@@ -1547,7 +1850,7 @@ python3 - "$ENV_FILE" <<'PYV052'
 import secrets, sys
 p=sys.argv[1]
 lines=open(p,encoding='utf-8').read().splitlines(); out=[]
-force={'SMART_ROUTER_HMAC_SECRET','SMART_ROUTER_ADMIN_API_KEY','SMART_ROUTER_BOOTSTRAP_ADMIN_PASSWORD','SMART_ROUTER_PG_PASSWORD','SMART_ROUTER_CLIENT_API_KEY','OPENWEBUI_SECRET_KEY','N8N_ENCRYPTION_KEY'}
+force={'OMNIROUTE_MANAGEMENT_API_KEY','SMART_ROUTER_HMAC_SECRET','SMART_ROUTER_ADMIN_API_KEY','SMART_ROUTER_BOOTSTRAP_ADMIN_PASSWORD','SMART_ROUTER_PG_PASSWORD','SMART_ROUTER_CLIENT_API_KEY','OPENWEBUI_SECRET_KEY','N8N_ENCRYPTION_KEY'}
 for line in lines:
     if '=' not in line or line.lstrip().startswith('#'):
         out.append(line); continue
@@ -1592,6 +1895,9 @@ if [[ "$configure_hermes" == true ]]; then
     printf 'NINEROUTER_API_KEY=%s\n' "$(dotenv_quote "$hermes_backend_key")"
     if [[ "$install_nine" == true ]]; then
       printf 'NINEROUTER_URL=%s\n' "$(dotenv_quote "http://nine-router:20128")"
+      printf 'NINEROUTER_KEY=%s\n' "$(dotenv_quote "$provider_key")"
+    elif [[ "$install_omniroute" == true ]]; then
+      printf 'NINEROUTER_URL=%s\n' "$(dotenv_quote "http://omniroute:20129")"
       printf 'NINEROUTER_KEY=%s\n' "$(dotenv_quote "$provider_key")"
     fi
     [[ -n "$telegram_home" ]] && printf 'TELEGRAM_HOME_CHANNEL=%s\n' "$telegram_home"
@@ -1731,13 +2037,47 @@ if [[ "$install_hermes" == true ]]; then
     "$HERMES_DIR/lazy-packages" "$HERMES_DIR/npm-packages"
 fi
 
+if [[ "$install_omniroute" == true && "$install_smart_router" == true ]]; then
+  # OmniRoute has no 9router-style SQLite provisioning surface. Local clients
+  # authenticate to the Smart Router client key, and OmniRoute endpoint keys are
+  # operator-managed from its dashboard (./manage.sh set-backend-api-key KEY).
+  [[ "$install_webui" == true ]] \
+    && replace_env_value "$ENV_FILE" OPENWEBUI_OPENAI_API_KEY "$(dotenv_quote "$client_key")"
+  if [[ "$install_hermes" == true ]]; then
+    replace_env_value "$HERMES_DIR/.env" NINEROUTER_API_KEY "$(dotenv_quote "$client_key")"
+    replace_env_value "$HERMES_DIR/.env" NINEROUTER_URL "$(dotenv_quote "http://smart-router:8080")"
+    replace_env_value "$HERMES_DIR/.env" NINEROUTER_KEY "$(dotenv_quote "$client_key")"
+  fi
+fi
+if [[ "$install_omniroute" == true && "$install_smart_router" != true ]]; then
+  if [[ "$install_hermes" == true ]]; then
+    replace_env_value "$HERMES_DIR/.env" NINEROUTER_API_KEY "$(dotenv_quote "$provider_key")"
+    replace_env_value "$HERMES_DIR/.env" NINEROUTER_URL "$(dotenv_quote "http://omniroute:20129")"
+    replace_env_value "$HERMES_DIR/.env" NINEROUTER_KEY "$(dotenv_quote "$provider_key")"
+  fi
+  [[ "$install_webui" == true ]] \
+    && replace_env_value "$ENV_FILE" OPENWEBUI_OPENAI_API_KEY "$(dotenv_quote "${openwebui_api_key:-local-no-auth}")"
+fi
+
 if [[ "$configure_caddy" == true && "$install_caddy" == true ]]; then
   {
     if [[ -n "$caddy_email" ]]; then
       printf '{\n\temail %s\n}\n\n' "$caddy_email"
     fi
     if [[ -n "$caddy_nine_domain" ]]; then
-      printf '%s {\n\tencode zstd gzip\n\treverse_proxy nine-router:20128\n}\n\n' "$caddy_nine_domain"
+      if [[ "$install_omniroute" == true ]]; then
+        # OmniRoute splits the dashboard (20128) from its OpenAI-compatible API
+        # (20129); /v1 is routed to the API port and everything else to the
+        # dashboard on the same domain.
+        printf '%s {\n' "$caddy_nine_domain"
+        printf '\t@api path /v1*\n'
+        printf '\tencode zstd gzip\n'
+        printf '\treverse_proxy @api omniroute:20129\n'
+        printf '\treverse_proxy omniroute:20128\n'
+        printf '}\n\n'
+      else
+        printf '%s {\n\tencode zstd gzip\n\treverse_proxy nine-router:20128\n}\n\n' "$caddy_nine_domain"
+      fi
     fi
     if [[ -n "$caddy_webui_domain" ]]; then
       printf '%s {\n\tencode zstd gzip\n\treverse_proxy open-webui:8080\n}\n\n' "$caddy_webui_domain"
@@ -1898,7 +2238,20 @@ if [[ "$smart_router_was_enabled" == true && "$install_smart_router" != true ]];
   info "Stopping the disabled Hermes Smart Router..."
   COMPOSE_PROFILES=smart-router "${DOCKER[@]}" compose \
     -f "$ROOT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
-    rm -sf smart-router smart-router-init
+    rm -sf smart-router smart-router-init router-upstream-probe
+fi
+
+if [[ "$nine_was_enabled" == true && "$install_nine" != true ]]; then
+  info "Removing the disabled 9router backend (data/9router is preserved)..."
+  COMPOSE_PROFILES=9router "${DOCKER[@]}" compose \
+    -f "$ROOT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
+    rm -sf nine-router
+fi
+if [[ "$omniroute_was_enabled" == true && "$install_omniroute" != true ]]; then
+  info "Removing the disabled OmniRoute backend (data/omniroute is preserved)..."
+  COMPOSE_PROFILES=omniroute "${DOCKER[@]}" compose \
+    -f "$ROOT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
+    rm -sf omniroute
 fi
 
 if [[ "$n8n_was_enabled" == true && "$install_n8n" != true ]]; then
@@ -2035,6 +2388,8 @@ fi
 printf '\n'
 ok "Installation complete."
 [[ "$install_nine" == true ]] && printf '9router dashboard: %s\n' "$nine_public_url"
+[[ "$install_omniroute" == true ]] && printf 'OmniRoute dashboard: %s\n' "$omni_public_url"
+[[ "$install_omniroute" == true ]] && printf 'OmniRoute OpenAI API: http://%s:%s/v1\n' "$(service_url_host "$omni_api_bind")" "$omni_api_port"
 if [[ -n "$hermes_key_status" ]]; then
   printf 'Hermes 9router key: %s (stored securely; not printed)\n' "$hermes_key_status"
   if [[ "$model_name" == ai || "$install_smart_router" == true ]]; then
@@ -2047,8 +2402,16 @@ if [[ "$install_smart_router" == true ]]; then
   [[ "$smart_router_dashboard_enabled" == true ]] && printf 'Smart Router dashboard: http://%s:%s/dashboard\n' "$(service_url_host "$smart_router_bind")" "$smart_router_port"
   [[ "$smart_router_control_plane_enabled" == true ]] && printf 'Smart Router control plane: http://%s:%s/control/\n' "$(service_url_host "$smart_router_bind")" "$smart_router_port"
   [[ "$smart_router_control_plane_enabled" == true ]] && printf 'Control-plane access: ./manage.sh router-access\n'
-  printf 'Smart Router tier combos: %s (initially cloned from ai)\n' "$smart_router_combo_status"
-  warn "Customize combo-fast, combo-standard, and combo-strong in 9router before enabling route mode."
+  if [[ -n "$smart_router_combo_status" ]]; then
+    printf 'Smart Router tier combos: %s (initially cloned from ai)\n' "$smart_router_combo_status"
+  fi
+  if [[ "$install_omniroute" == true ]]; then
+    printf 'Smart Router route profiles: %s / %s / %s\n' \
+      "$smart_router_fast_model" "$smart_router_standard_model" "$smart_router_strong_model"
+    info "Resolve auto/best-* aliases in the OmniRoute dashboard before enabling route mode."
+  else
+    warn "Customize combo-fast, combo-standard, and combo-strong in 9router before enabling route mode."
+  fi
 fi
 if [[ "$install_hermes" == true && -n "$telegram_token" ]]; then
   printf '%s\n' 'Telegram: open your bot and send /start'
@@ -2098,7 +2461,7 @@ if [[ "$install_n8n" == true ]]; then
   printf '%s\n' 'n8n provisioning manager: ./manage.sh n8n-menu'
 fi
 if [[ "$install_caddy" == true ]]; then
-  [[ -n "$caddy_nine_domain" ]] && printf '9router HTTPS: https://%s\n' "$caddy_nine_domain"
+  [[ -n "$caddy_nine_domain" ]] && printf '%s HTTPS: https://%s\n' "$(router_backend_label)" "$caddy_nine_domain"
   [[ -n "$caddy_webui_domain" ]] && printf 'Open WebUI HTTPS: https://%s\n' "$caddy_webui_domain"
   [[ -n "$caddy_hermes_dashboard_domain" ]] && printf 'Hermes dashboard HTTPS: https://%s\n' "$caddy_hermes_dashboard_domain"
   [[ -n "$caddy_hermes_api_domain" ]] && printf 'Hermes API HTTPS: https://%s\n' "$caddy_hermes_api_domain"
@@ -2120,6 +2483,10 @@ if [[ "$install_media" == true ]]; then
   printf '%s\n' 'Media Studio: media generation worker enabled'
   printf '%s\n' 'Media Studio guide: docs/MEDIA-STUDIO.md'
   printf '%s\n' 'Media Studio status: ./manage.sh media-status'
+fi
+if [[ "$install_content" == true && "$install_media" == true ]]; then
+  printf '%s\n' 'Content pipeline: Content Bot and Media Studio are wired on this server'
+  printf '%s\n' 'Content pipeline status: ./manage.sh pipeline-status'
 fi
 printf '%s\n' 'Status: ./manage.sh status'
 printf '%s\n' 'Logs:   ./manage.sh logs'

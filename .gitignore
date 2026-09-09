@@ -5,6 +5,7 @@ data/open-webui/*
 data/caddy/*
 data/smart-router/*
 data/n8n/*
+data/omniroute/*
 data/stack-secrets/*
 !data/9router/.gitkeep
 !data/hermes/.gitkeep
@@ -12,6 +13,7 @@ data/stack-secrets/*
 !data/caddy/.gitkeep
 !data/smart-router/.gitkeep
 !data/n8n/.gitkeep
+!data/omniroute/.gitkeep
 !data/stack-secrets/.gitkeep
 data/content-manager/*
 !data/content-manager/.gitkeep

@@ -2,7 +2,7 @@ name: v0.5.9 Security
 
 on:
   push:
-    branches: [main, hermes-omniroute-linux-stack]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

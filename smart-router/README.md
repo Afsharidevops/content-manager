@@ -62,9 +62,13 @@ When `SMART_ROUTER_CLIENT_API_KEY` is set, clients must send `Authorization: Bea
 
 Clients should select `model=auto`. `auto-fast`, `auto-standard`, and `auto-strong` are available as explicit tier aliases. Forced fast/standard aliases can still be upgraded by hard capability gates.
 
-## Branch configuration
+## Router backend configuration
 
-`main` (9router):
+`install.sh` selects one router backend and writes its settings into `.env`;
+both backends run the same Smart Router image behind the `smart-router`
+profile.
+
+9router (profile `9router`):
 
 ```env
 SMART_ROUTER_UPSTREAM_BASE_URL=http://nine-router:20128/v1
@@ -74,17 +78,23 @@ SMART_ROUTER_STANDARD_MODEL=combo-standard
 SMART_ROUTER_STRONG_MODEL=combo-strong
 ```
 
-`hermes-omniroute-linux-stack` (OmniRoute):
+OmniRoute (profile `omniroute`):
 
 ```env
 SMART_ROUTER_UPSTREAM_BASE_URL=http://omniroute:20129/v1
 SMART_ROUTER_UPSTREAM_HEALTH_URL=http://omniroute:20128/api/monitoring/health
-SMART_ROUTER_FAST_MODEL=auto
-SMART_ROUTER_STANDARD_MODEL=auto
-SMART_ROUTER_STRONG_MODEL=auto
+SMART_ROUTER_FAST_MODEL=auto/best-fast
+SMART_ROUTER_STANDARD_MODEL=auto/best-chat
+SMART_ROUTER_STRONG_MODEL=auto/best-reasoning
+SMART_ROUTER_CODING_MODEL=auto/best-coding
+SMART_ROUTER_VISION_MODEL=auto/best-vision
 ```
 
-Do not invent OmniRoute route IDs. Replace the three `auto` targets only after the actual OmniRoute deployment has validated distinct tier route IDs.
+The route-profile values are upstream model names passed through to the
+selected backend. 9router resolves its `combo-*` composition itself; OmniRoute
+resolves the `auto/best-*` aliases in its dashboard. Do not invent OmniRoute
+aliases: replace them only after the actual OmniRoute deployment has validated
+distinct tier routes.
 
 ## Endpoints
 

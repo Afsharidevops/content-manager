@@ -46,6 +46,45 @@ platform; this section tracks the fork additions.
 - Documentation: `docs/MEDIA-STUDIO.md` (install, sessions, API, selector
   calibration) and `docs/publishing/MEDIA-STUDIO-DOCKERHUB.md`.
 
+### Fork additions — selectable router backend: 9router or OmniRoute (2026-09-09)
+
+- `install.sh` now asks on fresh installs whether to use the `9router` or the
+  `omniroute` backend profile and can switch an existing install between them
+  without losing data; the `hermes-omniroute-linux-stack` branch is obsolete.
+- Added the OmniRoute Compose service (dashboard on 20128, OpenAI-compatible
+  API on 20129, profile `omniroute`) and a backend-agnostic
+  `router-upstream-probe` one-shot that waits for the selected backend before
+  the Smart Router starts.
+- OmniRoute installs default the Smart Router route profiles, observe model,
+  n8n hosted-chat model, Hermes provider, and Open WebUI connection to the
+  `auto/best-*` aliases (`http://omniroute:20129/v1`); 9router installs keep
+  the `combo-*` defaults. Switching backends resets Smart Router upstream
+  URLs, route profiles, and stale upstream keys.
+- `manage.sh` n8n provisioning now creates, stores, and validates a dedicated
+  OmniRoute API key for the hosted-chat router credential; `set-router-mode`,
+  `set-backend-api-key`, `verify-n8n`, `reconcile-n8n`, and the n8n MCP
+  commands all work with either backend.
+- The standalone pipeline options (5/6/7) and the combined Content Bot +
+  Media Studio wiring described below are unchanged and remain router-free
+  when no backend is installed.
+
+### Fork additions — combined standalone content pipeline install (2026-09-09)
+
+- `install.sh` fresh-install option 7 installs the Content Bot and Media
+  Studio together as one content pipeline with no router, Hermes, n8n, or
+  Open WebUI. Options 5 and 6 ask whether the other pipeline service should
+  be added too, then walk through both configuration wizards in one run.
+- A combined install writes the Content Bot -> Media Studio link into `.env`:
+  `CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850`, the Media Studio API
+  token mirrored into `CONTENT_MEDIA_STUDIO_TOKEN`, and image/video driver
+  names that match the enabled Media Studio drivers. Reconfiguring either
+  service keeps the link in sync, so a rotated Media Studio API token is
+  propagated to the Content Bot.
+- `manage.sh` gained `pipeline-status`: a combined status view of the Content
+  Bot, Media Studio, and their API link (URL, token sync, driver coverage).
+- Documentation: `docs/CONTENT-PRODUCTION-GUIDE.md`, `docs/MEDIA-STUDIO.md`,
+  and the README describe the one-server content pipeline install.
+
 ### Fork additions — Content Bot Telegram MVP (2026-09-07)
 
 

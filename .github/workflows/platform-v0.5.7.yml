@@ -1,7 +1,7 @@
 name: v0.5.7 Platform CI
 on:
   push:
-    branches: [main, hermes-omniroute-linux-stack]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:

@@ -4,10 +4,14 @@ This document is the current generic release checklist. Historical version-speci
 
 ## 1. Branch policy
 
-- `main` is the 9router backend branch.
-- `hermes-omniroute-linux-stack` is the OmniRoute backend branch.
-- Backend-specific installer, Compose, and management logic is intentionally different.
-- Shared Smart Router, Execution Broker, stack plugin, and shared-test changes should remain equivalent unless a documented backend-specific reason requires otherwise.
+- `main` is the only maintained branch and supports both router backends.
+- The router backend is a Compose profile choice (`9router` or `omniroute`);
+  the installer selects one and writes the matching Smart Router upstream
+  URLs, route-profile aliases, and client keys into `.env`.
+- Backend-specific installer, Compose, and management logic lives behind the
+  profiles in `main`; there is no separate OmniRoute branch.
+- Shared Smart Router, Execution Broker, stack plugin, and shared-test
+  changes stay on `main`.
 
 ## 2. Before a release
 
@@ -16,7 +20,9 @@ This document is the current generic release checklist. Historical version-speci
 3. Install `smart-router/requirements-dev.txt` into an isolated Python environment and run `./tests/smoke.sh`.
 4. Run focused execution/plugin regression tests when those areas changed.
 5. Run `sha256sum -c MANIFEST.sha256`.
-6. Verify both branches and intentional branch differences before publishing shared images.
+6. Validate both router-backend profile combinations (`9router` and
+   `omniroute`) with `docker compose config --quiet` before publishing shared
+   images.
 7. Back up a real test deployment and perform an in-place upgrade test.
 
 ## 3. Versioning

@@ -25,21 +25,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Enforce canonical release source and branch parity
+      - name: Enforce canonical release source
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main hermes-omniroute-linux-stack --force
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF_NAME}" != "main" ]]; then
             echo "Manual Smart Router releases are allowed only from main; got ${GITHUB_REF_NAME}." >&2
             exit 2
           fi
-
-          git diff --exit-code origin/main..origin/hermes-omniroute-linux-stack -- smart-router/ || {
-            echo "smart-router/ differs between main and hermes-omniroute-linux-stack. Sync both branches before publishing a shared image." >&2
-            exit 2
-          }
 
       - name: Resolve and validate version
         id: release

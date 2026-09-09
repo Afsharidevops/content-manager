@@ -18,15 +18,26 @@ or hosted API is enough. Google drivers are optional extras.
 ## Install
 
 Run `./install.sh`. The wizard offers a Media Studio-only install (option 6)
-and, on an existing install, asks whether to add or reconfigure Media Studio
-(menu group 8 in `./manage.sh`, or `./manage.sh media-configure`). The wizard
-collects:
+and a combined one-server content pipeline install (option 7: Content Bot +
+Media Studio with an external model API); choosing `5) Install Content Bot
+only` also asks whether Media Studio should be installed to serve that bot.
+On an existing install the wizard asks whether to add or reconfigure Media
+Studio (menu group 8 in `./manage.sh`, or `./manage.sh media-configure`). The
+wizard collects:
 
 - enabled drivers (default `api-image,flow-video`);
 - the image API endpoint/model when `api-image` is enabled;
 - an API token for the local HTTP API (recommended when the bind IP is not
   loopback);
 - the two Google Flow region settings described below.
+
+When Media Studio is installed together with the Content Bot on the same
+server, the installer wires them automatically: it writes
+`CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850`, mirrors the Media Studio
+API token into `CONTENT_MEDIA_STUDIO_TOKEN`, and sets the bot image/video
+drivers from the enabled Media Studio drivers. Rotating the Media Studio token
+through `./manage.sh media-configure` propagates the new value to the Content
+Bot. A combined view is available with `./manage.sh pipeline-status`.
 
 Runtime data (job store, logs, artifacts, Chromium profile) lives under
 `data/media-studio`.

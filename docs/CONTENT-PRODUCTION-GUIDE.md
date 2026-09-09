@@ -19,9 +19,23 @@ items from your feeds, and where the editorial rules live.
 ## What the installer asks
 
 The wizard can provision the Content Bot alongside a full stack (select it
-during `./install.sh`) or as the only service on a server (menu option
-`5) Install Content Bot only (external OpenAI-compatible model API)`). In both
-cases it asks for:
+during `./install.sh`) or as a standalone content production server. The
+standalone menu offers:
+
+- `5) Install Content Bot only (external OpenAI-compatible model API)` —
+  Content Bot alone; the wizard then asks whether Media Studio should be
+  installed too for AI images and uploaded-photo branding.
+- `6) Install Media Studio only (API image generation; Google Flow/Gemini
+  optional)` — Media Studio alone; the wizard asks whether the Content Bot
+  should also be installed to drive it.
+- `7) Install Content pipeline only (Content Bot + Media Studio, external
+  model API)` — both services with no router, Hermes, n8n, or Open WebUI.
+
+On a combined pipeline server the wizard wires the two services end to end:
+`CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850`, the Media Studio API token
+is mirrored into `CONTENT_MEDIA_STUDIO_TOKEN`, and the bot image/video drivers
+match the enabled Media Studio drivers. Reconfiguring either service keeps the
+link in sync. In all cases the wizard asks for:
 
 1. A **bot token** created with `@BotFather` (the Content Bot uses its own bot,
    separate from the Hermes agent bot, because two pollers cannot share one
@@ -39,6 +53,9 @@ cases it asks for:
    expects (for example `gpt-4o-mini`).
 
 The token and key are stored in `.env` with mode `0600` and are never printed.
+Split deployments work too: a content-only server points
+`CONTENT_MEDIA_STUDIO_URL` at the remote Media Studio URL and uses the same API
+token on both hosts.
 
 ## On-demand flow: link to published post
 
@@ -185,8 +202,10 @@ Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
    the Bot API, so admin rights are required).
 5. Run `./install.sh`, choose the Content Bot, and paste the values. After the
    stack starts, send `/start` to the bot and test with a link.
-   On a dedicated server choose `5) Install Content Bot only` and answer the
-   external API questions; no router or Hermes services are installed.
+   On a dedicated server choose `7) Install Content pipeline only` for Content
+   Bot plus Media Studio on one host, or `5) Install Content Bot only` and
+   answer the Media Studio follow-up question. Answer the external API
+   questions; no router or Hermes services are installed.
 
 ## Platform status
 
@@ -211,6 +230,7 @@ use (`docs/FLOW-UNLOCK-STANDALONE.md`), independent of the stack. See
 ## Operations
 
 ```bash
+./manage.sh pipeline-status            # Content Bot + Media Studio + API link status
 ./manage.sh content-status              # configuration summary, no secrets
 ./manage.sh content-connect-instagram   # Instagram/Meta pending checklist
 ./manage.sh content-configure           # reconfigure Content Bot settings only
@@ -255,7 +275,8 @@ The `media-studio` image is published the same way as
   bot reports the rejected/duplicate counts in Telegram.
 - **Writer errors**: confirm `CONTENT_WRITER_BASE_URL` is reachable from the
   content-bot container (the Smart Router service name is `smart-router`) and
-  that the model/combo exists in 9router.
+  that the model/alias exists in the configured backend (a 9router `combo-*`
+  or an OmniRoute `auto/best-*` alias).
 - **Garbled Persian draft**: some writer endpoints occasionally return Persian
   text decoded as a legacy charset (words that look like `Ø§Ú¯Ø±`). The bot
   detects and repairs that pattern, and refuses to publish copy it cannot

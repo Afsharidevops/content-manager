@@ -39,6 +39,82 @@ services:
       retries: 5
       start_period: 40s
 
+  # Alternative router backend: OmniRoute (profile "omniroute"). It exposes
+  # the dashboard on 20128 and its OpenAI-compatible API on 20129. Installers
+  # enable either the "9router" or the "omniroute" profile, never both; the
+  # Smart Router upstream URLs are written into .env for the selected backend.
+  omniroute:
+    profiles: ["omniroute"]
+    image: ${OMNIROUTE_IMAGE_REPOSITORY:-diegosouzapw/omniroute}:${OMNIROUTE_IMAGE_TAG:-latest}
+    container_name: omniroute
+    restart: unless-stopped
+    stop_grace_period: 40s
+    ports:
+      - "${OMNIROUTE_BIND_IP:-127.0.0.1}:${OMNIROUTE_PORT:-20128}:20128"
+      - "${OMNIROUTE_API_BIND_IP:-127.0.0.1}:${OMNIROUTE_API_PORT:-20129}:20129"
+    volumes:
+      - ./data/omniroute:/app/data
+    environment:
+      DATA_DIR: /app/data
+      PORT: "20128"
+      DASHBOARD_PORT: "20128"
+      API_PORT: "20129"
+      API_HOST: "0.0.0.0"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      JWT_SECRET: ${OMNIROUTE_JWT_SECRET}
+      INITIAL_PASSWORD: ${OMNIROUTE_INITIAL_PASSWORD}
+      API_KEY_SECRET: ${OMNIROUTE_API_KEY_SECRET}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_MANAGEMENT_API_KEY}
+      STORAGE_ENCRYPTION_KEY: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY}
+      STORAGE_ENCRYPTION_KEY_VERSION: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY_VERSION:-v1}
+      MACHINE_ID_SALT: ${OMNIROUTE_MACHINE_ID_SALT}
+      OMNIROUTE_WS_BRIDGE_SECRET: ${OMNIROUTE_WS_BRIDGE_SECRET}
+      REQUIRE_API_KEY: ${OMNIROUTE_REQUIRE_API_KEY:-false}
+      AUTH_COOKIE_SECURE: ${OMNIROUTE_AUTH_COOKIE_SECURE:-false}
+      NEXT_PUBLIC_BASE_URL: ${OMNIROUTE_PUBLIC_BASE_URL:-http://localhost:20128}
+      BASE_URL: http://omniroute:20128
+      ALLOW_API_KEY_REVEAL: ${OMNIROUTE_ALLOW_API_KEY_REVEAL:-false}
+      OMNIROUTE_MEMORY_MB: ${OMNIROUTE_MEMORY_MB:-512}
+    networks: [agent-net]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:20128').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # Waits for the active router backend (9router or OmniRoute) before the Smart
+  # Router starts. The health URL is resolved from SMART_ROUTER_UPSTREAM_HEALTH_URL,
+  # which install.sh points at the selected backend, so this init probe works
+  # with both the "9router" and "omniroute" profiles.
+  router-upstream-probe:
+    profiles: ["smart-router"]
+    image: alpine:3.22
+    container_name: hermes-router-upstream-probe
+    environment:
+      ROUTER_HEALTH_URL: ${SMART_ROUTER_UPSTREAM_HEALTH_URL:-http://nine-router:20128/api/health}
+    command:
+      - sh
+      - -c
+      - |
+        for attempt in $(seq 1 90); do
+          if wget -q -O /dev/null "$$ROUTER_HEALTH_URL"; then
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "router backend did not become healthy: $$ROUTER_HEALTH_URL" >&2
+        exit 1
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
   smart-router-init:
     profiles: ["smart-router"]
     image: alpine:3.22
@@ -169,8 +245,8 @@ services:
       - no-new-privileges:true
     cap_drop: ["ALL"]
     depends_on:
-      nine-router:
-        condition: service_healthy
+      router-upstream-probe:
+        condition: service_completed_successfully
       smart-router-init:
         condition: service_completed_successfully
     networks: [agent-net]

@@ -7,8 +7,8 @@ configurable writer, and publishes them only after a human approves the post in
 Telegram.
 
 The runtime is built on the [Hermes Linux Stack](https://github.com/Afsharidevops/hermes-linux-stack)
-v0.5.9 platform (9router, Hermes Smart Router, Hermes Agent/Telegram, Open WebUI,
-optional n8n) and extends it with a deterministic content layer under
+v0.5.9 platform (9router or OmniRoute backend, Hermes Smart Router, Hermes
+Agent/Telegram, Open WebUI, optional n8n) and extends it with a deterministic content layer under
 `content/` and the `content-bot` Telegram editorial bot. Persian copy is
 produced at runtime by the writer; everything stored in this repository is
 English-only.
@@ -69,7 +69,7 @@ Operator (Telegram)               Scheduler (once per local day)
         └───────────────────────────────────────────┘
                           │  candidate item
                           ▼
-        Writer (OpenAI-compatible: Smart Router / 9router)
+        Writer (OpenAI-compatible: Smart Router / selected router)
                           │  Persian draft copy
                           ▼
         Draft preview + [Approve] [Reject]   ──►  operator's Telegram
@@ -93,7 +93,8 @@ The pipeline has four cooperating parts:
    requests draft copy from the writer, and publishes approved posts. Runtime
    state (pending drafts, published hashes, daily counters) lives in
    `data/content-bot/state.json`.
-4. **Writer backend** - the Smart Router / 9router OpenAI-compatible endpoint
+4. **Writer backend** - the OpenAI-compatible endpoint of the selected router
+   backend (9router or OmniRoute, optionally behind the Smart Router),
    configured through `CONTENT_WRITER_*`. Content Bot never publishes without
    an operator pressing Approve.
 
@@ -101,7 +102,7 @@ The pipeline has four cooperating parts:
 
 ```text
 Hermes Agent / Open WebUI / n8n ─┐
-Content Bot (writer calls) ──────┼──► Smart Router v0.5.9 ──► 9router ──► Providers
+Content Bot (writer calls) ──────┼──► Smart Router v0.5.9 ──► 9router/OmniRoute ──► Providers
 Telegram polling (Hermes + bot) ─┘
 ```
 
@@ -119,7 +120,8 @@ Requirements:
 - A Telegram bot token (create one with `@BotFather`) and your numeric Telegram
   user ID
 - A Telegram channel (the bot must be added as an administrator to publish)
-- At least one AI provider configured through 9router
+- At least one AI provider configured in the selected router backend
+  (9router or OmniRoute)
 
 Install:
 
@@ -130,11 +132,21 @@ chmod +x install.sh manage.sh
 ./install.sh
 ```
 
-The installer asks which components to enable, prompts for Content Bot settings
-(bot token, operator IDs, channel, writer model), writes secrets to `.env`
-(mode 0600), seeds the policy working copy, pulls the published images, and
-starts the stack. Preview or split configuration from startup with
-`./install.sh --dry-run` and `./install.sh --no-start`.
+The installer asks which router backend to use - 9router or OmniRoute - and
+which components to enable, prompts for Content Bot settings (bot token,
+operator IDs, channel, writer model), writes secrets to `.env` (mode 0600),
+seeds the policy working copy, pulls the published images, and starts the
+stack. OmniRoute installs expose its dashboard on 20128 and its OpenAI-
+compatible API on 20129; the installer points Hermes, Open WebUI, n8n, the
+Content Bot, and the Smart Router upstream at the selected backend. Preview or
+split configuration from startup with `./install.sh --dry-run` and
+`./install.sh --no-start`.
+
+For a standalone content production server, option 7 installs the Content
+pipeline (Content Bot + Media Studio with an external model API); option 5
+installs Content Bot only and asks whether Media Studio should be added, and
+option 6 installs Media Studio only. A combined install wires the bot to the
+local Media Studio API automatically (URL, shared token, matching drivers).
 
 Then:
 
@@ -199,6 +211,7 @@ daily proposal runs once per local day at `daily_proposal_time`;
 ./manage.sh status                  # container status
 ./manage.sh logs content            # follow Content Bot logs
 ./manage.sh content-status          # Content Bot summary (no secrets)
+./manage.sh pipeline-status         # Content Bot + Media Studio + API link summary
 ./manage.sh content-connect-instagram
 ./manage.sh content-configure       # reconfigure Content Bot only (writer API, model, Telegram)
 ./manage.sh configure               # re-run the installer wizard
@@ -232,7 +245,8 @@ Servers pull it; they never build it. To move a server to the newest build, set
 
 | Component | Role | Default bind |
 | --- | --- | --- |
-| 9router | Provider/model gateway with API keys | `127.0.0.1:20128` |
+| 9router | Provider/model gateway with API keys (profile `9router`) | `127.0.0.1:20128` |
+| OmniRoute | Dashboard + OpenAI-compatible API (profile `omniroute`) | `127.0.0.1:20128` / `20129` |
 | Hermes Smart Router | Capability routing, aliases, dashboard | `127.0.0.1:8787` |
 | Hermes Agent | Telegram/agent runtime, dashboard/API | `127.0.0.1:9119` / `8642` |
 | Open WebUI | Chat UI | `127.0.0.1:3000` |
@@ -241,9 +255,10 @@ Servers pull it; they never build it. To move a server to the newest build, set
 | Content Bot | Telegram editorial bot (polling, no ingress) | none |
 
 Hermes polls the Telegram Bot API; it does not expose an inbound Telegram port.
-Runtime data lives under `data/` (`data/9router`, `data/hermes`,
-`data/smart-router`, `data/open-webui`, `data/n8n`, `data/content-bot`,
-`data/content-manager`, `data/stack-secrets`). Secrets stay in `.env` and
+Runtime data lives under `data/` (`data/9router`, `data/omniroute`,
+`data/hermes`, `data/smart-router`, `data/open-webui`, `data/n8n`,
+`data/content-bot`, `data/content-manager`, `data/stack-secrets`). Secrets
+stay in `.env` and
 `data/stack-secrets/`; never commit runtime secrets or databases.
 
 Application images intentionally default to mutable tags so `docker compose
@@ -257,12 +272,18 @@ modes, Operations Center, execution approvals, n8n provisioning, RAG storage -
 is documented in [docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
 and [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-## Branch policy
+## Router backend policy
 
-- `main` routes through 9router (Hermes, Open WebUI, n8n, Content Bot,
-  Smart Router).
-- The OmniRoute backend stays on the separate upstream branch and is never
-  added to `main`.
+- `main` supports both router backends through Compose profiles: `9router`
+  (single-port gateway on 20128 with automatic key provisioning) and
+  `omniroute` (dashboard on 20128, OpenAI-compatible API on 20129).
+- `./install.sh` chooses one backend on fresh installs and can switch an
+  existing install between them; `COMPOSE_PROFILES` records the selection and
+  `install.sh` points Hermes, Open WebUI, n8n, and the Smart Router upstream
+  at the active backend. The Smart Router, Hermes, n8n, and Content Bot
+  integrations behave identically for both backends.
+- The legacy `hermes-omniroute-linux-stack` branch is obsolete; its OmniRoute
+  configuration now lives in `main` behind the `omniroute` profile.
 
 ## Validation
 
