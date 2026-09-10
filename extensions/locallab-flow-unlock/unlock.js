@@ -6,10 +6,17 @@
 // "not allowed". Both answers are ordinary batchexecute responses:
 //
 //   VideoFxService.GetFlowAppConfig   rpcid cPZSdc
-//     field 31 -> country supported  (false routes the tab to /unsupported-country)
-//     field 32 -> age allowed        (false routes the tab to /age-restricted)
+//     field 31 -> country supported  (absent or false routes to /unsupported-country)
+//     field 32 -> age allowed        (absent or false routes the tab to /age-restricted)
 //   AiSandbox.CheckToolAvailability   rpcid KV2T2d
 //     field 1  -> tool status        (7 age-restricted, 4/5/6/8 unavailable)
+//
+// The answers arrive as length-prefixed JSON frames, and inside a frame the
+// protocol-buffer JSON array stores field N at index N - 1, so the country
+// flag lives at index 30 of the config array and the tool status at index 0 of
+// its own array. Each length token covers the frame plus the newlines around
+// it, counted in UTF-16 code units, and the closing "e" frame repeats the byte
+// size of the whole answer, so both move with any frame this script rewrites.
 //
 // This script runs in the page before the app boots and rewrites only those
 // fields, so the dashboard renders for the account in the tab while every
@@ -25,6 +32,21 @@
   var TOOL_BLOCKED_STATUSES = [4, 5, 6, 8];
   var TOOL_READY_STATUS = 1;
   var PATCHED_ATTRIBUTE = 'data-locallab-flow-config';
+  var FRAME_DEPTH_LIMIT = 3;
+
+  function jsonIndexOf(fieldNumber) {
+    return fieldNumber - 1;
+  }
+
+  // Breadcrumb for support: in the page console, window.__locallabFlowUnlock
+  // tells whether this script ran, how many batchexecute answers it saw, and
+  // which of the two region rpcs were among them.
+  var STATE = { version: '0.4.0', batches: 0, seen: [], patched: false };
+  try {
+    window.__locallabFlowUnlock = STATE;
+  } catch (error) {
+    /* the page keeps its own globals when it blocks assignments */
+  }
 
   function markConfigPatched() {
     try {
@@ -32,6 +54,7 @@
     } catch (error) {
       /* the attribute is only a hint for freeze.js */
     }
+    STATE.patched = true;
   }
 
   function isBatchUrl(url) {
@@ -158,8 +181,9 @@
   function patchConfigJson(array) {
     var changed = false;
     CONFIG_ALLOW_FIELDS.forEach(function (field) {
-      if (array[field] !== true) {
-        array[field] = true;
+      var index = jsonIndexOf(field);
+      if (array[index] !== true) {
+        array[index] = true;
         changed = true;
       }
     });
@@ -167,9 +191,10 @@
   }
 
   function patchToolJson(array) {
-    var status = Number(array[TOOL_STATUS_FIELD]);
+    var index = jsonIndexOf(TOOL_STATUS_FIELD);
+    var status = Number(array[index]);
     if (TOOL_BLOCKED_STATUSES.indexOf(status) === -1) return false;
-    array[TOOL_STATUS_FIELD] = TOOL_READY_STATUS;
+    array[index] = TOOL_READY_STATUS;
     return true;
   }
 
@@ -228,6 +253,7 @@
     if (!Array.isArray(entry) || entry[0] !== 'wrb.fr') return false;
     var rpcId = entry[1];
     if (rpcId !== CONFIG_RPC && rpcId !== TOOL_RPC) return false;
+    if (STATE.seen.indexOf(rpcId) === -1) STATE.seen.push(rpcId);
     if (Array.isArray(entry[2])) {
       // The answer arrived already decoded; edit it in place.
       var inPlace = rpcId === CONFIG_RPC ? patchConfigJson(entry[2]) : patchToolJson(entry[2]);
@@ -245,26 +271,202 @@
   function patchBatchArray(outer) {
     if (!Array.isArray(outer)) return false;
     var changed = false;
-    outer.forEach(function (group) {
-      if (!Array.isArray(group)) return;
-      group.forEach(function (entry) {
-        if (patchEntry(entry)) changed = true;
+    var walk = function (node, depth) {
+      if (!Array.isArray(node) || depth > FRAME_DEPTH_LIMIT) return;
+      if (node[0] === 'wrb.fr') {
+        if (patchEntry(node)) changed = true;
+        return;
+      }
+      node.forEach(function (child) {
+        walk(child, depth + 1);
       });
-    });
+    };
+    walk(outer, 0);
     return changed;
   }
 
-  function patchBatchText(text) {
-    var start = text.indexOf('[');
-    if (start === -1) return null;
-    var outer;
+  // --- batchexecute framing ------------------------------------------------
+  //
+  // )]}'
+  //
+  // 3768
+  // [["wrb.fr","cPZSdc","...",null,null,null,"generic"]]
+  // 25
+  // [["e",4,null,null,145]]
+  //
+  // Every frame is preceded by the length of the JSON that follows it, so that
+  // token is rewritten whenever a frame changes.
+
+  function jsonValueEnd(text, start) {
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    for (var index = start; index < text.length; index += 1) {
+      var character = text.charAt(index);
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === '[' || character === '{') depth += 1;
+      else if (character === ']' || character === '}') {
+        depth -= 1;
+        if (depth === 0) return index + 1;
+      }
+    }
+    return -1;
+  }
+
+  function utf8Length(text) {
+    if (typeof TextEncoder === 'function') return new TextEncoder().encode(text).length;
+    return text.length;
+  }
+
+  // A length token counts the frame plus the newline on each side of it, in
+  // UTF-16 code units, so a rewritten frame moves its token by the same delta.
+  function frameLength(declared, original, patched) {
+    return declared + (patched.length - original.length);
+  }
+
+  // The closing "e" frame carries the byte size of the whole answer. Only a
+  // frame whose value already matches the measured size is treated as that
+  // marker, so fixtures and future shape changes are left alone.
+  function endFrameValue(frameText, bodyBytes) {
+    var data;
     try {
-      outer = JSON.parse(text.slice(start));
+      data = JSON.parse(frameText);
     } catch (error) {
       return null;
     }
-    if (!patchBatchArray(outer)) return null;
-    return text.slice(0, start) + JSON.stringify(outer);
+    if (!Array.isArray(data)) return null;
+    for (var index = 0; index < data.length; index += 1) {
+      var entry = data[index];
+      if (!Array.isArray(entry) || entry[0] !== 'e' || !entry.length) continue;
+      return entry[entry.length - 1] === bodyBytes;
+    }
+    return null;
+  }
+
+  function withEndValue(frameText, value) {
+    var data;
+    try {
+      data = JSON.parse(frameText);
+    } catch (error) {
+      return frameText;
+    }
+    if (!Array.isArray(data)) return frameText;
+    for (var index = 0; index < data.length; index += 1) {
+      var entry = data[index];
+      if (Array.isArray(entry) && entry[0] === 'e' && entry.length) {
+        entry[entry.length - 1] = value;
+        return JSON.stringify(data);
+      }
+    }
+    return frameText;
+  }
+
+  function patchFrame(text) {
+    var data;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      return null;
+    }
+    return patchBatchArray(data) ? JSON.stringify(data) : null;
+  }
+
+  function patchBatchText(text) {
+    STATE.batches += 1;
+    var first = text.indexOf('[');
+    if (first === -1) return null;
+    var frames = [];
+    var position = first;
+    while (position < text.length) {
+      while (
+        position < text.length &&
+        text.charAt(position) !== '[' &&
+        text.charAt(position) !== '{'
+      ) {
+        position += 1;
+      }
+      if (position >= text.length) break;
+      var end = jsonValueEnd(text, position);
+      if (end === -1) return null;
+      var tokenEnd = position;
+      var cursor = tokenEnd;
+      while (cursor > 0 && ' \t\r\n'.indexOf(text.charAt(cursor - 1)) !== -1) cursor -= 1;
+      var digitsEnd = cursor;
+      var tokenStart = cursor;
+      while (
+        tokenStart > 0 &&
+        text.charAt(tokenStart - 1) >= '0' &&
+        text.charAt(tokenStart - 1) <= '9'
+      ) {
+        tokenStart -= 1;
+      }
+      frames.push({
+        start: position,
+        end: end,
+        text: text.slice(position, end),
+        tokenStart: tokenStart,
+        digitsEnd: digitsEnd
+      });
+      position = end;
+    }
+    if (!frames.length) return null;
+
+    var bodyBytes = utf8Length(text);
+    var endFrameIndex = -1;
+    for (var scan = 0; scan < frames.length; scan += 1) {
+      if (endFrameValue(frames[scan].text, bodyBytes) === true) {
+        endFrameIndex = scan;
+        break;
+      }
+    }
+
+    var patchedFrames = frames.map(function (frame) {
+      return patchFrame(frame.text);
+    });
+    if (patchedFrames.every(function (value) { return value === null; })) return null;
+
+    function assemble(endTotal) {
+      var out = text.slice(0, frames[0].tokenStart);
+      var copied = frames[0].tokenStart;
+      frames.forEach(function (frame, index) {
+        var patched = patchedFrames[index];
+        if (patched === null && index === endFrameIndex && endTotal !== null) {
+          patched = withEndValue(frame.text, endTotal);
+        }
+        out += text.slice(copied, frame.tokenStart);
+        if (patched === null) {
+          out += text.slice(frame.tokenStart, frame.end);
+        } else {
+          var declared = parseInt(text.slice(frame.tokenStart, frame.digitsEnd), 10);
+          out += String(frameLength(declared, frame.text, patched));
+          out += text.slice(frame.digitsEnd, frame.start);
+          out += patched;
+        }
+        copied = frame.end;
+      });
+      out += text.slice(copied);
+      return out;
+    }
+
+    var body = assemble(null);
+    if (endFrameIndex === -1) return body;
+
+    // The end value is the size of the whole answer, so it depends on the
+    // digits of its own replacement; a couple of rounds settle it.
+    var total = utf8Length(body);
+    for (var attempt = 0; attempt < 4; attempt += 1) {
+      body = assemble(total);
+      var measured = utf8Length(body);
+      if (measured === total) return body;
+      total = measured;
+    }
+    return body;
   }
 
   // --- transport hooks -----------------------------------------------------

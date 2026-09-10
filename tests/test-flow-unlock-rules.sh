@@ -46,6 +46,7 @@ assert "stopFreeze" in script, "recovery navigation must not be cancelled by the
 assert "accountRoot" in script, "recovery must keep the /u/<n>/ account prefix"
 assert "u/${match[1]}" in script
 assert "data-locallab-flow-config" in script, "the freeze must stand down once the config is patched"
+assert "data-locallab-flow-freeze" in script, "the freeze script must leave its own marker"
 
 patch = (ext / "unlock.js").read_text()
 assert "cPZSdc" in patch, "the app-config rpc must be patched"

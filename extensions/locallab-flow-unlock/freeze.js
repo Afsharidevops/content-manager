@@ -18,6 +18,14 @@
   let bounceStarted = false;
   let freezeTimers = [];
 
+  // Support breadcrumb for this isolated-world script; unlock.js marks the
+  // page world with window.__locallabFlowUnlock and the config attribute.
+  try {
+    document.documentElement.setAttribute('data-locallab-flow-freeze', 'ready');
+  } catch (error) {
+    /* the marker is best effort */
+  }
+
   // unlock.js rewrites the app-config answer in the page. Once that answer is
   // known to be patched the region check can no longer replace the editor, so
   // the freeze and the bounce are both unnecessary.

@@ -123,9 +123,15 @@ platform; this section tracks the fork additions.
   (`regexFilter`) instead of matching the string anywhere in the URL. The old
   wildcard filters also blocked the app's own `batchexecute` calls, because
   their `source-path` parameter contains the blocked route.
+- Rebuilt answers keep the batchexecute framing valid: each frame's length
+  token counts the JSON plus the newlines around it in UTF-16 units (not
+  bytes) and moves with the frame, and the closing `e` frame's value is
+  re-computed to the byte size of the rewritten answer, so the page accepts a
+  patched response instead of staying on the block route.
 - `tests/test-flow-unlock-patch.mjs` covers both payload encodings, the
-  omitted-field case, and the pass-through of unrelated RPCs; the rules test
-  now also guards the second content script and the anchored filters.
+  omitted-field case, the length-token and closing-size framing, and the
+  pass-through of unrelated RPCs; the rules test now also guards the second
+  content script and the anchored filters.
 
 ### Fixes — Instagram API version default (2026-09-10)
 

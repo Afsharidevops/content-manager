@@ -11,7 +11,10 @@ What it does:
    carry the region verdict before the web app reads them: the country and age
    flags of `VideoFxService.GetFlowAppConfig` (`cPZSdc`) and the tool status of
    `AiSandbox.CheckToolAvailability` (`KV2T2d`). Only those fields change, so
-   the dashboard renders for the account in the tab.
+   the dashboard renders for the account in the tab. Each batchexecute frame
+   declares its own length token (the JSON plus the newlines around it, in
+   UTF-16 units) and the closing `e` frame repeats the byte size of the whole
+   answer; the patch moves both so the rewritten response stays valid.
 2. Browser rules abort every request to the Flow `/unsupported-country` page:
    the bare path, multi-account paths such as `/u/1/unsupported-country`,
    `flow.google-*.com` variants, and the `labs.google` tool path. The redirect
@@ -78,6 +81,16 @@ account that still shows the block page, the answer arrived in a shape the
 script did not patch: reload the extension and send the `cPZSdc` response from
 the Network tab (right-click the request, **Copy response**) so the parser can
 be extended.
+
+If `data-locallab-flow-freeze` is missing as well, no content script ran for
+this tab: check **Site access** on the extension card (the Flow host must be
+allowed), press **Reload**, then open a fresh tab.
+
+`window.__locallabFlowUnlock` reports what the script did in the tab:
+`batches` counts the batchexecute answers it saw, `seen` lists the region rpcs
+among them (`cPZSdc`, `KV2T2d`), and `patched` turns true once the config
+answer was rewritten. `undefined` means the script did not run: press
+**Reload** on the extension card, then reload the Flow tab.
 
 ## Use
 
