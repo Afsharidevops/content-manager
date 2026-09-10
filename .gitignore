@@ -19,6 +19,9 @@ data/content-manager/*
 !data/content-manager/.gitkeep
 data/content-bot/*
 !data/content-bot/.gitkeep
+data/media-studio/*
+!data/media-studio/.gitkeep
+extensions/locallab-flow-unlock/_metadata/
 *.backup-*
 *.log
 __pycache__/

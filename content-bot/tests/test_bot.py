@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -569,7 +570,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def _media_settings(tmp_dir: str) -> BotSettings:
+def _media_settings(tmp_dir: str, *, instagram: bool = False) -> BotSettings:
     return BotSettings(
         bot_token="123:TESTTOKENABCDEFGHIJKLMN",
         telegram_channel="@channel",
@@ -578,6 +579,8 @@ def _media_settings(tmp_dir: str) -> BotSettings:
         data_dir=tmp_dir,
         scheduler_enabled=False,
         media_studio_url="http://media-studio:8850",
+        instagram_business_id="17841400000000000" if instagram else "",
+        instagram_access_token="IGQ-test-token" if instagram else "",
     )
 
 
@@ -772,6 +775,184 @@ class MediaFlowTestCase(unittest.TestCase):
         ]
         self.assertEqual(len(published), 1)
         self.assertTrue(published[0][1]["caption"].startswith("<b>"))
+
+    def test_media_preview_offers_instagram_buttons_when_configured(self):
+        self.settings = _media_settings(self.tmp.name, instagram=True)
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        previews = [
+            upload
+            for upload in self.api.uploads
+            if upload[0] == "sendPhoto"
+            and upload[1]["chat_id"] == 11
+            and "reply_markup" in upload[1]
+        ]
+        self.assertEqual(len(previews), 1)
+        markup = json.loads(previews[0][1]["reply_markup"])
+        callbacks = [
+            button["callback_data"]
+            for row in markup["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"approve_ig:{draft_id}", callbacks)
+        self.assertIn(f"approve_both:{draft_id}", callbacks)
+
+    def test_album_preview_offers_instagram_buttons_when_configured(self):
+        self.settings = _media_settings(self.tmp.name, instagram=True)
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_images:{draft_id}",
+            }
+        )
+        for index in (1, 2):
+            bot.handle_message(
+                {
+                    "chat": {"id": 11},
+                    "from": {"id": 11},
+                    "photo": [
+                        {
+                            "file_id": f"photo-{index}",
+                            "file_size": 500,
+                            "width": 100,
+                            "height": 100,
+                        }
+                    ],
+                }
+            )
+        follow_ups = [
+            message
+            for message in self.api.sent_messages
+            if message.get("reply_markup")
+            and "photos ready above" in str(message.get("text") or "")
+        ]
+        self.assertTrue(follow_ups)
+        callbacks = [
+            button["callback_data"]
+            for row in follow_ups[-1]["reply_markup"]["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"approve:{draft_id}", callbacks)
+        self.assertIn(f"approve_ig:{draft_id}", callbacks)
+
+    def test_approve_to_instagram_skips_the_telegram_channel(self):
+        self.settings = _media_settings(self.tmp.name, instagram=True)
+        bot = self.build_bot()
+        published = {}
+
+        class FakePublisher:
+            def publish(self, caption, items):
+                published["caption"] = caption
+                published["items"] = items
+                return {"kind": "photo", "media_id": "ig-1"}
+
+        bot._instagram = FakePublisher()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        self.api.calls.clear()
+        self.api.uploads.clear()
+        bot.handle_callback(
+            {
+                "id": "qig",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve_ig:{draft_id}",
+            }
+        )
+        self.assertEqual(published["items"][0]["kind"], "image")
+        self.assertTrue(published["caption"])
+        self.assertEqual(
+            [upload for upload in self.api.uploads if upload[1].get("chat_id") == "@channel"],
+            [],
+        )
+        self.assertIsNone(bot.state.get_draft(draft_id))
+        edits = [
+            payload.get("text", "")
+            for method, payload in self.api.calls
+            if method == "editMessageText"
+        ]
+        self.assertTrue(any("Published to Instagram." in text for text in edits))
+
+    def test_approve_to_both_publishes_telegram_and_instagram(self):
+        self.settings = _media_settings(self.tmp.name, instagram=True)
+        bot = self.build_bot()
+        published = {}
+
+        class FakePublisher:
+            def publish(self, caption, items):
+                published["items"] = items
+                return {"kind": "photo", "media_id": "ig-2"}
+
+        bot._instagram = FakePublisher()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        self.api.uploads.clear()
+        bot.handle_callback(
+            {
+                "id": "qboth",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve_both:{draft_id}",
+            }
+        )
+        self.assertTrue(
+            [upload for upload in self.api.uploads if upload[1].get("chat_id") == "@channel"]
+        )
+        self.assertEqual(published["items"][0]["kind"], "image")
+        self.assertIsNone(bot.state.get_draft(draft_id))
 
     def test_uploaded_image_branding_failure_keeps_original(self):
         bot = self.build_bot(artifact=("image_0.png", "image"))
@@ -1169,7 +1350,7 @@ class MultiPhotoAndInstagramTests(BotTestCase):
 
         self.bot.media = AskOnlyFakeMedia()
 
-    def _draft_with_media_ask(self):
+    def _draft_with_media_ask(self, *, choice: str = "user_images"):
         self.bot.handle_message(
             {
                 "chat": {"id": 11},
@@ -1184,7 +1365,7 @@ class MultiPhotoAndInstagramTests(BotTestCase):
                 "id": "qm1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 101},
-                "data": f"media:user_images:{draft_id}",
+                "data": f"media:{choice}:{draft_id}",
             }
         )
         return draft_id
@@ -1240,6 +1421,47 @@ class MultiPhotoAndInstagramTests(BotTestCase):
             any(method == "sendMediaGroup" for method, _, _, _, _ in self.api.uploads)
         )
         self.assertIsNone(self.bot.state.get_draft(draft_id))
+
+    def test_single_photo_preview_has_plain_approval_without_config(self):
+        draft_id = self._draft_with_media_ask(choice="user_image")
+        self._send_photo(draft_id, 1)
+        previews = [
+            upload
+            for upload in self.api.uploads
+            if upload[0] == "sendPhoto"
+            and upload[1]["chat_id"] == 11
+            and "reply_markup" in upload[1]
+        ]
+        self.assertEqual(len(previews), 1)
+        markup = json.loads(previews[0][1]["reply_markup"])
+        callbacks = [
+            button["callback_data"]
+            for row in markup["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"approve:{draft_id}", callbacks)
+        self.assertNotIn(f"approve_ig:{draft_id}", callbacks)
+
+    def test_album_preview_sends_buttons_in_follow_up_message(self):
+        draft_id = self._draft_with_media_ask()
+        self._send_photo(draft_id, 1)
+        self._send_photo(draft_id, 2)
+        follow_ups = [
+            message
+            for message in self.api.sent_messages
+            if message.get("reply_markup")
+            and "photos ready above" in str(message.get("text") or "")
+        ]
+        self.assertTrue(follow_ups)
+        callbacks = [
+            button["callback_data"]
+            for row in follow_ups[-1]["reply_markup"]["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"approve:{draft_id}", callbacks)
+        self.assertIn(f"reject:{draft_id}", callbacks)
+        self.assertIn(f"media:done:{draft_id}", callbacks)
+        self.assertNotIn(f"approve_ig:{draft_id}", callbacks)
 
     def test_instagram_approval_buttons_require_configuration(self):
         draft_id = self._draft_with_media_ask()

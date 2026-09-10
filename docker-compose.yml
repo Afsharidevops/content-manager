@@ -694,6 +694,9 @@ services:
     user: "${MEDIA_STUDIO_RUN_AS:-10005:10005}"
     environment:
       MEDIA_STUDIO_DATA_DIR: /data
+      # The API always listens on every container interface so the rest of the
+      # stack can reach it; MEDIA_STUDIO_BIND_IP controls the host port only.
+      MEDIA_STUDIO_BIND_IP: 0.0.0.0
       MEDIA_STUDIO_DRIVERS: ${MEDIA_STUDIO_DRIVERS:-api-image,flow-video}
       MEDIA_STUDIO_API_TOKEN: ${MEDIA_STUDIO_API_TOKEN:-}
       MEDIA_STUDIO_WRITER_BASE_URL: ${MEDIA_STUDIO_WRITER_BASE_URL:-}

@@ -38,6 +38,27 @@ platform; this section tracks the fork additions.
 - Component images advance to `0.2.0`: `afsharidevops/content-bot:0.2.0` and
   `afsharidevops/media-studio:0.2.0` (plus `:latest`).
 
+### Fixes — Instagram approval flow and Media Studio reachability (2026-09-10)
+
+- Media previews now carry the Instagram approval buttons: photo and video
+  previews show them inline, and albums (user photo collections) send a
+  follow-up message with the same buttons, because Telegram albums cannot hold
+  an inline keyboard.
+- The photo-collection preview offers the **Done** button that its own ask
+  message describes; every upload replaces the previous preview and both
+  preview messages are removed when a draft is replaced, rejected, or
+  published.
+- `Approve to Instagram` publishes to Instagram only. Previously it also posted
+  to the Telegram channel, which made it identical to the combined button, and
+  `content_bot/bot.py` never imported the Instagram module, so every Instagram
+  approval failed with a `NameError`.
+- The callback query is acknowledged before the slow Instagram publish instead
+  of after it, so Graph API processing can no longer fail the update with a
+  stale callback id.
+- Media Studio listens on every container interface so `content-bot` can reach
+  `http://media-studio:8850`; the published host port still follows
+  `MEDIA_STUDIO_BIND_IP`.
+
 ### Fork additions — content layer v0.1.0
 
 - Added the `content/` Python layer for deterministic discovery normalization,

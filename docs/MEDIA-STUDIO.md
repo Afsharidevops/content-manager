@@ -105,8 +105,11 @@ used there.
 ## API
 
 The API binds to `127.0.0.1:8850` by default (`MEDIA_STUDIO_BIND_IP` /
-`MEDIA_STUDIO_PORT`). When `MEDIA_STUDIO_API_TOKEN` is set, every request
-except `/healthz` needs `Authorization: Bearer <token>`.
+`MEDIA_STUDIO_PORT`). Inside the Compose profile the container listens on every
+interface so `content-bot` can reach `http://media-studio:8850`, while the
+published host port still follows `MEDIA_STUDIO_BIND_IP`. When
+`MEDIA_STUDIO_API_TOKEN` is set, every request except `/healthz` needs
+`Authorization: Bearer <token>`.
 
 ```bash
 # submit an image job to the configured API driver

@@ -13,6 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from content_bot import extract, fetch, state as state_mod, telegram as telegram_mod
+from content_bot import instagram as instagram_mod
 from content_bot import mediastudio as media_mod, search as search_mod
 from content_bot import workflow, writer as writer_mod
 from content_bot.config import BotSettings
@@ -537,11 +538,12 @@ class ContentBot:
                     "press Done on the preview to stop collecting.",
                     telegram_mod.upload_wait_keyboard(draft_id),
                 )
-            self._delete_safe(chat_id, draft.get("preview_message_id"))
-            current = self.state.get_draft(draft_id)
-            if current is not None:
-                self.state.update_draft(draft_id, {"preview_message_id": None})
-            if not self._send_media_preview(draft_id, collecting=True):
+            self._drop_preview(chat_id, draft)
+            if not self._send_media_preview(
+                draft_id,
+                keyboard=telegram_mod.user_media_preview_keyboard,
+                collecting=True,
+            ):
                 self.api.send_message(
                     chat_id,
                     "Media received, but the preview could not be sent.",
@@ -1067,8 +1069,11 @@ class ContentBot:
                         "press Approve on the preview to publish.",
                         telegram_mod.approval_keyboard(draft_id),
                     )
-            self._delete_safe(chat_id, record.get("preview_message_id"))
-            if not self._send_media_preview(draft_id, collecting=True):
+            self._drop_preview(chat_id, record)
+            if not self._send_media_preview(
+                draft_id,
+                keyboard=telegram_mod.user_media_preview_keyboard,
+            ):
                 self._safe_answer(query_id, "Preview could not be sent.")
                 return
             self._safe_answer(query_id, f"Collection closed with {len(collected)} photos.")
@@ -1169,9 +1174,7 @@ class ContentBot:
             },
         )
         self._record_event(draft_id, "media_job_started", f"{driver} {job_id}")
-        old_preview = record.get("preview_message_id")
-        if old_preview is not None:
-            self._delete_safe(chat_id, int(old_preview))
+        self._drop_preview(chat_id, record)
         if chat_id is not None and ask_id is not None:
             self._edit_safe(
                 chat_id,
@@ -1271,6 +1274,33 @@ class ContentBot:
         if not self._send_media_preview(draft_id):
             self._media_failed(draft_id, "Media preview could not be sent.")
 
+    def _preview_keyboard(
+        self, factory, draft_id: str, *, collecting: bool = False
+    ) -> dict:
+        """Build preview buttons with the options the factory supports."""
+        instagram = self.settings.instagram_enabled
+        if collecting:
+            try:
+                return factory(draft_id, instagram=instagram, collecting=True)
+            except TypeError:
+                pass
+        try:
+            return factory(draft_id, instagram=instagram)
+        except TypeError:
+            return factory(draft_id)
+
+    def _drop_preview(self, chat_id, record: dict) -> None:
+        """Delete the preview message(s) of one draft and forget their ids."""
+        if chat_id is not None:
+            self._delete_safe(chat_id, record.get("preview_message_id"))
+            self._delete_safe(chat_id, record.get("preview_keyboard_message_id"))
+        draft_id = str(record.get("id") or "")
+        if draft_id and self.state.get_draft(draft_id) is not None:
+            self.state.update_draft(
+                draft_id,
+                {"preview_message_id": None, "preview_keyboard_message_id": None},
+            )
+
     def _send_media_preview(
         self,
         draft_id: str,
@@ -1287,6 +1317,7 @@ class ContentBot:
         chat_id = record.get("chat_id")
         if chat_id is None:
             return False
+        markup = self._preview_keyboard(keyboard, draft_id, collecting=collecting)
         files = list(media.get("files") or [])
         use_album = collecting or len(files) >= 2
         if use_album:
@@ -1318,6 +1349,24 @@ class ContentBot:
             message_id = sent.get("message_id")
             if message_id is not None:
                 self.state.update_draft(draft_id, {"preview_message_id": message_id})
+            # Telegram albums cannot carry inline keyboards, so the
+            # approval buttons go in a follow-up message below the photos.
+            try:
+                buttons = self.api.send_message(
+                    chat_id,
+                    f"{len(entries)} photos ready above.",
+                    markup,
+                )
+            except telegram_mod.TelegramError as error:
+                log.warning(
+                    "media group buttons failed for %s: %s", draft_id, error
+                )
+                return False
+            buttons_id = buttons.get("message_id")
+            if buttons_id is not None:
+                self.state.update_draft(
+                    draft_id, {"preview_keyboard_message_id": buttons_id}
+                )
             return True
         path = Path(str(media.get("local_path") or ""))
         if kind not in {"image", "video"} or not path.is_file():
@@ -1335,7 +1384,7 @@ class ContentBot:
                     filename,
                     content,
                     caption=f"Media preview for the draft above.\n{filename}",
-                    reply_markup=keyboard(draft_id),
+                    reply_markup=markup,
                 )
             else:
                 sent = self.api.send_video(
@@ -1343,7 +1392,7 @@ class ContentBot:
                     filename,
                     content,
                     caption=f"Media preview for the draft above.\n{filename}",
-                    reply_markup=keyboard(draft_id),
+                    reply_markup=markup,
                 )
         except telegram_mod.TelegramError as error:
             log.warning("media preview send failed for %s: %s", draft_id, error)
@@ -1511,6 +1560,7 @@ class ContentBot:
             self.state.drop_draft(draft_id)
             self._delete_safe(chat_id, record.get("ask_message_id"))
             self._delete_safe(chat_id, record.get("preview_message_id"))
+            self._delete_safe(chat_id, record.get("preview_keyboard_message_id"))
             if chat_id is not None and message_id is not None:
                 try:
                     self.api.edit_message_text(chat_id, int(message_id), "Rejected.")
@@ -1639,11 +1689,14 @@ class ContentBot:
                 "Instagram publishing needs photos or a video attached to the draft.",
             )
             return
+        # Acknowledge before the slow publish; the result goes into the
+        # draft message so a stale callback id cannot fail the update.
+        self._safe_answer(query_id, "Publishing...")
         try:
-            instagram_result = None
             if "instagram" in targets:
-                instagram_result = self._publish_to_instagram(record)
-            self._publish_record(record)
+                self._publish_to_instagram(record)
+            if "telegram" in targets:
+                self._publish_record(record)
         except telegram_mod.TelegramError as error:
             self.api.answer_callback_query(query_id, f"Publish failed: {error}")
             return
@@ -1660,17 +1713,22 @@ class ContentBot:
         self.state.drop_draft(draft_id)
         self._delete_safe(chat_id, record.get("ask_message_id"))
         self._delete_safe(chat_id, record.get("preview_message_id"))
+        self._delete_safe(chat_id, record.get("preview_keyboard_message_id"))
+        destinations = []
+        if "telegram" in targets:
+            destinations.append(channel or "Telegram")
+        if "instagram" in targets:
+            destinations.append("Instagram")
+        summary = f"Published to {' + '.join(destinations)}."
         if chat_id is not None and message_id is not None:
             try:
                 self.api.edit_message_text(
                     chat_id,
                     int(message_id),
-                    f"Published to {channel}.",
+                    summary,
                 )
             except telegram_mod.TelegramError:
                 pass
-        label = " + ".join(target.capitalize() for target in targets)
-        self.api.answer_callback_query(query_id, f"Published to {label}.")
 
     def _publish_to_instagram(self, record: dict) -> dict:
         """Publish one approved draft to Instagram through the Graph API."""
