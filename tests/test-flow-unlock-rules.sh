@@ -33,6 +33,15 @@ script = (ext / "freeze.js").read_text()
 assert "unsupported-country" in script
 assert "MAX_BOUNCES" in script, "client-side route guard missing"
 assert "https://flow.google.com/" in script
+assert "stopFreeze" in script, "recovery navigation must not be cancelled by the freeze"
+
+manifest_background = manifest.get("background") or {}
+assert manifest_background.get("service_worker") == "background.js", manifest_background
+worker = (ext / "background.js").read_text()
+assert "webNavigation.onErrorOccurred" in worker
+assert "ERR_BLOCKED_BY_CLIENT" in worker
+assert "chrome.tabs.update" in worker
+assert "MAX_RETRIES" in worker
 
 filters_file = (ext / "ublock-filter.txt").read_text()
 assert "*unsupported-country" in filters_file

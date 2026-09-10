@@ -15,9 +15,12 @@ What it does:
    as the project creation button appears, which prevents the background
    region check from swapping the editor for the block page.
 3. The same script watches the address bar. When the web app swaps the route
-   client-side (no network request for the rule set to block), it freezes the
-   page and restarts the app root, at most twice per tab, so a client-side
-   route change cannot strand the tab on the block page.
+   client-side (no network request for the rule set to block), it restarts the
+   app root, at most twice per tab, so a client-side route change cannot
+   strand the tab on the block page.
+4. A background worker returns the tab to the app root (up to twice a minute)
+   when a blocked navigation still leaves Chrome's `ERR_BLOCKED_BY_CLIENT`
+   page, where no content script can run.
 
 Requirements:
 
@@ -77,9 +80,19 @@ The filter file is also stored at
   **Network** tab, tick **Preserve log**, reload, reproduce the block page,
   then filter for `country`, `region`, and `unsupported` and inspect the
   failing request. Blocking or stubbing that request is the durable fix.
-- Multi-account URLs: after editing `rules.json` or `freeze.js`, press
-  **Reload** on the extension card. Chrome only re-reads the rule files when
-  the extension reloads.
+- Multi-account URLs: after editing `rules.json`, `freeze.js`, or
+  `background.js`, press **Reload** on the extension card. Chrome only
+  re-reads the extension files when it reloads.
+- Never hard-refresh a tab whose address bar still shows the block route: the
+  rule set aborts that navigation and Chrome shows "This page has been
+  blocked by an extension". Type `https://flow.google.com/` instead, or let
+  the background worker bring the tab back.
+- The block view itself is decided for the signed-in session (the app shell is
+  served with `200` for both `/` and `/unsupported-country`, and the
+  `batchexecute` calls on that page are telemetry only). If Flow still reports
+  an unsupported country after a reload, compare Google accounts
+  (`/u/0/` vs `/u/1/`) and the tunnel exit country; the extension cannot
+  bypass a server-side verdict.
 - Buttons show raw text such as `add` or `videocam` instead of icons? That is
   only the icon font failing to load and is cosmetic; the labels remain
   clickable.

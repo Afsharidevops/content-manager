@@ -83,6 +83,14 @@ platform; this section tracks the fork additions.
   extended the same way. The content script also watches the address bar and
   restarts the app root (at most twice per tab) when the web app swaps the
   route client-side, where no request exists for the rule set to block.
+- The recovery navigation is no longer cancelled by the freeze that targets
+  the block page: scheduled `window.stop()` calls are cleared before bouncing,
+  which previously left the tab sitting on the block view.
+- New `background.js` service worker: when a blocked navigation still strands
+  a tab on Chrome's `ERR_BLOCKED_BY_CLIENT` page, the tab is returned to the
+  app root up to twice a minute. The block view itself is server-decided for a
+  signed-in session, so the extension can only avoid the dead end, not bypass
+  the verdict.
 - The Content Bot polling loop survives transient network failures: Telegram
   long polls that time out through a slow route are logged as a warning and
   retried after a short backoff instead of dumping a full traceback into the

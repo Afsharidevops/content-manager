@@ -14,8 +14,9 @@
   const RETURN_KEY = 'locallabFlowUnlockBounces';
   const MAX_BOUNCES = 2;
 
-  let done = false;
-  let bounced = false;
+  let froze = false;
+  let bounceStarted = false;
+  let freezeTimers = [];
 
   function onBlockRoute() {
     return window.location.pathname.toLowerCase().includes(BLOCK_MARKER);
@@ -37,23 +38,32 @@
     }
   }
 
-  // Restart the app once or twice when the block route is already showing.
-  function bounceOffBlockRoute() {
-    if (!onBlockRoute()) return false;
-    const bounces = readBounces();
-    if (bounces >= MAX_BOUNCES) return true;
-    writeBounces(bounces + 1);
-    bounced = true;
-    window.location.replace('https://flow.google.com/');
-    return true;
+  // Stops scheduled stops so a recovery navigation is not cancelled by the
+  // freeze that was aimed at the block page.
+  function stopFreeze() {
+    freezeTimers.forEach((timer) => window.clearTimeout(timer));
+    freezeTimers = [];
+    froze = true;
   }
 
   function freezeOnce() {
-    if (done) return;
-    done = true;
+    if (froze) return;
+    froze = true;
     for (let i = 0; i < 30; i++) {
-      setTimeout(() => window.stop(), i * 60);
+      freezeTimers.push(window.setTimeout(() => window.stop(), i * 60));
     }
+  }
+
+  // Restart the app once or twice when the block route is already showing.
+  function bounceOffBlockRoute() {
+    if (!onBlockRoute() || bounceStarted) return onBlockRoute();
+    const bounces = readBounces();
+    if (bounces >= MAX_BOUNCES) return true;
+    writeBounces(bounces + 1);
+    bounceStarted = true;
+    stopFreeze();
+    window.location.replace('https://flow.google.com/');
+    return true;
   }
 
   function looksLikeCreateButton(element) {
@@ -78,7 +88,7 @@
   if (bounceOffBlockRoute()) return;
 
   const observer = new MutationObserver(() => {
-    if (done) return;
+    if (froze) return;
     if (findCreateButton()) {
       observer.disconnect();
       writeBounces(0);
@@ -87,11 +97,9 @@
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  // Client-side routing never issues a request, so watch the address bar too:
-  // freeze immediately and restart the app instead of rendering the block view.
+  // Client-side routing never issues a request, so watch the address bar too
+  // and restart the app instead of letting the block view render.
   window.setInterval(() => {
-    if (!onBlockRoute()) return;
-    freezeOnce();
-    if (!bounced) bounceOffBlockRoute();
+    if (onBlockRoute()) bounceOffBlockRoute();
   }, 250);
 })();
