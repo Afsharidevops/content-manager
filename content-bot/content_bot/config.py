@@ -62,6 +62,7 @@ class BotSettings:
     instagram_business_id: str = ""
     instagram_access_token: str = ""
     instagram_media_public_base_url: str = ""
+    instagram_api_base: str = "https://graph.facebook.com"
     instagram_api_version: str = "v23.0"
     instagram_poll_timeout_seconds: int = 600
 
@@ -93,6 +94,9 @@ class BotSettings:
             instagram_access_token=_env("INSTAGRAM_ACCESS_TOKEN"),
             instagram_media_public_base_url=_env(
                 "INSTAGRAM_MEDIA_PUBLIC_BASE_URL"
+            ),
+            instagram_api_base=_env(
+                "INSTAGRAM_API_BASE", "https://graph.facebook.com"
             ),
             instagram_api_version=_env("INSTAGRAM_API_VERSION", "v23.0"),
             instagram_poll_timeout_seconds=_env_int(

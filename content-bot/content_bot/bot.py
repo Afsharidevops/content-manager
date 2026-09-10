@@ -216,6 +216,7 @@ class ContentBot:
                 self.settings.instagram_access_token,
                 media_base_url=self.settings.instagram_media_public_base_url,
                 media_root=self.settings.data_dir,
+                graph_base=self.settings.instagram_api_base,
                 api_version=self.settings.instagram_api_version,
                 poll_timeout_seconds=self.settings.instagram_poll_timeout_seconds,
             )
