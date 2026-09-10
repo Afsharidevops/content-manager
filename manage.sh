@@ -1384,11 +1384,16 @@ ig_media_status() {
   url="$(ig_media_public_url)"
   legacy="$(pgrep -f "http\.server.*--directory .*ig-medi[a]" 2>/dev/null | head -n1 || true)"
   printf 'Instagram media host\n'
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
   if ig_media_enabled; then
-    if ig_media_named; then
-      printf '  Profile "ig-media": enabled (named tunnel; profile "ig-media-named")\n'
-    else
+    if [[ ",$profiles," == *,ig-media-named,* ]]; then
+      printf '  Profile "ig-media": enabled (named tunnel)\n'
+    elif [[ ",$profiles," == *,ig-media-quick,* ]]; then
       printf '  Profile "ig-media": enabled (quick tunnel)\n'
+    else
+      printf '  Profile "ig-media": enabled (nginx only; reached through the proxy that fronts %s:%s)\n' \
+        "$bind" "$port"
     fi
   else
     printf '  Profile "ig-media": not enabled; run ./manage.sh instagram-media-enable\n'
@@ -1561,7 +1566,8 @@ VERIFY
 }
 
 ig_media_tunnel_off() {
-  compose --profile ig-media-quick --profile ig-media-named stop \
+  # "ig-media" must stay on the profile list: the tunnel services depend on it.
+  compose --profile ig-media --profile ig-media-quick --profile ig-media-named stop \
     ig-media-tunnel ig-media-named-tunnel >/dev/null 2>&1 || true
   ig_media_remove_tunnel_profiles
   printf 'Tunnel stopped. nginx keeps serving data/content-bot/media on %s:%s for a\n' \
