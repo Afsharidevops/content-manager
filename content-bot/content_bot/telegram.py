@@ -14,6 +14,19 @@ class TelegramError(RuntimeError):
     pass
 
 
+def _api_error_text(method: str, status: int, body: bytes) -> str:
+    """Render a Bot API HTTP error together with Telegram's description."""
+    description = ""
+    try:
+        payload = json.loads(body.decode("utf-8", "replace") or "{}")
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        description = str(payload.get("description") or "").strip()
+    text = f"Telegram {method} HTTP {status}"
+    return f"{text}: {description}" if description else text
+
+
 class TelegramApi:
     def __init__(self, token: str, api_base: str = "https://api.telegram.org"):
         self.api_base = api_base.rstrip("/")
@@ -39,7 +52,9 @@ class TelegramApi:
         try:
             data = self._transport(f"{self.root}/{method}", params, timeout=timeout)
         except HttpError as error:
-            raise TelegramError(f"Telegram {method} HTTP {error.status}") from error
+            raise TelegramError(
+                _api_error_text(method, error.status, error.body)
+            ) from error
         if not isinstance(data, dict) or data.get("ok") is not True:
             description = data.get("description") if isinstance(data, dict) else str(data)
             raise TelegramError(f"Telegram {method} failed: {description}")
@@ -65,7 +80,9 @@ class TelegramApi:
                 timeout=240,
             )
         except _HttpError as error:
-            raise TelegramError(f"Telegram {method} HTTP {error.status}") from error
+            raise TelegramError(
+                _api_error_text(method, error.status, error.body)
+            ) from error
         except ConnectionError as error:
             raise TelegramError(f"Telegram {method} network error: {error}") from error
         try:
@@ -125,6 +142,35 @@ class TelegramApi:
             filename=filename,
             file_bytes=file_bytes,
         )
+        return result if isinstance(result, dict) else {}
+
+    def send_video_by_id(
+        self,
+        chat_id,
+        file_id: str,
+        *,
+        caption: str = "",
+        parse_mode: str | None = None,
+        reply_markup: dict | None = None,
+        as_document: bool = False,
+    ) -> dict:
+        """Send a video that already lives on Telegram without downloading it.
+
+        Files above the bot download limit (20 MB) arrive as a ``file_id``
+        only; sending that id back is the supported way to forward them. A
+        file id is bound to the method that produced it, so a clip sent as a
+        document is re-sent with ``sendDocument``.
+        """
+        method = "sendDocument" if as_document else "sendVideo"
+        field = "document" if as_document else "video"
+        params: dict = {"chat_id": chat_id, field: file_id}
+        if caption:
+            params["caption"] = caption
+        if parse_mode is not None:
+            params["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            params["reply_markup"] = json.dumps(reply_markup)
+        result = self._call(method, params, timeout=120)
         return result if isinstance(result, dict) else {}
 
     def send_media_group(

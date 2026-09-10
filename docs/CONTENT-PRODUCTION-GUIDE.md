@@ -122,6 +122,11 @@ completed. Sending a file while no draft is waiting is rejected with an
 explanation; sending the wrong media kind for a waiting draft keeps the draft
 waiting.
 
+Videos above 20 MB stay on Telegram: the Bot API cannot download them, so the
+bot keeps the file id, previews the same clip, and publishes it to the channel
+from that id. Instagram approvals and the platform upload packages need the
+file itself, so they ask you to send a copy under 20 MB.
+
 The brand chip is configurable on Media Studio: `MEDIA_STUDIO_BRAND_LABEL`
 (default `Locallab`, blank disables branding) and
 `MEDIA_STUDIO_BRAND_POSITION` (default `bottom-right`). Every AI-generated

@@ -38,6 +38,19 @@ platform; this section tracks the fork additions.
 - Component images advance to `0.2.0`: `afsharidevops/content-bot:0.2.0` and
   `afsharidevops/media-studio:0.2.0` (plus `:latest`).
 
+### Fixes — oversized video uploads stay on Telegram (2026-09-10)
+
+- A video above the 20 MB Bot API download limit no longer fails with
+  `Could not download the file: Telegram getFile HTTP 400`. The bot keeps the
+  Telegram `file_id` instead of the bytes, re-sends the clip as the media
+  preview, and publishes it to the channel by id, so a reel created in Flow or
+  on a phone can be attached without re-encoding it.
+- Files kept on Telegram live there only: Instagram approvals and the platform
+  upload packages need the file itself and now say so, asking for a copy under
+  20 MB instead of failing silently or shipping a package without media.
+- Bot API failures include Telegram's own description (for example the
+  `getFile` limit message) instead of only the HTTP status.
+
 ### Improvements — friendlier copy and RTL-safe captions (2026-09-10)
 
 - The writer prompt now asks for a warm, conversational, second-person voice

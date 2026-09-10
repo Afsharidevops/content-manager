@@ -94,6 +94,10 @@ snapshots stay in Media Studio (`data/media-studio/`). This satisfies the
   `CONTENT_MEDIA_VIDEO_DRIVER` (Flow stays experimental).
 - Operator uploads are stored locally; photos are sent through the Media
   Studio `/brand` endpoint so they carry the same corner chip as AI images.
+- Videos above the 20 MB Bot API download limit are not copied into the bot:
+  the draft stores the Telegram `file_id`, and both the preview and the channel
+  publish re-send the clip from that id. Paths that need real bytes
+  (Instagram, platform upload packages) report that a smaller copy is needed.
 - Media preview buttons match the source: AI previews offer New attempt /
   Text only, upload previews offer Approve / Reject / Text only; publishing
   sends one media message with a bold-title caption and continuation

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from content_bot.bot import ContentBot
 from content_bot.config import BotSettings
-from content_bot.telegram import TelegramApi
+from content_bot.telegram import TelegramApi, TelegramError
 from content_pipeline.normalize import canonicalize_url, content_hash as url_content_hash
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1278,6 +1278,159 @@ class MediaFlowTestCase(unittest.TestCase):
         ]
         self.assertEqual(len(published), 1)
 
+    def test_oversized_video_stays_on_telegram_and_publishes(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:video_prompt:{draft_id}",
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:script10:{draft_id}",
+            }
+        )
+        self.api.calls.clear()
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "video": {
+                    "file_id": "bigvid",
+                    "mime_type": "video/mp4",
+                    "file_name": "reel.mp4",
+                    "file_size": 30_000_000,
+                },
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ready")
+        media = record["media"]
+        self.assertEqual(media["file_id"], "bigvid")
+        self.assertTrue(media["oversized"])
+        self.assertEqual(media["local_path"], "")
+        self.assertFalse([call for call in self.api.calls if call[0] == "getFile"])
+        self.assertTrue(
+            any(
+                "stays on Telegram" in message["text"]
+                for message in self.api.sent_messages
+            )
+        )
+        previews = [
+            payload
+            for method, payload in self.api.calls
+            if method == "sendVideo" and payload.get("video") == "bigvid"
+        ]
+        self.assertEqual(len(previews), 1)
+        self.assertEqual(previews[0]["chat_id"], 11)
+        bot.handle_callback(
+            {
+                "id": "q3",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published = [
+            payload
+            for method, payload in self.api.calls
+            if method == "sendVideo" and payload.get("chat_id") == "@channel"
+        ]
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["video"], "bigvid")
+        self.assertIn("Generated title", published[0]["caption"])
+
+    def test_oversized_document_video_reuses_send_document(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        bot.state.update_draft(
+            draft_id,
+            {"status": "awaiting_media", "media_wait_kind": "video"},
+        )
+        self.api.calls.clear()
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "document": {
+                    "file_id": "bigfile",
+                    "mime_type": "video/mp4",
+                    "file_name": "reel.mp4",
+                    "file_size": 40_000_000,
+                },
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        media = record["media"]
+        self.assertTrue(media["oversized"])
+        self.assertTrue(media["as_document"])
+        self.assertEqual(media["file_id"], "bigfile")
+        previews = [
+            payload
+            for method, payload in self.api.calls
+            if method == "sendDocument" and payload.get("document") == "bigfile"
+        ]
+        self.assertEqual(len(previews), 1)
+        bot.handle_callback(
+            {
+                "id": "q4",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published = [
+            payload
+            for method, payload in self.api.calls
+            if method == "sendDocument" and payload.get("chat_id") == "@channel"
+        ]
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["document"], "bigfile")
+
+    def test_video_download_failure_falls_back_to_file_id(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        bot.state.update_draft(
+            draft_id,
+            {"status": "awaiting_media", "media_wait_kind": "video"},
+        )
+        self.api.calls.clear()
+        with mock.patch.object(
+            self.api,
+            "get_file",
+            side_effect=TelegramError("Telegram getFile HTTP 400"),
+        ):
+            bot.handle_message(
+                {
+                    "chat": {"id": 11},
+                    "from": {"id": 11},
+                    "video": {"file_id": "fallbackvid", "mime_type": "video/mp4"},
+                }
+            )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ready")
+        self.assertEqual(record["media"]["file_id"], "fallbackvid")
+        self.assertTrue(record["media"]["oversized"])
+        self.assertFalse(
+            any(
+                "Could not download the file" in message["text"]
+                for message in self.api.sent_messages
+            )
+        )
+        previews = [
+            payload
+            for method, payload in self.api.calls
+            if method == "sendVideo" and payload.get("video") == "fallbackvid"
+        ]
+        self.assertEqual(len(previews), 1)
+
     def test_upload_without_pending_draft_is_rejected(self):
         bot = self.build_bot()
         bot.handle_message(
@@ -1789,6 +1942,90 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         self.assertTrue(videos)
         self.assertEqual(videos[-1][1]["caption"], "Aparat upload file")
         self.assertEqual(videos[-1][4], b"fake-video-bytes")
+
+    def test_instagram_approval_oversized_video_asks_for_a_smaller_copy(self):
+        settings = _media_settings(self.tmp.name, instagram=True)
+        self.bot = ContentBot(
+            settings,
+            api=self.api,
+            writer=self.writer,
+            fetch_page=lambda url: HTML_PAGE,
+            fetch_feed=lambda url: b"",
+            now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
+        )
+        draft_id = self._draft_with_media_ask()
+        self.bot.state.update_draft(
+            draft_id,
+            {
+                "status": "media_ready",
+                "media": {
+                    "kind": "video",
+                    "driver": "user-upload",
+                    "status": "done",
+                    "artifact": "reel.mp4",
+                    "local_path": "",
+                    "file_id": "bigvid",
+                    "size": 30_000_000,
+                    "oversized": True,
+                    "duration": "",
+                },
+                "media_wait_kind": None,
+            },
+        )
+        self.api.calls.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qi5",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve_ig:{draft_id}",
+            }
+        )
+        answers = [
+            str(payload.get("text") or "")
+            for method, payload in self.api.calls
+            if method == "answerCallbackQuery"
+        ]
+        self.assertTrue(any("20 MB" in text for text in answers))
+        self.assertFalse([call for call in self.api.calls if call[0] == "sendVideo"])
+        self.assertEqual(self.bot.state.get_draft(draft_id)["status"], "media_ready")
+
+    def test_platform_package_notes_oversized_video(self):
+        draft_id = self._draft_with_media_ask()
+        self.bot.state.update_draft(
+            draft_id,
+            {
+                "status": "media_ready",
+                "media": {
+                    "kind": "video",
+                    "driver": "user-upload",
+                    "status": "done",
+                    "artifact": "reel.mp4",
+                    "local_path": "",
+                    "file_id": "bigvid",
+                    "size": 30_000_000,
+                    "oversized": True,
+                    "duration": "",
+                },
+                "media_wait_kind": None,
+            },
+        )
+        self.api.uploads.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qp4",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"package:aparat:{draft_id}",
+            }
+        )
+        self.assertFalse(self.api.uploads)
+        self.assertTrue(
+            any(
+                "20 MB" in str(message.get("text") or "")
+                for message in self.api.sent_messages
+            )
+        )
 
     def test_platform_package_rejects_unknown_key(self):
         self.bot.handle_message(

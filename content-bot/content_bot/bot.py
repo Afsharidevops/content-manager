@@ -358,6 +358,7 @@ class ContentBot:
                     "kind": "image",
                     "file_id": best["file_id"],
                     "file_name": "upload.jpg",
+                    "file_size": int(best.get("file_size") or 0),
                 }
         video = message.get("video")
         if isinstance(video, dict) and video.get("file_id"):
@@ -365,7 +366,13 @@ class ContentBot:
             name = str(video.get("file_name") or "")
             if not name:
                 name = "video.webm" if "webm" in mime else "video.mp4"
-            return {"kind": "video", "file_id": video["file_id"], "file_name": name}
+            return {
+                "kind": "video",
+                "file_id": video["file_id"],
+                "file_name": name,
+                "file_size": int(video.get("file_size") or 0),
+                "as_document": False,
+            }
         document = message.get("document")
         if isinstance(document, dict) and document.get("file_id"):
             mime = str(document.get("mime_type") or "").lower()
@@ -373,7 +380,13 @@ class ContentBot:
                 name = str(document.get("file_name") or "")
                 if not name:
                     name = "video.webm" if "webm" in mime else "video.mp4"
-                return {"kind": "video", "file_id": document["file_id"], "file_name": name}
+                return {
+                    "kind": "video",
+                    "file_id": document["file_id"],
+                    "file_name": name,
+                    "file_size": int(document.get("file_size") or 0),
+                    "as_document": True,
+                }
         return None
 
     @staticmethod
@@ -420,12 +433,27 @@ class ContentBot:
                 f"{article} {label} file.",
             )
             return
+        size = int(attachment.get("file_size") or 0)
+        if (
+            str(attachment.get("kind") or "") == "video"
+            and size > self.MAX_USER_MEDIA_BYTES
+        ):
+            self._keep_telegram_media(draft, attachment)
+            return
         try:
             file_info = self.api.get_file(str(attachment["file_id"]))
         except telegram_mod.TelegramError as error:
+            if str(attachment.get("kind") or "") == "video":
+                # Telegram never hands out download paths for files above its
+                # bot download limit; the file id can still be republished.
+                self._keep_telegram_media(draft, attachment)
+                return
             self.api.send_message(chat_id, f"Could not download the file: {error}")
             return
         if int(file_info.get("file_size") or 0) > self.MAX_USER_MEDIA_BYTES:
+            if str(attachment.get("kind") or "") == "video":
+                self._keep_telegram_media(draft, attachment)
+                return
             self.api.send_message(
                 chat_id,
                 "The file is larger than 20 MB; Telegram limits bot downloads. "
@@ -529,6 +557,13 @@ class ContentBot:
                     "Media received, but the preview could not be sent.",
                 )
             return
+        self._finish_user_media(draft_id, draft, media)
+
+    def _finish_user_media(self, draft_id: str, draft: dict, media: dict) -> None:
+        """Refresh the previews after an upload landed on the draft."""
+        chat_id = draft.get("chat_id")
+        if chat_id is None:
+            return
         ask_id = draft.get("ask_message_id")
         if ask_id is not None:
             self._delete_safe(chat_id, int(ask_id))
@@ -554,6 +589,51 @@ class ContentBot:
                 chat_id,
                 "Media received, but the preview could not be sent.",
             )
+
+    def _keep_telegram_media(self, draft: dict, attachment: dict) -> None:
+        """Attach a file that is too large for the Bot API to download.
+
+        Telegram only serves downloads up to 20 MB, but a bot may send a file
+        it has received back to any chat by its file id. The draft therefore
+        keeps the id instead of local bytes, the preview re-sends it, and the
+        Telegram publish forwards it; Instagram and the upload packages need
+        the file itself and ask for a smaller copy.
+        """
+        draft_id = str(draft.get("id") or "")
+        chat_id = draft.get("chat_id")
+        filename = str(attachment.get("file_name") or "video.mp4")
+        size = int(attachment.get("file_size") or 0)
+        media = {
+            "kind": str(attachment.get("kind") or "video"),
+            "driver": "user-upload",
+            "status": "done",
+            "artifact": filename,
+            "local_path": "",
+            "file_id": str(attachment.get("file_id") or ""),
+            "size": size,
+            "oversized": True,
+            "as_document": bool(attachment.get("as_document")),
+            "duration": "",
+        }
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_ready",
+                "media": media,
+                "media_wait_kind": None,
+            },
+        )
+        self._record_event(draft_id, "user_media_kept_on_telegram", filename)
+        if chat_id is not None:
+            self.api.send_message(
+                chat_id,
+                "This file is over the 20 MB Telegram bot download limit, so it "
+                "stays on Telegram instead of being copied into the bot. It "
+                "will still publish to the Telegram channel; Instagram and the "
+                "upload packages need the file itself, so send a copy under "
+                "20 MB when you need those.",
+            )
+        self._finish_user_media(draft_id, draft, media)
 
     _IMAGE_CONTENT_TYPES = {
         "jpg": "image/jpeg",
@@ -1577,6 +1657,25 @@ class ContentBot:
                     draft_id, {"preview_keyboard_message_id": buttons_id}
                 )
             return True
+        file_id = str(media.get("file_id") or "")
+        if kind == "video" and file_id and not str(media.get("local_path") or ""):
+            # Files above the bot download limit never land in local storage;
+            # Telegram can still deliver them back from the stored id.
+            try:
+                sent = self.api.send_video_by_id(
+                    chat_id,
+                    file_id,
+                    caption="Media preview for the draft above.",
+                    reply_markup=markup,
+                    as_document=bool(media.get("as_document")),
+                )
+            except telegram_mod.TelegramError as error:
+                log.warning("media preview resend failed for %s: %s", draft_id, error)
+                return False
+            message_id = sent.get("message_id")
+            if message_id is not None:
+                self.state.update_draft(draft_id, {"preview_message_id": message_id})
+            return True
         path = Path(str(media.get("local_path") or ""))
         if kind not in {"image", "video"} or not path.is_file():
             return False
@@ -1905,6 +2004,18 @@ class ContentBot:
         """Re-send the stored media so it can be uploaded without scrolling."""
         entries = platforms_mod.stored_media(record)
         if not entries:
+            media = record.get("media") or {}
+            if media.get("oversized"):
+                try:
+                    self.api.send_message(
+                        chat_id,
+                        f"The {profile.label} package needs the file itself, but "
+                        "this video is over the 20 MB Telegram bot download limit "
+                        "and only lives on Telegram. Send a copy under 20 MB to "
+                        "get the upload file for this package.",
+                    )
+                except telegram_mod.TelegramError as error:
+                    log.warning("package size note failed: %s", error)
             return
         caption = f"{profile.label} upload file"
         if len(entries) > 1:
@@ -2004,6 +2115,14 @@ class ContentBot:
                 "Instagram publishing needs photos or a video attached to the draft.",
             )
             return
+        if "instagram" in targets and (record.get("media") or {}).get("oversized"):
+            note = (
+                "Instagram needs the video file itself, but this clip is over "
+                "the 20 MB Telegram bot download limit. Send a copy under "
+                "20 MB and attach it again."
+            )
+            self.api.answer_callback_query(query_id, note)
+            return
         # Acknowledge before the slow publish; the result goes into the
         # draft message so a stale callback id cannot fail the update.
         self._safe_answer(query_id, "Publishing...")
@@ -2054,6 +2173,12 @@ class ContentBot:
                 "INSTAGRAM_ACCESS_TOKEN)."
             )
         media = record.get("media") or {}
+        if media.get("oversized"):
+            raise instagram_mod.InstagramError(
+                "This video is over the 20 MB Telegram bot download limit and "
+                "only lives on Telegram; Instagram needs the file itself, so "
+                "send a copy under 20 MB and attach it again."
+            )
         items: list[dict] = []
         files = list(media.get("files") or [])
         if files:
@@ -2106,6 +2231,19 @@ class ContentBot:
                 entries,
                 caption=caption,
                 parse_mode="HTML",
+            )
+            for continuation in messages[1:]:
+                self.api.send_message(channel, continuation, parse_mode="HTML")
+            return
+        file_id = str(media.get("file_id") or "")
+        if kind == "video" and file_id and not local_path:
+            messages = _media_caption_messages(record)
+            self.api.send_video_by_id(
+                channel,
+                file_id,
+                caption=messages[0],
+                parse_mode="HTML",
+                as_document=bool(media.get("as_document")),
             )
             for continuation in messages[1:]:
                 self.api.send_message(channel, continuation, parse_mode="HTML")
