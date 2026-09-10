@@ -70,13 +70,14 @@ class CaptionTests(unittest.TestCase):
         self.assertTrue(caption.endswith("https://example.com/post"))
 
     def test_persian_caption_starts_with_rtl_mark(self):
+        title = "ساخت اپلیکیشن با Hercules فقط با توضیح نیاز کسب و کار"
         caption = build_caption(
-            "ساخت اپلیکیشن کسب\u200cوکار با Hercules",
+            title,
             "Hercules یک ابزار ساخت اپلیکیشن است.",
             "https://hercules.app",
         )
         self.assertTrue(caption.startswith("\u200f"))
-        self.assertIn("ساخت اپلیکیشن کسب\u200cوکار با Hercules", caption)
+        self.assertEqual(caption.splitlines()[0], f"\u200f{title}")
         self.assertIn("\n\n\u200fHercules یک ابزار", caption)
         self.assertTrue(caption.endswith("https://hercules.app"))
 
