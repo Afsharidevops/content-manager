@@ -788,6 +788,60 @@ services:
       - no-new-privileges:true
     networks: [agent-net]
 
+  # Instagram media host (compose profile "ig-media"): the Graph API only
+  # accepts public HTTPS URLs, so the published media directory needs a public
+  # address. nginx serves it read-only and stays bound to loopback; the
+  # cloudflared sidecar opens the outbound tunnel and writes its assigned
+  # hostname to a log the Content Bot reads, so a restarted tunnel never leaves
+  # a stale URL behind. Set INSTAGRAM_MEDIA_PUBLIC_BASE_URL to a stable
+  # hostname instead when the stack owns a domain.
+  ig-media:
+    profiles: ["ig-media"]
+    image: nginx:alpine
+    container_name: ig-media
+    restart: unless-stopped
+    ports:
+      - "${IG_MEDIA_BIND_IP:-127.0.0.1}:${IG_MEDIA_PORT:-8099}:80"
+    volumes:
+      - ./data/content-bot/media:/usr/share/nginx/html/media:ro
+      - ./content-bot/deploy/ig-media-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=8m
+      - /var/run:size=1m
+      - /tmp:size=8m
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
+  ig-media-tunnel:
+    profiles: ["ig-media"]
+    image: cloudflare/cloudflared:latest
+    container_name: ig-media-tunnel
+    restart: unless-stopped
+    depends_on: [ig-media]
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://ig-media:80
+      - --logfile
+      - /data/trycloudflared.log
+      - --loglevel
+      - info
+    environment:
+      HOME: /tmp
+      TMPDIR: /tmp
+    user: "${IG_TUNNEL_RUN_AS:-1000:1000}"
+    volumes:
+      - ./data/content-bot/tunnel:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
 networks:
   agent-net:
     name: hermes-9router-net

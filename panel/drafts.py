@@ -150,6 +150,52 @@ def pending(root: Path) -> list[dict]:
     return rows
 
 
+TUNNEL_LOG_RELATIVE = Path("tunnel") / "trycloudflared.log"
+MEDIA_BASE_URL_FILE = "media-base-url.txt"
+QUICK_TUNNEL_HOST = "trycloudflare.com"
+QUICK_TUNNEL_RE = re.compile(r"https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com")
+TUNNEL_LOG_TAIL = 64_000
+
+
+def _first_https_line(text: str) -> str:
+    for line in text.splitlines():
+        candidate = line.split("#", 1)[0].strip().rstrip("/")
+        if candidate.startswith("https://") and len(candidate) > len("https://"):
+            return candidate
+    return ""
+
+
+def media_base_url(root: Path, configured: str = "") -> str:
+    """Public media base URL, resolved the same way the Content Bot does.
+
+    A pinned ``media-base-url.txt`` wins, then a non-quick-tunnel configured
+    value, then the most recent hostname from the bundled tunnel log, so the
+    console never shows a stale quick tunnel address.
+    """
+    try:
+        pinned = _first_https_line((data_dir(root) / MEDIA_BASE_URL_FILE).read_text(
+            encoding="utf-8"
+        ))
+    except OSError:
+        pinned = ""
+    if pinned:
+        return pinned
+    stable = configured.strip().rstrip("/")
+    if stable.startswith("https://") and QUICK_TUNNEL_HOST not in stable:
+        return stable
+    path = data_dir(root) / TUNNEL_LOG_RELATIVE
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - TUNNEL_LOG_TAIL))
+            tail = handle.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    matches = QUICK_TUNNEL_RE.findall(tail)
+    return matches[-1] if matches else ""
+
+
 def request_instagram_refresh(root: Path) -> Path:
     """Ask the bot to extend the Instagram token on its next loop."""
     path = data_dir(root) / "instagram-refresh.request"

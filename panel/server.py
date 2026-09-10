@@ -35,6 +35,7 @@ from panel import __version__
 from panel.actions import ActionError, ActionRunner
 from panel.drafts import (
     DraftActionError,
+    media_base_url,
     queue_action,
     request_instagram_refresh,
     results as draft_results,
@@ -116,7 +117,9 @@ class PanelApp:
             "token_set": bool(token),
             "business_id": self.env_value("INSTAGRAM_BUSINESS_ID"),
             "api_version": self.env_value("INSTAGRAM_API_VERSION", "v26.0") or "v26.0",
-            "public_base_url": self.env_value("INSTAGRAM_MEDIA_PUBLIC_BASE_URL"),
+            "public_base_url": media_base_url(
+                self.root, self.env_value("INSTAGRAM_MEDIA_PUBLIC_BASE_URL")
+            ),
         }
         path = self.root / "data" / "content-bot" / "instagram-token.json"
         stored = {}

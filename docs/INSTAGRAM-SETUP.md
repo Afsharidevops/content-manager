@@ -40,9 +40,8 @@ channel as a media group.
 
 The Graph API cannot accept local files; every photo or video must be
 reachable at a **public HTTPS URL**. The bot stores files under
-`data/content-bot/media/` and maps them to `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`
-plus the path under the bot data directory, so the effective URL is
-`<base>/media/<file>`.
+`data/content-bot/media/` and maps them to the media base URL plus the path
+under the bot data directory, so the effective URL is `<base>/media/<file>`.
 
 Examples:
 
@@ -51,35 +50,58 @@ https://media.locallab.ir/bot       -> https://media.locallab.ir/bot/media/<file
 https://cdn.example.com/content-bot -> https://cdn.example.com/content-bot/media/<file>
 ```
 
-Serve the media directory with any static web server (Caddy, nginx, an object
-store, ...). Expose only the `media/` subtree and keep the rest of the bot
-data directory private. The URL must be directly fetchable by Meta, without
-login or bot protection.
+Serve only the `media/` subtree and keep the rest of the bot data directory
+private. The URL must be directly fetchable by Meta, without login or bot
+protection.
 
-For a quick local test, serve the directory and expose it with a temporary
-tunnel (for example `cloudflared tunnel --url http://127.0.0.1:8080`); use a
-stable host for permanent operation.
+### The bundled media host (compose profile "ig-media")
 
-### Quick tunnel versus a stable address
+The stack can publish the media directory itself. `./manage.sh
+instagram-media-enable` starts two containers:
 
-A quick tunnel prints a random hostname such as
-`https://random-words-1234.trycloudflare.com` and **that hostname changes on
-every restart**. Because `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` is copied into
-`.env`, a restart silently leaves the stack pointing at a hostname that no
-longer exists: Meta then cannot download the photo or video and the publish
-fails with a media-processing error, with nothing obviously wrong on the
-Instagram side.
+- `ig-media` - nginx serving `data/content-bot/media` read-only on
+  `127.0.0.1:8099` (`IG_MEDIA_BIND_IP` / `IG_MEDIA_PORT`),
+- `ig-media-tunnel` - a cloudflared **quick tunnel** that gives that server a
+  public HTTPS address and writes the hostname it received to
+  `data/content-bot/tunnel/trycloudflared.log`.
 
-A stable address avoids that class of failure. Either of these works:
+Because a quick tunnel hostname changes on every restart, the bot does not
+trust a hostname copied into `.env`. It resolves the public base URL in this
+order, using the first usable value:
+
+1. `data/content-bot/media-base-url.txt` - a hostname you pinned explicitly
+   (one `https://...` line, `#` starts a comment);
+2. `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` - used only when it is **not** a
+   `*.trycloudflare.com` hostname, so a real domain always wins;
+3. the most recent hostname in `data/content-bot/tunnel/trycloudflared.log`.
+
+A tunnel restart therefore never leaves a dead URL behind: the bot reads the
+new hostname on its next publish and rebuilds the Graph client against it.
+`/instagram` in Telegram and `./manage.sh instagram-media-status` both print
+the URL currently in effect.
+
+Commands:
+
+```bash
+./manage.sh instagram-media-enable    # enable the profile and start the host
+./manage.sh instagram-media-status    # show profile state and public URL
+./manage.sh instagram-media-disable   # stop the host and disable the profile
+```
+
+### A permanent address
+
+For long-running production, pin a stable hostname instead of relying on a
+quick tunnel:
 
 - a named Cloudflare tunnel bound to a hostname you own, for example
-  `media.locallab.ir` (the tunnel id and credentials are reusable, so the URL
-  never changes), or
+  `media.locallab.ir`, or
 - the reverse proxy that already fronts the stack (the same Caddy instance is
   fine): publish only the `data/content-bot/media/` subtree at a fixed path.
 
-Set `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` to that fixed base and the bot keeps
-publishing across restarts.
+Put that base in `.env` as `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, or write it to
+`data/content-bot/media-base-url.txt` when the value is produced by a
+deployment script. Both survive restarts, and the pin file wins over `.env`;
+then run `./manage.sh instagram-media-disable` to retire the quick tunnel.
 
 ## Automatic token refresh
 
@@ -117,13 +139,17 @@ INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir/bot
 INSTAGRAM_API_BASE=https://graph.facebook.com
 INSTAGRAM_API_VERSION=v26.0
 INSTAGRAM_POLL_TIMEOUT_SECONDS=600
+IG_MEDIA_BIND_IP=127.0.0.1
+IG_MEDIA_PORT=8099
 ```
 
 - `INSTAGRAM_BUSINESS_ID` - the numeric Instagram Business account id.
 - `INSTAGRAM_ACCESS_TOKEN` - long-lived user or page access token with
   `instagram_basic` + `instagram_content_publish`.
 - `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` - public base URL that serves the media
-  directory (required for publishing).
+  directory. Keep it empty to let the bundled `ig-media` profile provide one;
+  a `*.trycloudflare.com` value here is ignored in favour of the live tunnel
+  hostname.
 - `INSTAGRAM_API_BASE` - API host. Keep `https://graph.facebook.com` for
   tokens minted through Facebook Login; use `https://graph.instagram.com` for
   tokens from **Instagram API with Instagram Login** (an app whose only job is
@@ -131,6 +157,8 @@ INSTAGRAM_POLL_TIMEOUT_SECONDS=600
 - `INSTAGRAM_API_VERSION` - Graph API version (default `v26.0`).
 - `INSTAGRAM_POLL_TIMEOUT_SECONDS` - how long to wait for Meta media
   processing before failing (default 600).
+- `IG_MEDIA_BIND_IP` / `IG_MEDIA_PORT` - loopback address and port the bundled
+  nginx media host listens on (defaults `127.0.0.1:8099`).
 
 `./manage.sh content-status` shows whether Instagram is configured without
 revealing secrets.

@@ -206,6 +206,50 @@ class DraftQueueTest(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
 
 
+class MediaBaseUrlTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        self.tunnel = self.root / "data" / "content-bot" / "tunnel" / "trycloudflared.log"
+
+    def write_tunnel(self, *hostnames: str) -> None:
+        self.tunnel.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f"INF Visit it at https://{name}.trycloudflare.com" for name in hostnames]
+        self.tunnel.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_nothing_configured_resolves_to_empty(self):
+        self.assertEqual(drafts_mod.media_base_url(self.root), "")
+
+    def test_configured_value_is_used_when_the_tunnel_is_not_configured(self):
+        self.assertEqual(
+            drafts_mod.media_base_url(self.root, "https://media.locallab.ir/"),
+            "https://media.locallab.ir",
+        )
+
+    def test_a_quick_tunnel_value_in_the_environment_is_ignored(self):
+        self.write_tunnel("live-name")
+        self.assertEqual(
+            drafts_mod.media_base_url(self.root, "https://stale.trycloudflare.com"),
+            "https://live-name.trycloudflare.com",
+        )
+
+    def test_the_most_recent_tunnel_hostname_wins(self):
+        self.write_tunnel("first-name", "second-name")
+        self.assertEqual(
+            drafts_mod.media_base_url(self.root),
+            "https://second-name.trycloudflare.com",
+        )
+
+    def test_a_pinned_file_wins_over_everything_else(self):
+        self.write_tunnel("live-name")
+        pin = self.root / "data" / "content-bot" / "media-base-url.txt"
+        pin.write_text("# pinned\nhttps://media.locallab.ir/media\n", encoding="utf-8")
+        self.assertEqual(
+            drafts_mod.media_base_url(self.root, "https://other.example.com"),
+            "https://media.locallab.ir/media",
+        )
+
+
 class EnvStoreTest(unittest.TestCase):
     def setUp(self):
         self.root = make_root()
@@ -557,6 +601,26 @@ class PanelDraftApiTest(unittest.TestCase):
         self.assertEqual(payload["refreshed_at"], "2026-09-10T12:00:00+00:00")
         self.assertEqual(payload["refresh_source"], "instagram-login")
         self.assertNotIn("secret", body)
+
+    def test_instagram_view_resolves_the_tunnel_media_host(self):
+        (self.root / ".env").write_text(
+            "INSTAGRAM_BUSINESS_ID=17841426952001533\n"
+            "INSTAGRAM_ACCESS_TOKEN=super-secret-token\n"
+            "INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://stale.trycloudflare.com\n",
+            encoding="utf-8",
+        )
+        tunnel = self.root / "data" / "content-bot" / "tunnel" / "trycloudflared.log"
+        tunnel.parent.mkdir(parents=True, exist_ok=True)
+        tunnel.write_text(
+            "INF Visit it at https://live-name.trycloudflare.com\n", encoding="utf-8"
+        )
+        self.login()
+        status, body = self.request("GET", "/api/instagram")
+        payload = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            payload["public_base_url"], "https://live-name.trycloudflare.com"
+        )
 
     def test_instagram_refresh_queues_a_bot_request(self):
         self.login()

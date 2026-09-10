@@ -38,6 +38,14 @@ platform; this section tracks the fork additions.
   mark, rendered with Pillow only. `MEDIA_STUDIO_BRAND_STYLE=chip` restores the
   previous flat chip, and the `video-edit` driver bakes the same mark into
   prepared clips through ffmpeg.
+- Added the optional `ig-media` compose profile: nginx serves
+  `data/content-bot/media` read-only on loopback while a cloudflared sidecar
+  publishes it, so the stack provides its own public media host instead of
+  depending on a hand-started process. `./manage.sh instagram-media-enable`,
+  `-status`, and `-disable` manage it, and the bot resolves the public base URL
+  from a pinned `media-base-url.txt`, a non-quick-tunnel
+  `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, or the live tunnel log, rebuilding the
+  Graph client when the hostname changes.
 - Documented quick-tunnel versus stable media URLs, since a tunnel hostname
   that changes on restart breaks Instagram publishing with a confusing
   media-processing error.

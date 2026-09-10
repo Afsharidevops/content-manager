@@ -144,6 +144,57 @@ def _media_caption_messages(record: dict) -> list[str]:
     return messages + continuation
 
 
+MEDIA_BASE_URL_FILE = "media-base-url.txt"
+TUNNEL_LOG_NAME = "trycloudflared.log"
+QUICK_TUNNEL_HOST = "trycloudflare.com"
+_TUNNEL_URL_RE = re.compile(r"https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com")
+_TUNNEL_LOG_TAIL = 64_000
+
+
+def _clean_base_url(value) -> str:
+    """Return one usable public base URL, or an empty string."""
+    text = str(value or "").strip().rstrip("/")
+    if text.startswith("https://") and len(text) > len("https://"):
+        return text
+    return ""
+
+
+def _base_url_from_file(data_dir) -> str:
+    """A hostname the operator (or a deployment script) pinned explicitly."""
+    try:
+        raw = (Path(data_dir) / MEDIA_BASE_URL_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for line in raw.splitlines():
+        cleaned = _clean_base_url(line.split("#", 1)[0])
+        if cleaned:
+            return cleaned
+    return ""
+
+
+def _stable_base_url(value) -> str:
+    """The configured base URL, but never a quick tunnel hostname."""
+    cleaned = _clean_base_url(value)
+    if cleaned and QUICK_TUNNEL_HOST not in cleaned:
+        return cleaned
+    return ""
+
+
+def _base_url_from_tunnel_log(data_dir) -> str:
+    """The most recent hostname the bundled quick tunnel reported."""
+    path = Path(data_dir) / "tunnel" / TUNNEL_LOG_NAME
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - _TUNNEL_LOG_TAIL))
+            tail = handle.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    matches = _TUNNEL_URL_RE.findall(tail)
+    return matches[-1] if matches else ""
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -202,6 +253,29 @@ class ContentBot:
         self._instagram_checked_at = None
         self._instagram_notified = False
 
+    def _instagram_media_base_url(self) -> str:
+        """Public media base URL the Graph API can download from.
+
+        Order of precedence:
+
+        1. ``data/content-bot/media-base-url.txt`` - an explicit, stable
+           hostname written by the operator or a deployment script.
+        2. ``INSTAGRAM_MEDIA_PUBLIC_BASE_URL`` when it is not a quick tunnel:
+           a pinned domain must win over anything automatic.
+        3. the hostname the bundled tunnel container reported last, read from
+           ``data/content-bot/tunnel/trycloudflared.log``. A quick tunnel
+           changes hostname on every restart, so the live log beats the stale
+           value an operator may still have in ``.env``.
+        """
+        for candidate in (
+            _base_url_from_file(self.settings.data_dir),
+            _stable_base_url(self.settings.instagram_media_public_base_url),
+            _base_url_from_tunnel_log(self.settings.data_dir),
+        ):
+            if candidate:
+                return candidate
+        return ""
+
     def _instagram_token(self) -> str:
         """The Instagram access token to publish with: refreshed one wins."""
         stored = self._instagram_record() or {}
@@ -220,11 +294,18 @@ class ContentBot:
 
     def _instagram_publisher(self):
         """Lazy Instagram Graph API publisher bound to the configured account."""
+        media_base = self._instagram_media_base_url()
+        if (
+            self._instagram is not None
+            and str(getattr(self._instagram, "media_base_url", "")) != media_base
+        ):
+            # The tunnel handed out a new hostname; rebuild against it.
+            self._instagram = None
         if self._instagram is None and self.settings.instagram_business_id and self._instagram_token():
             self._instagram = instagram_mod.InstagramPublisher(
                 self.settings.instagram_business_id,
                 self._instagram_token(),
-                media_base_url=self.settings.instagram_media_public_base_url,
+                media_base_url=media_base,
                 media_root=self.settings.data_dir,
                 graph_base=self.settings.instagram_api_base,
                 api_version=self.settings.instagram_api_version,
@@ -251,6 +332,8 @@ class ContentBot:
             return "Instagram is not configured: set INSTAGRAM_BUSINESS_ID."
         record = self._instagram_record() or {}
         lines = [instagram_token_mod.expiry_note(record, now=self.now_fn())]
+        media_base = self._instagram_media_base_url()
+        lines.append(f"Media base URL: {media_base or 'not set (publishing needs one)'}")
         if record.get("refreshed_at"):
             lines.append(f"Last refresh: {record['refreshed_at']}")
         if record.get("source"):

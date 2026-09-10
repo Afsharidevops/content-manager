@@ -2515,6 +2515,7 @@ if [[ "$install_content" == true ]]; then
   printf '%s\n' 'Content Bot: send a link to the bot in Telegram to draft an approved post'
   printf '%s\n' 'Content Bot guide: docs/CONTENT-PRODUCTION-GUIDE.md'
   printf '%s\n' 'Instagram/Meta setup (optional, pending): docs/INSTAGRAM-SETUP.md'
+  printf '%s\n' 'Instagram media host (optional): ./manage.sh instagram-media-enable'
   printf '%s\n' 'Content Bot status: ./manage.sh content-status'
 fi
 if [[ "$install_media" == true ]]; then

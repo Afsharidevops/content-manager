@@ -100,6 +100,11 @@ Operator panel:
   panel-rotate-token          Replace the operator token and restart the panel
   panel-build                 Build the panel image locally from panel/Dockerfile
 
+Instagram media host (public address the Meta Graph API downloads media from):
+  instagram-media-status      Show the public media URL and profile state
+  instagram-media-enable      Serve data/content-bot/media publicly (profile "ig-media")
+  instagram-media-disable     Stop the public media host and disable its profile
+
 Media Studio automation:
   media-status                Media Studio configuration summary (no secrets)
   media-guide                 Print the Media Studio setup and API guide pointer
@@ -1092,7 +1097,7 @@ content_status() {
   model="$(env_value "$ENV_FILE" CONTENT_WRITER_MODEL)"
   scheduler="$(env_value "$ENV_FILE" CONTENT_SCHEDULER_ENABLED)"
   ig_id="$(env_value "$ENV_FILE" INSTAGRAM_BUSINESS_ID)"
-  ig_url="$(env_value "$ENV_FILE" INSTAGRAM_MEDIA_PUBLIC_BASE_URL)"
+  ig_url="$(ig_media_public_url)"
   daily_time="$(sed -n 's/^  daily_proposal_time: //p' \
     "$ROOT_DIR/data/content-manager/config/editorial-policy.yaml" 2>/dev/null | head -n1 | tr -d '"')"
   printf 'Content Bot status\n'
@@ -1123,9 +1128,10 @@ content_connect_instagram() {
   printf '%s\n' '  3. Add the Instagram Graph API product and connect the Instagram account.'
   printf '%s\n' '  4. Grant instagram_basic and instagram_content_publish and generate a long-lived token.'
   printf '%s\n' 'Step-by-step guide: docs/INSTAGRAM-SETUP.md'
-  printf '%s\n' 'Then set in your .env: INSTAGRAM_BUSINESS_ID, INSTAGRAM_ACCESS_TOKEN,'
-  printf '%s\n' 'and INSTAGRAM_MEDIA_PUBLIC_BASE_URL (public URL that serves data/content-bot/media),'
-  printf '%s\n' 'and restart the bot: ./manage.sh restart content'
+  printf '%s\n' 'Then set INSTAGRAM_BUSINESS_ID and INSTAGRAM_ACCESS_TOKEN in .env, give the media'
+  printf '%s\n' 'files a public address with ./manage.sh instagram-media-enable (or pin a stable'
+  printf '%s\n' 'hostname in data/content-bot/media-base-url.txt), and restart the bot:'
+  printf '%s\n' '  ./manage.sh restart content'
 }
 
 content_configure() {
@@ -1142,6 +1148,8 @@ content_menu() {
     printf '%s\n' '2) Instagram/Meta setup checklist'
     printf '%s\n' '3) Follow Content Bot logs'
     printf '%s\n' '4) Reconfigure Content Bot settings'
+    printf '%s\n' '5) Instagram media host status'
+    printf '%s\n' '6) Enable the Instagram media host'
     printf '%s\n' '0) Back'
     read -r -p 'Choose: ' choice
     case "$choice" in
@@ -1149,6 +1157,8 @@ content_menu() {
       2) content_connect_instagram ;;
       3) compose logs -f --tail=100 content-bot ;;
       4) content_configure ;;
+      5) ig_media_status || true ;;
+      6) ig_media_enable || true ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1280,6 +1290,123 @@ media_menu() {
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
   done
+}
+
+# ------------------------------------------------------- Instagram media host
+
+IG_MEDIA_LOG="$ROOT_DIR/data/content-bot/tunnel/trycloudflared.log"
+IG_MEDIA_PIN="$ROOT_DIR/data/content-bot/media-base-url.txt"
+
+ig_media_enabled() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  [[ ",$profiles," == *,ig-media,* ]]
+}
+
+ig_media_tunnel_url() {
+  [[ -s "$IG_MEDIA_LOG" ]] || return 0
+  grep -o 'https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "$IG_MEDIA_LOG" 2>/dev/null | tail -n1
+}
+
+ig_media_public_url() {
+  local pinned stable tunnel
+  pinned="$(grep -m1 -o 'https://[^[:space:]]*' "$IG_MEDIA_PIN" 2>/dev/null || true)"
+  stable="$(env_value "$ENV_FILE" INSTAGRAM_MEDIA_PUBLIC_BASE_URL)"
+  case "$stable" in
+    *trycloudflare.com*) stable="" ;;
+  esac
+  [[ "$stable" == https://* ]] || stable=""
+  tunnel="$(ig_media_tunnel_url || true)"
+  printf '%s\n' "${pinned:-${stable:-$tunnel}}"
+}
+
+ig_media_add_profile() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  [[ ",$profiles," == *,ig-media,* ]] && return 0
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "${profiles:+$profiles,}ig-media"
+  printf 'Enabled the "ig-media" compose profile.\n'
+}
+
+ig_media_remove_profile() {
+  local profiles entry filtered=""
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  local entries=()
+  IFS=',' read -r -a entries <<< "$profiles"
+  for entry in "${entries[@]}"; do
+    [[ -n "$entry" && "$entry" != ig-media ]] || continue
+    filtered="${filtered:+$filtered,}$entry"
+  done
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "$filtered"
+  printf 'Disabled the "ig-media" compose profile.\n'
+}
+
+ig_media_status() {
+  local bind port url pinned legacy
+  bind="$(env_value "$ENV_FILE" IG_MEDIA_BIND_IP)"; bind="${bind:-127.0.0.1}"
+  port="$(env_value "$ENV_FILE" IG_MEDIA_PORT)"; port="${port:-8099}"
+  url="$(ig_media_public_url)"
+  legacy="$(pgrep -f "http.server.*--directory .*ig-media" 2>/dev/null | head -n1 || true)"
+  printf 'Instagram media host\n'
+  if ig_media_enabled; then
+    printf '  Profile "ig-media": enabled\n'
+  else
+    printf '  Profile "ig-media": not enabled; run ./manage.sh instagram-media-enable\n'
+  fi
+  printf '  Local address: %s:%s (serves data/content-bot/media read-only)\n' "$bind" "$port"
+  printf '  Pinned URL file: %s\n' \
+    "$([[ -s "$IG_MEDIA_PIN" ]] && printf 'data/content-bot/media-base-url.txt' || printf 'not set')"
+  printf '  Public base URL: %s\n' "${url:-not set (Instagram publishing needs one)}"
+  if [[ -n "$(env_value "$ENV_FILE" INSTAGRAM_MEDIA_PUBLIC_BASE_URL)" ]]; then
+    printf '  Note: INSTAGRAM_MEDIA_PUBLIC_BASE_URL is set in .env; a quick tunnel value there is ignored\n'
+  fi
+  if [[ -n "$legacy" ]]; then
+    printf '  WARNING: a manually started media host is still running (pid %s); stop it before enabling the profile\n' "$legacy"
+  fi
+  if ig_media_enabled; then
+    compose --profile ig-media ps ig-media ig-media-tunnel 2>/dev/null || true
+  fi
+  printf '  Guide: docs/INSTAGRAM-SETUP.md\n'
+}
+
+ig_media_enable() {
+  local port legacy url waited=0
+  port="$(env_value "$ENV_FILE" IG_MEDIA_PORT)"; port="${port:-8099}"
+  legacy="$(pgrep -f "http.server.*--directory .*ig-media" 2>/dev/null | head -n1 || true)"
+  if [[ -n "$legacy" ]]; then
+    printf 'A manually started media host is running (pid %s).\n' "$legacy"
+    printf 'Stop it first, for example: pkill -f "http.server.*--directory .*ig-media"\n'
+    printf 'and stop the cloudflared process that points at 127.0.0.1:%s.\n' "$port"
+    return 1
+  fi
+  ig_media_add_profile
+  install -d -m 0755 "$ROOT_DIR/data/content-bot/tunnel"
+  # Trust only a hostname written after this start.
+  if [[ -s "$IG_MEDIA_LOG" ]]; then
+    mv "$IG_MEDIA_LOG" "$IG_MEDIA_LOG.previous"
+  fi
+  compose --profile ig-media up -d ig-media ig-media-tunnel
+  printf '\nWaiting for the quick tunnel hostname'
+  while (( waited < 60 )); do
+    url="$(ig_media_tunnel_url)"
+    if [[ -n "$url" ]]; then
+      printf '\nInstagram media host is live.\n'
+      printf '  Public base URL: %s/media\n' "$url"
+      printf '  The Content Bot picks this up automatically; verify with ./manage.sh instagram-media-status\n'
+      return 0
+    fi
+    printf '.'
+    sleep 3
+    waited=$(( waited + 3 ))
+  done
+  printf '\nThe tunnel did not report a hostname yet; check ./manage.sh logs ig-media-tunnel\n' >&2
+  return 1
+}
+
+ig_media_disable() {
+  compose --profile ig-media stop ig-media-tunnel ig-media >/dev/null 2>&1 || true
+  ig_media_remove_profile
+  printf 'Public media host stopped. data/content-bot/media is untouched.\n'
 }
 
 # ------------------------------------------------------------- operator panel
@@ -2213,6 +2340,9 @@ case "$command" in
   n8n-status) n8n_status ;;
   content-status) content_status ;;
   content-connect-instagram) content_connect_instagram ;;
+  instagram-media-status) ig_media_status ;;
+  instagram-media-enable) ig_media_enable ;;
+  instagram-media-disable) ig_media_disable ;;
   content-configure) content_configure ;;
   media-status) media_status ;;
   media-guide) media_guide ;;

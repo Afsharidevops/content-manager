@@ -21,4 +21,23 @@ grep -q 'Overview & health' <<<"$out"
 grep -q 'Smart Router' <<<"$out"
 grep -q 'Hermes Agent & Telegram' <<<"$out"
 grep -q 'Execution & SSH' <<<"$out"
+
+grep -q 'instagram-media-enable' <<<"$help"
+grep -q 'instagram-media-status' <<<"$help"
+
+# The media host status resolves the public URL the same way the bot does:
+# a pinned file first, then a stable environment value, then the tunnel log.
+mkdir -p "$tmp/data/content-bot/tunnel"
+printf 'INF Visit it at https://stale-name.trycloudflare.com\n' \
+  > "$tmp/data/content-bot/tunnel/trycloudflared.log"
+printf 'INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://old.trycloudflare.com\n' >> "$tmp/.env"
+grep -q 'INSTAGRAM_MEDIA_PUBLIC_BASE_URL' "$tmp/.env"
+status_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-status)"
+grep -q 'https://stale-name.trycloudflare.com' <<<"$status_out"
+grep -q 'not enabled' <<<"$status_out"
+
+printf 'https://media.locallab.ir/media\n' > "$tmp/data/content-bot/media-base-url.txt"
+status_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-status)"
+grep -q 'https://media.locallab.ir/media' <<<"$status_out"
+
 printf 'manage UX tests passed.\n'
