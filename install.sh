@@ -1401,6 +1401,8 @@ caddy_hermes_dashboard_domain=""
 caddy_hermes_api_domain=""
 caddy_n8n_domain=""
 caddy_media_domain=""
+content_media_bind=""
+content_media_port=""
 
 if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_omniroute" == true || "$install_webui" == true \
   || "$install_n8n" == true || "$hermes_dashboard" == 1 || "$api_enabled" == true \
@@ -1566,6 +1568,33 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
   else
     content_scheduler_enabled=false
   fi
+  content_media_port="$(existing_env_value IG_MEDIA_PORT)"
+  content_media_port="${content_media_port:-8099}"
+  content_media_bind="$(existing_env_value IG_MEDIA_BIND_IP)"
+  if [[ -n "$caddy_media_domain" ]]; then
+    content_media_bind="${content_media_bind:-127.0.0.1}"
+    printf '%s\n' "Instagram media: Caddy in this stack fronts $caddy_media_domain, so the media host stays on $content_media_bind:$content_media_port."
+  else
+    printf '\nInstagram media hosting\n'
+    printf '%s\n' '-------------------------'
+    printf '%s\n' 'Instagram downloads every photo or video from a public HTTPS URL, so the'
+    printf '%s\n' 'media directory needs a public address. A reverse proxy on the router (or'
+    printf '%s\n' 'another host) can front it over the LAN; otherwise use a tunnel later with'
+    printf '%s\n' './manage.sh instagram-media-enable.'
+    if confirm "Will a reverse proxy on another host publish the media directory?" n; then
+      while true; do
+        content_media_bind="$(prompt "Media host bind address (LAN address that proxy connects to)" "${content_media_bind:-${lan_ip:-127.0.0.1}}")"
+        valid_bind_ip "$content_media_bind" && break
+        warn "Enter an IPv4 address, for example 192.168.1.50."
+      done
+      [[ ",$profiles," == *,ig-media,* ]] || profiles="${profiles:+$profiles,}ig-media"
+      printf '%s\n' "Point that proxy at http://$content_media_bind:$content_media_port and keep only /media public."
+    elif [[ -n "$content_media_bind" && "$content_media_bind" != 127.0.0.1 ]]; then
+      printf '%s\n' "Keeping the existing media bind address $content_media_bind:$content_media_port."
+    else
+      content_media_bind="127.0.0.1"
+    fi
+  fi
 fi
 
 # Media Studio settings. The api-image driver reuses the writer endpoint
@@ -1727,6 +1756,10 @@ chmod 600 "$tmp_env"
 replace_env_value "$tmp_env" COMPOSE_PROFILES "$profiles"
 if [[ -n "$caddy_media_domain" ]]; then
   replace_env_value "$tmp_env" INSTAGRAM_MEDIA_PUBLIC_BASE_URL "https://$caddy_media_domain"
+fi
+if [[ "$install_content" == true && -n "$content_media_bind" ]]; then
+  replace_env_value "$tmp_env" IG_MEDIA_BIND_IP "$content_media_bind"
+  replace_env_value "$tmp_env" IG_MEDIA_PORT "${content_media_port:-8099}"
 fi
 replace_env_value "$tmp_env" NINEROUTER_BIND_IP "$nine_bind"
 replace_env_value "$tmp_env" NINEROUTER_PORT "$nine_port"
@@ -2537,8 +2570,10 @@ if [[ "$install_content" == true ]]; then
   printf '%s\n' 'Instagram/Meta setup (optional, pending): docs/INSTAGRAM-SETUP.md'
   if [[ -n "$caddy_media_domain" ]]; then
     printf '%s\n' "Instagram media URL: https://$caddy_media_domain/media/<file>"
+  elif [[ -n "$content_media_bind" && "$content_media_bind" != 127.0.0.1 ]]; then
+    printf '%s\n' "Instagram media origin: http://$content_media_bind:$content_media_port (public URL comes from the proxy in front)"
   else
-  printf '%s\n' 'Instagram media host (optional): ./manage.sh instagram-media-enable'
+    printf '%s\n' 'Instagram media host (optional): ./manage.sh instagram-media-enable'
   fi
   printf '%s\n' 'Content Bot status: ./manage.sh content-status'
 fi

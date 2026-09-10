@@ -133,8 +133,10 @@ proxy container). Nothing tunnels and no port is opened on the stack host:
    ArvanCloud, start with the proxy toggle **off** so the router's proxy can
    obtain its own certificate; turn the CDN on only if you want ArvanCloud to
    terminate TLS instead.
-2. On the stack machine, bind the media host to the LAN address and start it
-   without a tunnel:
+2. On the stack machine, bind the media host to the LAN address. The installer
+   asks *"Will a reverse proxy on another host publish the media directory?"*
+   and offers the detected LAN address as the default; by hand, set the value
+   and start the host without a tunnel:
 
 ```text
 IG_MEDIA_BIND_IP=192.168.4.11   # this host's LAN address
