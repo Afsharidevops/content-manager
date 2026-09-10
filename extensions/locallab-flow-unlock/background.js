@@ -28,6 +28,18 @@ function isBlockRoute(url) {
   return isFlowHost(url) && String(url).toLowerCase().includes('unsupported-country');
 }
 
+// Navigate to the app root for the account the tab belongs to; without the
+// /u/<n>/ prefix the app silently switches back to the first signed-in one.
+function accountRoot(url) {
+  try {
+    const match = new URL(url).pathname.match(/^\/u\/(\d+)(?:\/|$)/);
+    if (match) return `https://flow.google.com/u/${match[1]}/`;
+  } catch (error) {
+    /* fall through to the plain root */
+  }
+  return APP_URL;
+}
+
 function retry(tabId, url) {
   if (tabId < 0 || !isFlowHost(url)) return;
   const now = Date.now();
@@ -38,7 +50,7 @@ function retry(tabId, url) {
   }
   recent.push(now);
   attempts.set(tabId, recent);
-  chrome.tabs.update(tabId, { url: APP_URL }).catch(() => {});
+  chrome.tabs.update(tabId, { url: accountRoot(url) }).catch(() => {});
 }
 
 chrome.webNavigation.onErrorOccurred.addListener((details) => {

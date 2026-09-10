@@ -91,6 +91,9 @@ platform; this section tracks the fork additions.
   app root up to twice a minute. The block view itself is server-decided for a
   signed-in session, so the extension can only avoid the dead end, not bypass
   the verdict.
+- Recovery navigations keep the `/u/<n>/` account prefix. Restarting the app
+  on the bare root silently fell back to the first signed-in Google account,
+  which looked like the browser switching accounts on its own.
 - The Content Bot polling loop survives transient network failures: Telegram
   long polls that time out through a slow route are logged as a warning and
   retried after a short backoff instead of dumping a full traceback into the

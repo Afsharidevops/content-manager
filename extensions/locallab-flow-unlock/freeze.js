@@ -22,6 +22,15 @@
     return window.location.pathname.toLowerCase().includes(BLOCK_MARKER);
   }
 
+  // Reload the app for the account the tab is using. Dropping the /u/<n>/
+  // prefix would silently fall back to the first signed-in account.
+  function accountRoot() {
+    const match = window.location.pathname.match(/^\/u\/(\d+)(?:\/|$)/);
+    return match
+      ? `https://flow.google.com/u/${match[1]}/`
+      : 'https://flow.google.com/';
+  }
+
   function readBounces() {
     try {
       return Number(window.sessionStorage.getItem(RETURN_KEY) || '0');
@@ -62,7 +71,7 @@
     writeBounces(bounces + 1);
     bounceStarted = true;
     stopFreeze();
-    window.location.replace('https://flow.google.com/');
+    window.location.replace(accountRoot());
     return true;
   }
 
