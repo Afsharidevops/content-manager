@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "Locallab Flow Unlock",
+  "version": "0.4.0",
+  "description": "Locallab: keeps flow.google.com usable when Google marks the signed-in account as an unsupported country, including multi-account /u/<n>/ URLs.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "flow-unlock@locallab.ir",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  },
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "webNavigation"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://flow.google.com/*",
+        "https://labs.google/fx/tools/flow*"
+      ],
+      "js": [
+        "freeze.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://flow.google.com/*",
+        "https://labs.google/fx/tools/flow*"
+      ],
+      "js": [
+        "unlock.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "host_permissions": [
+    "https://*.google.com/*",
+    "https://labs.google/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  }
+}

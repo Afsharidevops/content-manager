@@ -1,9 +1,11 @@
 # Google Flow region unlock — laptop-only guide
 
 You can keep `flow.google.com` usable on a laptop without installing Media
-Studio, Docker, or anything from this stack. The unlock is a plain Chrome
-extension plus an optional uBlock filter; both live in this repository under
-`extensions/locallab-flow-unlock/` and do not talk to any other service.
+Studio, Docker, or anything from this stack. The unlock is a plain browser
+extension plus an optional uBlock filter; both live in this repository -
+`extensions/locallab-flow-unlock/` for Chrome and
+`extensions/locallab-flow-unlock-firefox/` for Firefox - and do not talk to any
+other service.
 
 What it does:
 
@@ -15,10 +17,13 @@ What it does:
    declares its own length token (the JSON plus the newlines around it, in
    UTF-16 units) and the closing `e` frame repeats the byte size of the whole
    answer; the patch moves both so the rewritten response stays valid.
-2. Browser rules abort every request to the Flow `/unsupported-country` page:
-   the bare path, multi-account paths such as `/u/1/unsupported-country`,
+2. Every request to the Flow `/unsupported-country` page is stopped: the bare
+   path, multi-account paths such as `/u/1/unsupported-country`,
    `flow.google-*.com` variants, and the `labs.google` tool path. The redirect
-   that replaces the Flow UI therefore never lands.
+   that replaces the Flow UI therefore never lands. Chrome aborts those
+   requests with a `declarativeNetRequest` rule set; Firefox uses a blocking
+   `webRequest` listener that sends a navigation back to the app root of the
+   same account and cancels every other resource on that route.
 3. As a fallback for tabs where the patched answer does not arrive, a second
    content script stops in-flight network for a short window as soon
    as the project creation button appears, which prevents the background
@@ -28,27 +33,54 @@ What it does:
    client-side (no network request for the rule set to block), it restarts the
    app root, at most twice per tab, so a client-side route change cannot
    strand the tab on the block page.
-5. A background worker returns the tab to the app root (up to twice a minute)
-   when a blocked navigation still leaves Chrome's `ERR_BLOCKED_BY_CLIENT`
-   page, where no content script can run.
+5. A background worker returns the tab to the app root (up to a few times a
+   minute) when a blocked navigation still leaves an error page, where no
+   content script can run: Chrome's `ERR_BLOCKED_BY_CLIENT` view or a Firefox
+   `NS_ERROR_*` navigation failure.
 
 Requirements:
 
-- Chrome or Chromium on the laptop (any OS).
+- Chrome or Chromium (any OS), or Firefox 140 or newer.
 - A Google account that is signed in at https://flow.google.com.
-- The folder `extensions/locallab-flow-unlock` from this repository (clone the repo or
-  download a release zip and extract it).
+- One of the extension folders from this repository (clone the repo), or the
+  ready-made ZIP package built by `extensions/package-flow-unlock.sh`:
+
+```bash
+extensions/package-flow-unlock.sh ~/lab
+# locallab-flow-unlock-chrome-0.4.0.zip
+# locallab-flow-unlock-firefox-0.4.0.zip
+```
+
+Extract the package for your browser and point the browser at the extracted
+folder. The two packages share the response patch and the freeze guard and
+differ only in manifest and background policy.
 
 ## Option A — install the extension (recommended)
 
-1. Keep the repository folder somewhere stable, e.g.
-   `~/lab/projects/content-manager/extensions/locallab-flow-unlock`. Do not delete or
-   move it after loading; Chrome reads it from disk.
+### Chrome or Chromium
+
+1. Keep the extracted folder somewhere stable, e.g.
+   `~/lab/projects/content-manager/extensions/locallab-flow-unlock`. Do not
+   delete or move it after loading; Chrome reads it from disk.
 2. Open `chrome://extensions`.
 3. Enable **Developer mode** (top-right toggle).
 4. Click **Load unpacked** and select the `extensions/locallab-flow-unlock` folder.
 5. Confirm the "Locallab Flow Unlock" card appears and its toggle is on.
 6. (Optional) Pin it next to the address bar so you can see it is active.
+
+### Firefox
+
+1. Extract `locallab-flow-unlock-firefox-<version>.zip` to a stable folder.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Click **Load Temporary Add-on...** and select `manifest.json` in the
+   extracted folder.
+4. Confirm "Locallab Flow Unlock" is listed as a temporary extension.
+
+A temporary add-on disappears when Firefox closes, so repeat step 3 after a
+restart. Firefox only installs signed add-ons permanently: sign the ZIP at
+https://addons.mozilla.org (Submit a New Add-on -> "On your own") and install
+the signed file from `about:addons`, or set `xpinstall.signatures.required` to
+`false` in `about:config` on Firefox ESR or Developer Edition.
 
 ## Option B — uBlock Origin filter (alternative or backup)
 
@@ -65,7 +97,8 @@ Requirements:
 ```
 
 The filter file is also stored at
-`extensions/locallab-flow-unlock/ublock-filter.txt`.
+`extensions/locallab-flow-unlock/ublock-filter.txt` (identical to the copy in
+the Firefox folder).
 
 ## Check that the patch applied
 
@@ -117,7 +150,13 @@ answer was rewritten. `undefined` means the script did not run: press
   failing request. Blocking or stubbing that request is the durable fix.
 - Multi-account URLs: after editing `rules.json`, `freeze.js`, or
   `background.js`, press **Reload** on the extension card. Chrome only
-  re-reads the extension files when it reloads.
+  re-reads the extension files when it reloads; in Firefox, reload the
+  temporary add-on from `about:debugging`.
+- Firefox shows nothing in the Flow tab and the console reports
+  `NS_ERROR_ABORT`? That is the block route being stopped; the event page
+  should return the tab to the app root within a second. If it does not, check
+  that the add-on is still loaded (temporary add-ons are dropped when Firefox
+  restarts).
 - Never hard-refresh a tab whose address bar still shows the block route: the
   rule set aborts that navigation and Chrome shows "This page has been
   blocked by an extension". Type `https://flow.google.com/` instead, or let

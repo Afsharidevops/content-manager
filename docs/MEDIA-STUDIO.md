@@ -97,6 +97,10 @@ manual browser use, independent of Media Studio:
   page-world content script patches the two region answers, a declarative rule
   blocks the unsupported-country page, and a second content script applies the
   freeze. Load it from `chrome://extensions` with Developer mode enabled.
+- `extensions/locallab-flow-unlock-firefox/` — the same extension for Firefox
+  140+ (MV3 event page, blocking `webRequest` instead of a rule file). Load it
+  from `about:debugging#/runtime/this-firefox`. The packaged images keep using
+  the Chrome folder.
 - `extensions/locallab-flow-unlock/ublock-filter.txt` — the two filter lines for
   uBlock Origin.
 

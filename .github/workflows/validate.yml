@@ -32,6 +32,7 @@ jobs:
           node --test tests/test-flow-unlock-patch.mjs
           tests/test-manage-n8n.sh
           tests/test-flow-unlock-rules.sh
+          tests/test-flow-unlock-package.sh
       - name: Test content layer and Content Bot
         run: |
           python3 -m venv /tmp/content-venv

@@ -38,6 +38,25 @@ platform; this section tracks the fork additions.
 - Component images advance to `0.2.0`: `afsharidevops/content-bot:0.2.0` and
   `afsharidevops/media-studio:0.2.0` (plus `:latest`).
 
+### Features — Firefox build and ZIP packages for Flow Unlock (2026-09-10)
+
+- `extensions/locallab-flow-unlock-firefox/` is the Flow unlock for Firefox
+  140+ as an independent package: the same page-world response patch and
+  freeze guard as the Chrome extension, with a Firefox MV3 manifest (event
+  page instead of a service worker) and a blocking `webRequest` listener that
+  sends a navigation on the unsupported-country route back to the app root of
+  the same account and cancels other resources on that route, replacing the
+  `declarativeNetRequest` rule set. The package lints clean for AMO.
+- `extensions/package-flow-unlock.sh` builds
+  `locallab-flow-unlock-chrome-<version>.zip` and
+  `locallab-flow-unlock-firefox-<version>.zip` with a per-browser README, so a
+  machine can install the unlock without the repository layout. Builds use
+  fixed timestamps and are byte-identical for unchanged sources.
+- `tests/test-flow-unlock-rules.sh` now validates both manifests and keeps the
+  shared scripts byte-identical across the two packages;
+  `tests/test-flow-unlock-package.sh` builds the ZIPs on every CI run and
+  checks their layout.
+
 ### Fixes — oversized video uploads stay on Telegram (2026-09-10)
 
 - A video above the 20 MB Bot API download limit no longer fails with
