@@ -21,6 +21,8 @@ data/content-bot/*
 !data/content-bot/.gitkeep
 data/media-studio/*
 !data/media-studio/.gitkeep
+data/panel/*
+!data/panel/.gitkeep
 extensions/locallab-flow-unlock/_metadata/
 *.backup-*
 *.log

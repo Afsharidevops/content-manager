@@ -55,6 +55,33 @@ platform; this section tracks the fork additions.
   and the category-mix rule with the daily proposal; the shipped default is
   `routines: []` and the daily flow is unchanged.
 
+### Features — operator panel for the stack (2026-09-10)
+
+- Added `panel/`: an optional operator console served by the new `content-panel`
+  container (Compose profile `panel`). It reads stack status, health, image
+  tags, published host ports, `data/` disk usage, pipeline counters, drafts, and
+  Media Studio jobs, and warns when an internal endpoint such as n8n/MCP is
+  published beyond loopback.
+- The console edits the four managed configuration files through validated
+  editors that keep a timestamped backup before every atomic write and can
+  restore a previous version. `.env` keys are editable in place with secret
+  values masked, and state-changing requests require a CSRF header on top of the
+  HMAC-derived HttpOnly session cookie.
+- Actions are a fixed whitelist (apply changes, restart Content Bot / Media
+  Studio / Smart Router, pull published images, status summaries, doctor) and
+  never accept a free-form command; `PANEL_ACTIONS_ENABLED=false` serves
+  read-only views.
+- The panel is a separate container on purpose: the Content Bot image keeps its
+  read-only root filesystem and unprivileged uid, while the panel mounts the
+  Docker socket and writes repository files as the stack owner. It is bound to
+  loopback by default, is enabled or disabled with `./manage.sh panel-enable` /
+  `panel-disable`, and stores its operator token in `data/panel/token`.
+- `.env.example`, `docker-compose.yml`, `install.sh`, and `manage.sh` carry the
+  new `PANEL_*` settings, the panel menu, and the `panel-*` commands;
+  `.github/workflows/publish-panel.yml` publishes the image and `docs/PANEL.md`
+  documents the security model, remote-access guidance, and the configuration
+  reference.
+
 ### Features — shared tool registry for the bot, router, and n8n (2026-09-10)
 
 - `content/config/tools.json` is the single source of truth for the remote

@@ -587,6 +587,7 @@ if [[ -f "$ENV_FILE" ]]; then
   install_media=false; profile_enabled media && install_media=true
   media_was_enabled="$install_media"
   install_caddy=false; profile_enabled caddy && install_caddy=true
+  install_panel=false; profile_enabled panel && install_panel=true
 
   printf 'Existing components: %s\n' "$(existing_env_value COMPOSE_PROFILES)"
   printf '%s\n' 'The wizard keeps existing components, secrets, and data by default.'
@@ -697,6 +698,13 @@ if [[ -f "$ENV_FILE" ]]; then
       install_media=true
       configure_media=true
     fi
+    if [[ "$install_panel" == true ]]; then
+      confirm "Keep the operator panel (web console for status, configuration, logs and actions) enabled?" y \
+        || install_panel=false
+    elif confirm "Add the operator panel (optional web console for stack status, configuration, logs and actions)?" \
+      "$([[ "$install_content" == true || "$install_media" == true ]] && printf y || printf n)"; then
+      install_panel=true
+    fi
     confirm "Change published container bind IPs only?" n && change_bind_ips=true
   fi
 else
@@ -790,6 +798,11 @@ else
       ;;
   esac
   install_caddy=false
+  install_panel=false
+  if confirm "Add the operator panel (optional web console for stack status, configuration, logs and actions)?" \
+    "$([[ "$install_content" == true || "$install_media" == true ]] && printf y || printf n)"; then
+    install_panel=true
+  fi
 fi
 
 profiles=""
@@ -801,9 +814,10 @@ profiles=""
 [[ "$install_n8n" == true ]] && profiles="${profiles:+$profiles,}n8n"
 [[ "$install_content" == true ]] && profiles="${profiles:+$profiles,}content"
 [[ "$install_media" == true ]] && profiles="${profiles:+$profiles,}media"
+[[ "$install_panel" == true ]] && profiles="${profiles:+$profiles,}panel"
 
 mkdir -p "$HERMES_DIR" "$NINEROUTER_DIR" "$OMNIROUTE_DIR" "$OPENWEBUI_DIR" "$SMART_ROUTER_DIR" "$N8N_DIR" "$CADDY_DIR" \
-  "$ROOT_DIR/data/content-bot" "$ROOT_DIR/data/media-studio"
+  "$ROOT_DIR/data/content-bot" "$ROOT_DIR/data/media-studio" "$ROOT_DIR/data/panel"
 mkdir -p "$HERMES_DIR/lazy-packages" "$HERMES_DIR/npm-packages" "$ROOT_DIR/data/stack-secrets"
 chmod 700 "$ROOT_DIR/data/stack-secrets"
 # Empty execution policy files keep the normal Compose profile renderable while
@@ -1849,6 +1863,13 @@ if [[ "$install_content" == true && "$install_media" != true && "$media_was_enab
     replace_env_value "$tmp_env" CONTENT_MEDIA_STUDIO_TOKEN ""
   fi
 fi
+# The operator panel runs as the stack owner and joins the Docker socket
+# group so the mounted socket stays root:docker 0660.
+if [[ "$install_panel" == true ]]; then
+  panel_docker_gid="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || printf '984')"
+  replace_env_value "$tmp_env" PANEL_RUN_AS "$execution_owner_uid:$execution_owner_gid"
+  replace_env_value "$tmp_env" PANEL_DOCKER_GID "$panel_docker_gid"
+fi
 mv "$tmp_env" "$ENV_FILE"
 
 # Generate any v0.5.x placeholder secrets without rotating existing values.
@@ -2130,6 +2151,17 @@ if [[ "$DRY_RUN" != true ]] && [[ -d "$ROOT_DIR/content/config" ]]; then
   if [[ "$seeded_content_config" == true ]]; then
     info "Content Manager: seeded policy working copy under data/content-manager/config"
   fi
+fi
+
+# The panel token is the only credential for the console; it lives outside
+# the repository tree and the panel stays on loopback until published.
+if [[ "$DRY_RUN" != true && "$install_panel" == true ]]; then
+  install -d -m 0700 "$ROOT_DIR/data/panel" "$ROOT_DIR/data/panel/backups"
+  if [[ ! -s "$ROOT_DIR/data/panel/token" ]]; then
+    ( umask 077; random_hex 32 > "$ROOT_DIR/data/panel/token" )
+    info "Operator panel: generated data/panel/token (print it with ./manage.sh panel-token)"
+  fi
+  chmod 600 "$ROOT_DIR/data/panel/token" 2>/dev/null || true
 fi
 
 if [[ "$DRY_RUN" != true && "$install_media" == true ]]; then
@@ -2493,6 +2525,12 @@ fi
 if [[ "$install_content" == true && "$install_media" == true ]]; then
   printf '%s\n' 'Content pipeline: Content Bot and Media Studio are wired on this server'
   printf '%s\n' 'Content pipeline status: ./manage.sh pipeline-status'
+fi
+if [[ "$install_panel" == true ]]; then
+  printf '%s\n' 'Operator panel: web console for stack status, configuration, logs and actions'
+  printf '%s\n' 'Operator panel URL: http://127.0.0.1:8899/'
+  printf '%s\n' 'Operator panel token: ./manage.sh panel-token'
+  printf '%s\n' 'Operator panel guide: docs/PANEL.md'
 fi
 printf '%s\n' 'Status: ./manage.sh status'
 printf '%s\n' 'Logs:   ./manage.sh logs'

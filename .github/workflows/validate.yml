@@ -25,6 +25,8 @@ jobs:
           python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("smart-router/src").rglob("*.py")]'
           python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("execution-broker/src").rglob("*.py")]'
           python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("content-bot").rglob("*.py")]'
+          python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("panel").rglob("*.py")]'
+          node --check panel/static/app.js
       - name: Test stack integrations
         run: |
           python3 -m unittest -v tests/test_stack_package_policy.py tests/test_stack_execution_policy.py tests/test_execution_broker.py
@@ -35,6 +37,11 @@ jobs:
           tests/test-manage-n8n.sh
           tests/test-flow-unlock-rules.sh
           tests/test-flow-unlock-package.sh
+      - name: Test operator panel
+        run: |
+          python3 -m venv /tmp/panel-venv
+          /tmp/panel-venv/bin/pip install --quiet pyyaml
+          /tmp/panel-venv/bin/python -m unittest discover -s panel/tests -t . -v
       - name: Test content layer and Content Bot
         run: |
           python3 -m venv /tmp/content-venv
@@ -51,6 +58,7 @@ jobs:
           docker build -t hermes-smart-router:test smart-router
           docker build -t hermes-execution-broker:test execution-broker
           docker build -t content-bot:test -f content-bot/Dockerfile .
+          docker build -t content-panel:test -f panel/Dockerfile .
       - name: Validate Compose execution boundaries
         run: |
           cp .env.example .env
@@ -85,3 +93,4 @@ jobs:
           test "$(git check-ignore data/n8n/config)" = "data/n8n/config"
           test "$(git check-ignore data/stack-secrets/n8n-bootstrap.env)" = "data/stack-secrets/n8n-bootstrap.env"
           test "$(git check-ignore data/stack-secrets/n8n-bootstrap-state.json)" = "data/stack-secrets/n8n-bootstrap-state.json"
+          test "$(git check-ignore data/panel/token)" = "data/panel/token"

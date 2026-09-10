@@ -19,11 +19,11 @@
       "title": "n8n MCP tools",
       "kind": "mcp",
       "transport": "streamable-http",
-      "url": "http://n8n:5678/webhook/hermes/mcp",
-      "auth": { "type": "bearer", "env": "N8N_MCP_BEARER_TOKEN" },
+      "url": "http://n8n:5678/mcp/hermes",
+      "auth": { "type": "bearer", "env": "N8N_TRIGGER_MCP_TOKEN" },
       "capabilities": ["tool.host", "workflow.trigger"],
       "consumers": ["bot", "router"],
-      "notes": "MCP Server Trigger workflow created by scripts/bootstrap-n8n.mjs; the bearer token is the one the workflow stores."
+      "notes": "MCP Server Trigger workflow managed by scripts/bootstrap-n8n.mjs (n8n path /mcp/hermes). The bearer token is N8N_TRIGGER_MCP_TOKEN in the Hermes environment file; today Hermes Agent is the MCP client (N8N_MCP_MODE=trigger)."
     },
     {
       "id": "smart-router",

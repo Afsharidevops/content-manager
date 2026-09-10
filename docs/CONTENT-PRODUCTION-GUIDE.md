@@ -359,6 +359,20 @@ State (pending drafts, published hashes, daily counters) lives in
 secret, and data file. To disable the bot, run `./manage.sh configure` and
 answer No to "Keep the Content Bot enabled?"; all data is kept.
 
+## Operator panel
+
+The optional operator console shows the same status without the CLI and lets
+you edit the policy files, tail logs, and run the whitelisted stack actions:
+
+```bash
+./manage.sh panel-enable     # optional "panel" profile; loopback only
+./manage.sh panel-token      # operator token for http://127.0.0.1:8899/
+```
+
+It runs as its own `content-panel` container, keeps configuration backups under
+`data/panel/backups/`, and never publishes n8n or any MCP endpoint. See
+`docs/PANEL.md` for the security model, remote-access guidance, and settings.
+
 ## Image updates
 
 The `content-bot` image is published to Docker Hub as

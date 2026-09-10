@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Content Console</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="login" class="login hidden">
+  <form class="card loginbox" id="login-form">
+    <div class="brandline"><span class="mark">◆</span><div><strong>Content Console</strong><small>LocalLab stack</small></div></div>
+    <p class="muted">Paste the operator token from <code>./manage.sh panel token</code>.</p>
+    <input id="token" type="password" autocomplete="current-password" placeholder="Panel token" required>
+    <button class="btn primary" type="submit">Sign in</button>
+    <p id="login-error" class="error hidden"></p>
+  </form>
+</div>
+
+<div id="shell" class="layout hidden">
+  <aside class="side">
+    <div class="brandline"><span class="mark">◆</span><div><strong>Content Console</strong><small>LocalLab stack</small></div></div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidefoot">
+      <div id="session-note" class="muted small"></div>
+      <button class="btn ghost" id="logout" type="button">Sign out</button>
+    </div>
+  </aside>
+  <main>
+    <header class="top">
+      <div>
+        <div class="eyebrow" id="eyebrow">Overview</div>
+        <h1 id="title">Stack status</h1>
+        <div class="muted" id="hint"></div>
+      </div>
+      <button class="btn" id="refresh" type="button">Refresh</button>
+    </header>
+    <div id="banner"></div>
+    <div id="page"></div>
+  </main>
+</div>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

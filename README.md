@@ -296,6 +296,8 @@ python3 -m venv .venv && ./.venv/bin/pip install -e content[dev]
 PYTHONPATH=$PWD/content:$PWD/content-bot ./.venv/bin/pytest -q content/tests
 PYTHONPATH=$PWD/content:$PWD/content-bot ./.venv/bin/python -m unittest discover -s content-bot/tests
 bash tests/test-manage-ux.sh
+./.venv/bin/python -m unittest discover -s panel/tests -t .
+bash tests/test-manage-ux.sh
 ```
 
 ## Documentation
@@ -303,6 +305,7 @@ bash tests/test-manage-ux.sh
 - [Content layer](content/README.md) - package layout, policy schema, scoring
 - [Content production guide](docs/CONTENT-PRODUCTION-GUIDE.md) - bot flows and operations
 - [Instagram/Meta setup](docs/INSTAGRAM-SETUP.md) - official Graph API publishing
+- [Operator panel](docs/PANEL.md) - optional web console for status, config, logs, actions
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing
 - [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
 - [Operations](docs/OPERATIONS.md) and [release process](docs/RELEASE-PROCESS.md)

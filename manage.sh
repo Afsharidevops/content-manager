@@ -11,6 +11,16 @@ OMNIROUTE_N8N_KEY_ENV="$STACK_SECRETS_DIR/omniroute-n8n-router.env"
 HERMES_DASHBOARD_ACCESS_FILE="$STACK_SECRETS_DIR/hermes-dashboard-access.env"
 TEMP_SECRET_FILES=()
 
+# The operator panel mounts the repository at the identical host path so the
+# Docker CLI inside the container resolves compose bind mounts exactly like a
+# host invocation, and it writes .env/config files as the invoking user.
+export PANEL_STACK_PATH="${PANEL_STACK_PATH:-$ROOT_DIR}"
+export PANEL_RUN_AS="${PANEL_RUN_AS:-$(id -u):$(id -g)}"
+if [[ -z "${PANEL_DOCKER_GID:-}" && -S /var/run/docker.sock ]]; then
+  PANEL_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || printf '984')"
+  export PANEL_DOCKER_GID
+fi
+
 cleanup_temp_secrets() {
   local file
   for file in "${TEMP_SECRET_FILES[@]}"; do
@@ -37,6 +47,7 @@ Interactive groups:
   media                       Media Studio status, jobs, logs and reconfiguration
   execution                   Sandbox, Docker execution, SSH and approvals
   maintenance                 Update, backups, restore and rollback
+  panel                       Operator console: status, config, logs, actions
   security                    Diagnostics, image integrity and access info
 
 Common direct commands:
@@ -80,6 +91,14 @@ Content Bot automation:
   content-status              Content Bot configuration summary (no secrets)
   content-connect-instagram   Print the pending Instagram/Meta setup checklist
   content-configure           Reconfigure Content Bot settings (installer wizard)
+
+Operator panel:
+  panel-status                Panel URL, profile and token state (no secrets)
+  panel-enable                Enable the panel profile and start the console
+  panel-disable               Stop the panel and disable its profile
+  panel-token                 Print the operator token (creates one if missing)
+  panel-rotate-token          Replace the operator token and restart the panel
+  panel-build                 Build the panel image locally from panel/Dockerfile
 
 Media Studio automation:
   media-status                Media Studio configuration summary (no secrets)
@@ -558,7 +577,8 @@ interactive_menu() {
     printf '%s\n'   '9) Maintenance & recovery     Updates, backup, restore, rollback'
     printf '%s\n'   '10) Security & integrity      Doctor, image pins, access credentials'
     printf '%s\n'   '11) Reconfigure installation  Run the v0.5.9 wizard again'
-    printf '%s\n'   '12) Uninstall                 Safe remove or explicit purge'
+    printf '%s\n'   '12) Operator panel            Web console for status, config, logs, actions'
+    printf '%s\n'   '13) Uninstall                 Safe remove or explicit purge'
     printf '%s\n'   '0) Exit'
     read -r -p 'Choose [0]: ' choice
     case "${choice:-0}" in
@@ -580,7 +600,8 @@ interactive_menu() {
       9) maintenance_menu ;;
       10) security_menu ;;
       11) exec "$ROOT_DIR/install.sh" ;;
-      12) uninstall_menu ;;
+      12) panel_menu ;;
+      13) uninstall_menu ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1255,6 +1276,139 @@ media_menu() {
         fi
         ;;
       5) media_configure ;;
+      0) return 0 ;;
+      *) printf 'Unknown choice.\n' >&2 ;;
+    esac
+  done
+}
+
+# ------------------------------------------------------------- operator panel
+
+PANEL_DIR="$ROOT_DIR/data/panel"
+PANEL_TOKEN_PATH="$PANEL_DIR/token"
+
+panel_enabled() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  [[ ",$profiles," == *,panel,* ]]
+}
+
+panel_url() {
+  local bind port
+  bind="$(env_value "$ENV_FILE" PANEL_BIND_IP)"; bind="${bind:-127.0.0.1}"
+  port="$(env_value "$ENV_FILE" PANEL_PORT)"; port="${port:-8899}"
+  case "$bind" in 0.0.0.0|::|"[::]") bind=127.0.0.1 ;; esac
+  printf 'http://%s:%s/\n' "$bind" "$port"
+}
+
+panel_token() {
+  local token
+  install -d -m 0700 "$PANEL_DIR"
+  if [[ ! -s "$PANEL_TOKEN_PATH" ]]; then
+    ( umask 077; random_hex 32 > "$PANEL_TOKEN_PATH" )
+    printf 'Created a new operator token.\n' >&2
+  fi
+  chmod 600 "$PANEL_TOKEN_PATH" 2>/dev/null || true
+  token="$(tr -d '[:space:]' < "$PANEL_TOKEN_PATH")"
+  [[ -n "$token" ]] || { printf 'Panel token file is empty: %s\n' "$PANEL_TOKEN_PATH" >&2; return 1; }
+  printf '%s\n' "$token"
+}
+
+panel_rotate_token() {
+  install -d -m 0700 "$PANEL_DIR"
+  ( umask 077; random_hex 32 > "$PANEL_TOKEN_PATH" )
+  chmod 600 "$PANEL_TOKEN_PATH" 2>/dev/null || true
+  compose up -d --no-deps --force-recreate panel >/dev/null 2>&1 || true
+  printf 'Operator token rotated. Panel sessions are invalid; sign in again.\n'
+}
+
+panel_add_profile() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  if [[ ",$profiles," == *,panel,* ]]; then
+    return 0
+  fi
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "${profiles:+$profiles,}panel"
+  printf 'Enabled the "panel" compose profile.\n'
+}
+
+panel_remove_profile() {
+  local profiles entry filtered=""
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  local entries=()
+  IFS=',' read -r -a entries <<< "$profiles"
+  for entry in "${entries[@]}"; do
+    [[ -n "$entry" && "$entry" != panel ]] || continue
+    filtered="${filtered:+$filtered,}$entry"
+  done
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "$filtered"
+  printf 'Disabled the "panel" compose profile.\n'
+}
+
+panel_status() {
+  local actions secure
+  if panel_enabled; then
+    printf 'Operator panel: enabled (profile "panel")\n'
+  else
+    printf 'Operator panel: not enabled; run ./manage.sh panel-enable to start it\n'
+  fi
+  printf '  URL: %s\n' "$(panel_url)"
+  printf '  Token: %s\n' "$([[ -s "$PANEL_TOKEN_PATH" ]] && printf 'stored at data/panel/token (secret not shown)' || printf 'not created yet; run ./manage.sh panel-token')"
+  actions="$(env_value "$ENV_FILE" PANEL_ACTIONS_ENABLED)"
+  printf '  Actions: %s\n' "${actions:-true}"
+  secure="$(env_value "$ENV_FILE" PANEL_COOKIE_SECURE)"
+  printf '  Secure cookie: %s\n' "${secure:-false}"
+  if panel_enabled; then
+    compose ps panel 2>/dev/null || true
+  fi
+  printf '  Bind: loopback only by default; set PANEL_BIND_IP for a trusted network or use a reverse proxy\n'
+}
+
+panel_enable() {
+  panel_add_profile
+  panel_token >/dev/null
+  install -d -m 0700 "$PANEL_DIR/backups"
+  compose up -d panel
+  printf '\nOperator panel: %s\n' "$(panel_url)"
+  printf 'Sign in with the token printed by ./manage.sh panel-token\n'
+}
+
+panel_disable() {
+  compose stop panel >/dev/null 2>&1 || true
+  panel_remove_profile
+  printf 'Containers stopped. The operator token stays in data/panel/token.\n'
+}
+
+panel_build() {
+  local repository tag
+  repository="$(env_value "$ENV_FILE" PANEL_IMAGE_REPOSITORY)"; repository="${repository:-afsharidevops/content-panel}"
+  tag="$(env_value "$ENV_FILE" PANEL_IMAGE_TAG)"; tag="${tag:-0.1.0}"
+  "${DOCKER[@]}" build -t "$repository:$tag" -f "$ROOT_DIR/panel/Dockerfile" "$ROOT_DIR"
+  printf 'Built %s:%s from panel/Dockerfile\n' "$repository" "$tag"
+}
+
+panel_menu() {
+  local choice
+  while true; do
+    printf '\nOperator Panel\n'
+    printf '%s\n' '=============='
+    printf '%s\n' '1) Enable and start the panel'
+    printf '%s\n' '2) Show panel status and URL'
+    printf '%s\n' '3) Show the operator token'
+    printf '%s\n' '4) Rotate the operator token'
+    printf '%s\n' '5) Follow panel logs'
+    printf '%s\n' '6) Build the panel image locally'
+    printf '%s\n' '7) Disable and stop the panel'
+    printf '%s\n' '0) Back'
+    read -r -p 'Choose: ' choice
+    case "$choice" in
+      1) panel_enable; menu_pause ;;
+      2) panel_status; menu_pause ;;
+      3) panel_token; menu_pause ;;
+      4) panel_rotate_token; menu_pause ;;
+      5) compose logs -f --tail=100 panel ;;
+      6) panel_build; menu_pause ;;
+      7) panel_disable; menu_pause ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -2046,6 +2200,13 @@ case "$command" in
   n8n|n8n-menu) n8n_menu ;;
   content|content-menu) content_menu ;;
   media|media-menu) media_menu ;;
+  panel|panel-menu) panel_menu ;;
+  panel-enable) panel_enable ;;
+  panel-disable) panel_disable ;;
+  panel-status) panel_status ;;
+  panel-token) panel_token ;;
+  panel-rotate-token) panel_rotate_token ;;
+  panel-build) panel_build ;;
   execution|execution-menu) execution_menu ;;
   maintenance|maintenance-menu) maintenance_menu ;;
   security|security-menu) security_menu ;;
@@ -2061,7 +2222,12 @@ case "$command" in
     shift
     uninstall_stack "${1:-}"
     ;;
-  start) compose up -d --build ;;
+  start)
+    # A missing token makes the panel exit; create one before a full start
+    # when the optional profile is enabled.
+    panel_enabled && panel_token >/dev/null
+    compose up -d --build
+    ;;
   stop) compose stop ;;
   restart) compose restart ;;
   update)

@@ -747,6 +747,44 @@ services:
       - no-new-privileges:true
     networks: [agent-net]
 
+  # Operator panel (compose profile "panel"): a minimal console for stack
+  # status, validated configuration editing, logs and a fixed whitelist of
+  # actions. It is optional, stays bound to loopback unless PANEL_BIND_IP is
+  # changed, and is not required by content-bot or media-studio. The repository
+  # is mounted at the identical host path so `docker compose` resolves bind
+  # mounts exactly like a host invocation.
+  panel:
+    profiles: ["panel"]
+    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.1.0}
+    build:
+      context: .
+      dockerfile: panel/Dockerfile
+    container_name: content-panel
+    restart: unless-stopped
+    user: "${PANEL_RUN_AS:-1000:1000}"
+    environment:
+      PANEL_ROOT: ${PANEL_STACK_PATH:-${PWD}}
+      PANEL_BIND_IP: 0.0.0.0
+      PANEL_PORT: "8899"
+      PANEL_TOKEN_FILE: /run/panel/token
+      PANEL_ACTIONS_ENABLED: ${PANEL_ACTIONS_ENABLED:-true}
+      PANEL_COOKIE_SECURE: ${PANEL_COOKIE_SECURE:-false}
+      TZ: ${N8N_TIMEZONE:-Asia/Tehran}
+    ports:
+      - "${PANEL_BIND_IP:-127.0.0.1}:${PANEL_PORT:-8899}:8899"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - "${PANEL_STACK_PATH:-${PWD}}:${PANEL_STACK_PATH:-${PWD}}"
+      - ./data/panel:/run/panel
+    group_add:
+      - "${PANEL_DOCKER_GID:-984}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
 networks:
   agent-net:
     name: hermes-9router-net
