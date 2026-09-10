@@ -579,7 +579,7 @@ class ContentBot:
                 int(text_id),
                 f"{self.preview_text(current)}\n\n"
                 "Media received. Press Approve on the media message to publish.",
-                telegram_mod.approval_keyboard(draft_id),
+                self._approval_keyboard(draft_id),
             )
         if not self._send_media_preview(
             draft_id,
@@ -952,22 +952,28 @@ class ContentBot:
             )
 
     def help_text(self) -> str:
-        return (
-            "Content Bot commands:\n"
-            "/start or /help - this message\n"
-            "/status - configuration and counters\n"
-            "/forget_link <url> - allow a published link to be drafted again\n"
-            "Send any http(s) link - draft a post with Approve/Reject buttons\n"
-            "Send a topic without a link - search the web and draft a post\n"
-            "After a draft choose Text only, AI image, send your own image,\n"
-            "or get a video prompt and send the finished file back; then\n"
-            "approve the media preview.\n"
-            "More platforms... on a preview sends a copy-ready package for\n"
-            "YouTube, Aparat, or any platform added to editorial-policy.yaml.\n"
-            "Reply to a proposal with edit notes, then press Reject to revise;\n"
-            "press Reject without notes to discard. Approved drafts are\n"
+        lines = [
+            "Content Bot commands:",
+            "/start or /help - this message",
+            "/status - configuration and counters",
+            "/forget_link <url> - allow a published link to be drafted again",
+            "Send any http(s) link - draft a post with Approve/Reject buttons",
+            "Send a topic without a link - search the web and draft a post",
+            "After a draft choose Text only, AI image, send your own image,",
+            "or get a video prompt and send the finished file back; then",
+            "approve the media preview.",
+        ]
+        if self.settings.platforms_enabled:
+            lines.append(
+                "More platforms... on a preview sends a copy-ready package for "
+                "YouTube, Aparat, or any platform added to editorial-policy.yaml."
+            )
+        lines.append(
+            "Reply to a proposal with edit notes, then press Reject to revise; "
+            "press Reject without notes to discard. Approved drafts are "
             "published to the configured Telegram channel with any media."
         )
+        return "\n".join(lines)
 
     def status_text(self) -> str:
         state = self.state.load()
@@ -981,6 +987,7 @@ class ContentBot:
             f"Writer endpoint: {self.settings.writer_base_url or 'not configured'}\n"
             f"Media Studio: {self.settings.media_studio_url or 'not configured'}\n"
             f"Web search: {'enabled' if self.settings.search_enabled else 'disabled'}\n"
+            f"Platform packages: {'enabled' if self.settings.platforms_enabled else 'disabled'}\n"
             f"Pending drafts: {drafts}\n"
             f"Published today: {today}\n"
             f"Total published: {published}"
@@ -1141,7 +1148,7 @@ class ContentBot:
         sent = self.api.send_message(
             chat_id,
             self.preview_text(record),
-            telegram_mod.approval_keyboard(draft_id),
+            self._approval_keyboard(draft_id),
             parse_mode="HTML",
         )
         record["message_id"] = sent.get("message_id")
@@ -1356,7 +1363,7 @@ class ContentBot:
                         f"{self.preview_text(current)}\n\n"
                         f"Photo collection closed with {len(collected)} photos; "
                         "press Approve on the preview to publish.",
-                        telegram_mod.approval_keyboard(draft_id),
+                        self._approval_keyboard(draft_id),
                     )
             self._drop_preview(chat_id, record)
             if not self._send_media_preview(
@@ -1556,25 +1563,35 @@ class ContentBot:
                 int(text_id),
                 f"{self.preview_text(record)}\n\n"
                 "Media preview is ready below.",
-                telegram_mod.approval_keyboard(draft_id),
+                self._approval_keyboard(draft_id),
             )
         if chat_id is not None and ask_id is not None:
             self._edit_safe(chat_id, int(ask_id), "Media ready.")
         if not self._send_media_preview(draft_id):
             self._media_failed(draft_id, "Media preview could not be sent.")
 
+    def _approval_keyboard(self, draft_id: str) -> dict:
+        """Draft buttons with the publishing options this deployment enables."""
+        return telegram_mod.approval_keyboard(
+            draft_id,
+            platforms=self.settings.platforms_enabled,
+        )
+
     def _preview_keyboard(
         self, factory, draft_id: str, *, collecting: bool = False
     ) -> dict:
         """Build preview buttons with the options the factory supports."""
-        instagram = self.settings.instagram_enabled
+        options = {
+            "instagram": self.settings.instagram_enabled,
+            "platforms": self.settings.platforms_enabled,
+        }
         if collecting:
             try:
-                return factory(draft_id, instagram=instagram, collecting=True)
+                return factory(draft_id, collecting=True, **options)
             except TypeError:
                 pass
         try:
-            return factory(draft_id, instagram=instagram)
+            return factory(draft_id, **options)
         except TypeError:
             return factory(draft_id)
 
@@ -1857,7 +1874,7 @@ class ContentBot:
                     chat_id,
                     int(message_id),
                     self.preview_text(record),
-                    telegram_mod.approval_keyboard(draft_id),
+                    self._approval_keyboard(draft_id),
                 )
             self.api.answer_callback_query(query_id, "Draft kept.")
             return
@@ -1923,7 +1940,7 @@ class ContentBot:
         }
         self.state.update_draft(draft_id, updated)
         preview = self.preview_text({**record, **updated})
-        keyboard = telegram_mod.approval_keyboard(draft_id)
+        keyboard = self._approval_keyboard(draft_id)
         try:
             if chat_id is None or message_id is None:
                 raise telegram_mod.TelegramError("no anchor message to edit")
@@ -1955,6 +1972,13 @@ class ContentBot:
         if chat_id is None:
             self.api.answer_callback_query(query_id, "No chat is attached to this draft.")
             return
+        if not self.settings.platforms_enabled:
+            self.api.answer_callback_query(
+                query_id,
+                "Platform upload packages are turned off "
+                "(CONTENT_PLATFORMS_ENABLED).",
+            )
+            return
         policy = workflow.load_policy(self.settings.policy_dir)
         profiles = platforms_mod.load_profiles(policy)
         if not profiles:
@@ -1974,6 +1998,13 @@ class ContentBot:
 
     def _send_platform_package(self, query_id: str, key: str, draft_id: str) -> None:
         """Send one platform package plus the stored media for a draft."""
+        if not self.settings.platforms_enabled:
+            self.api.answer_callback_query(
+                query_id,
+                "Platform upload packages are turned off "
+                "(CONTENT_PLATFORMS_ENABLED).",
+            )
+            return
         record = self.state.get_draft(draft_id)
         if record is None:
             self.api.answer_callback_query(query_id, "This draft is no longer active.")

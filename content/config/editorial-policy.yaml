@@ -106,8 +106,9 @@ exclusions:
     - "pyramid scheme"
     - "get rich quick"
 
-# Platforms that need a manual upload step. Each key becomes a button under
-# "More platforms..." on draft previews; the bot then sends a copy-ready
+# Platforms that need a manual upload step. Used only when the operator sets
+# CONTENT_PLATFORMS_ENABLED=true; each key then becomes a button under
+# "More platforms..." on draft previews and the bot sends a copy-ready
 # package (title, description, hashtags, upload link) plus the stored media
 # file. Telegram and Instagram publish through their APIs and are not listed
 # here. Override any value below, add a new platform key, or set a key to

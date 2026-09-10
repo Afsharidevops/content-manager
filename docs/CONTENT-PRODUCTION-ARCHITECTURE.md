@@ -122,9 +122,11 @@ snapshots stay in Media Studio (`data/media-studio/`). This satisfies the
 
 Phase 2 - tool registry and platform publishers:
 
-- Manual upload packages are live: a platform chooser on every draft sends a
-  policy-driven copy pack (title, description, hashtags, upload link) plus the
-  stored media file for platforms whose API needs a human step.
+- Manual upload packages exist behind `CONTENT_PLATFORMS_ENABLED` (off by
+  default; Telegram and Instagram are the supported publishing targets): when
+  enabled, a platform chooser on every draft sends a policy-driven copy pack
+  (title, description, hashtags, upload link) plus the stored media file for
+  platforms whose API needs a human step.
 - Remote MCP/OpenAPI tool sources registered in one place so the bot, n8n,
   and the router can call the same tools (search, media, publish).
 - Publisher agents per platform (Instagram live through the Graph API,

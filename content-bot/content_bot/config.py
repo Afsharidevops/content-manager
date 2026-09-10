@@ -69,6 +69,7 @@ class BotSettings:
     instagram_api_base: str = "https://graph.facebook.com"
     instagram_api_version: str = "v26.0"
     instagram_poll_timeout_seconds: int = 600
+    platforms_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "BotSettings":
@@ -110,6 +111,7 @@ class BotSettings:
             instagram_poll_timeout_seconds=_env_int(
                 "INSTAGRAM_POLL_TIMEOUT_SECONDS", 600
             ),
+            platforms_enabled=_env_bool("CONTENT_PLATFORMS_ENABLED", False),
         )
 
     @property

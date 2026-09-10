@@ -6,6 +6,7 @@ import json
 import shutil
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from unittest import mock
 from pathlib import Path
@@ -185,6 +186,17 @@ class BotTestCase(unittest.TestCase):
             fetch_feed=lambda url: b"",
             now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
         )
+
+    def enable_platforms(self):
+        """Turn the opt-in manual platform packages on for one test."""
+        self.bot.settings = replace(self.bot.settings, platforms_enabled=True)
+
+    def test_help_and_status_follow_the_platform_switch(self):
+        self.assertNotIn("More platforms", self.bot.help_text())
+        self.assertIn("Platform packages: disabled", self.bot.status_text())
+        self.enable_platforms()
+        self.assertIn("More platforms", self.bot.help_text())
+        self.assertIn("Platform packages: enabled", self.bot.status_text())
 
     def test_link_message_creates_draft_with_approval_buttons(self):
         self.bot.handle_message(
@@ -1859,7 +1871,43 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         self.assertTrue(any("Instagram is not configured" in a.get("text", "") for a in answers))
         self.assertIsNotNone(self.bot.state.get_draft(draft_id))
 
-    def test_draft_preview_offers_more_platforms(self):
+    def test_draft_preview_hides_manual_platforms_by_default(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        callbacks = [
+            button["callback_data"]
+            for row in self.api.sent_messages[0]["reply_markup"]["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"approve:{draft_id}", callbacks)
+        self.assertNotIn(f"platforms:{draft_id}", callbacks)
+
+        self.api.calls.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qp0",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"platforms:{draft_id}",
+            }
+        )
+        answers = [
+            str(payload.get("text") or "")
+            for method, payload in self.api.calls
+            if method == "answerCallbackQuery"
+        ]
+        self.assertTrue(any("CONTENT_PLATFORMS_ENABLED" in text for text in answers))
+        self.assertEqual(self.api.sent_messages[-1]["chat_id"], 11)
+        self.assertNotIn("Pick a platform", str(self.api.sent_messages[-1].get("text")))
+
+    def test_draft_preview_offers_more_platforms_when_enabled(self):
+        self.enable_platforms()
         self.bot.handle_message(
             {
                 "chat": {"id": 11},
@@ -1876,6 +1924,7 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         self.assertIn(f"platforms:{draft_id}", callbacks)
 
     def test_more_platforms_chooser_and_package(self):
+        self.enable_platforms()
         self.bot.handle_message(
             {
                 "chat": {"id": 11},
@@ -1918,6 +1967,7 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         self.assertIsNotNone(self.bot.state.get_draft(draft_id))
 
     def test_platform_package_resends_the_stored_video(self):
+        self.enable_platforms()
         draft_id = self._draft_with_media_ask()
         clip = Path(self.tmp.name) / "clip.mp4"
         clip.write_bytes(b"fake-video-bytes")
@@ -1991,6 +2041,7 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         self.assertEqual(self.bot.state.get_draft(draft_id)["status"], "media_ready")
 
     def test_platform_package_notes_oversized_video(self):
+        self.enable_platforms()
         draft_id = self._draft_with_media_ask()
         self.bot.state.update_draft(
             draft_id,
@@ -2028,6 +2079,7 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         )
 
     def test_platform_package_rejects_unknown_key(self):
+        self.enable_platforms()
         self.bot.handle_message(
             {
                 "chat": {"id": 11},

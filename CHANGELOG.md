@@ -38,6 +38,18 @@ platform; this section tracks the fork additions.
 - Component images advance to `0.2.0`: `afsharidevops/content-bot:0.2.0` and
   `afsharidevops/media-studio:0.2.0` (plus `:latest`).
 
+### Changes — manual platform packages are opt-in (2026-09-10)
+
+- The copy-ready upload packages (YouTube, Aparat) and their **More
+  platforms...** button are hidden unless `CONTENT_PLATFORMS_ENABLED=true`, so
+  the live bot stays on Telegram and Instagram only. The packages, the
+  `platforms:` policy section, and their callbacks are unchanged behind the
+  switch; a callback that arrives while it is off answers with the setting
+  name instead of sending a package.
+- `.env.example`, `docker-compose.yml`, and
+  `docs/CONTENT-PRODUCTION-GUIDE.md` document the switch; the shipped default
+  is off.
+
 ### Features — Firefox build and ZIP packages for Flow Unlock (2026-09-10)
 
 - `extensions/locallab-flow-unlock-firefox/` is the Flow unlock for Firefox
