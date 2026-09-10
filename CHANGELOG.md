@@ -162,6 +162,19 @@ platform; this section tracks the fork additions.
   `http://media-studio:8850`; the published host port still follows
   `MEDIA_STUDIO_BIND_IP`.
 
+### Improvements — platform upload packages (2026-09-10)
+
+- Draft and media previews gained a **More platforms...** button that opens a
+  chooser for platforms that need a human upload step. Picking a platform
+  sends a copy-ready package: the title cut to the platform limit, the
+  description with the source link and hashtags, the direct upload URL, and
+  the stored media file re-sent for a quick download.
+- Packages are driven by the `platforms:` section of `editorial-policy.yaml`:
+  YouTube and Aparat ship as defaults, any key can be overridden, added, or
+  set to `null` to hide its button. Telegram and Instagram keep publishing
+  through their APIs; a package never consumes the draft or counts toward the
+  daily limit.
+
 ### Fork additions — content layer v0.1.0
 
 - Added the `content/` Python layer for deterministic discovery normalization,

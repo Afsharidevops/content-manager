@@ -277,7 +277,8 @@ def approval_keyboard(draft_id: str) -> dict:
             [
                 {"text": "Approve", "callback_data": f"approve:{draft_id}"},
                 {"text": "Reject", "callback_data": f"reject:{draft_id}"},
-            ]
+            ],
+            platform_choice_row(draft_id),
         ]
     }
 
@@ -355,6 +356,27 @@ def upload_wait_keyboard(draft_id: str) -> dict:
     }
 
 
+def platform_choice_row(draft_id: str) -> list[dict]:
+    """Row that opens the manual-upload platform chooser for one draft."""
+    return [
+        {"text": "More platforms...", "callback_data": f"platforms:{draft_id}"}
+    ]
+
+
+def platforms_keyboard(draft_id: str, profiles: list[tuple[str, str]]) -> dict:
+    """Chooser for platforms that receive a copy-ready upload package."""
+    rows: list[list[dict]] = []
+    row: list[dict] = []
+    for key, label in profiles:
+        row.append({"text": label, "callback_data": f"package:{key}:{draft_id}"})
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return {"inline_keyboard": rows}
+
+
 def instagram_approval_row(draft_id: str) -> list[dict]:
     """Publish targets for one media draft when Instagram is configured."""
     return [
@@ -391,6 +413,7 @@ def user_media_preview_keyboard(
     rows.append(actions)
     if instagram:
         rows.append(instagram_approval_row(draft_id))
+    rows.append(platform_choice_row(draft_id))
     return {"inline_keyboard": rows}
 
 
@@ -445,6 +468,7 @@ def media_preview_keyboard(draft_id: str, *, instagram: bool = False) -> dict:
     ]
     if instagram:
         rows.append(instagram_approval_row(draft_id))
+    rows.append(platform_choice_row(draft_id))
     return {"inline_keyboard": rows}
 
 

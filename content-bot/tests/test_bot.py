@@ -1705,3 +1705,111 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         answers = [payload for method, payload in self.api.calls if method == "answerCallbackQuery"]
         self.assertTrue(any("Instagram is not configured" in a.get("text", "") for a in answers))
         self.assertIsNotNone(self.bot.state.get_draft(draft_id))
+
+    def test_draft_preview_offers_more_platforms(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        callbacks = [
+            button["callback_data"]
+            for row in self.api.sent_messages[0]["reply_markup"]["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"platforms:{draft_id}", callbacks)
+
+    def test_more_platforms_chooser_and_package(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        self.api.sent_messages.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qp1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"platforms:{draft_id}",
+            }
+        )
+        chooser = self.api.sent_messages[-1]
+        self.assertIn("Pick a platform", chooser["text"])
+        callbacks = [
+            button["callback_data"]
+            for row in chooser["reply_markup"]["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"package:youtube:{draft_id}", callbacks)
+        self.assertIn(f"package:aparat:{draft_id}", callbacks)
+
+        self.api.sent_messages.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qp2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"package:youtube:{draft_id}",
+            }
+        )
+        package = self.api.sent_messages[-1]
+        self.assertIn("YouTube upload package", package["text"])
+        self.assertEqual(package["parse_mode"], "HTML")
+        self.assertIsNotNone(self.bot.state.get_draft(draft_id))
+
+    def test_platform_package_resends_the_stored_video(self):
+        draft_id = self._draft_with_media_ask()
+        clip = Path(self.tmp.name) / "clip.mp4"
+        clip.write_bytes(b"fake-video-bytes")
+        self.bot.state.update_draft(
+            draft_id,
+            {
+                "status": "media_ready",
+                "media": {"kind": "video", "local_path": str(clip)},
+                "media_wait_kind": None,
+            },
+        )
+        self.api.uploads.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qp3",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"package:aparat:{draft_id}",
+            }
+        )
+        videos = [upload for upload in self.api.uploads if upload[0] == "sendVideo"]
+        self.assertTrue(videos)
+        self.assertEqual(videos[-1][1]["caption"], "Aparat upload file")
+        self.assertEqual(videos[-1][4], b"fake-video-bytes")
+
+    def test_platform_package_rejects_unknown_key(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        self.api.calls.clear()
+        self.bot.handle_callback(
+            {
+                "id": "qp4",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"package:nosuchplatform:{draft_id}",
+            }
+        )
+        answers = [
+            payload for method, payload in self.api.calls
+            if method == "answerCallbackQuery"
+        ]
+        self.assertTrue(any("Unknown platform." in a.get("text", "") for a in answers))

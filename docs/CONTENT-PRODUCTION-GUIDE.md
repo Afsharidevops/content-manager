@@ -243,7 +243,28 @@ Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
 | --- | --- |
 | Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
 | Instagram | Official Meta Graph API: photos, carousels, and video; see `docs/INSTAGRAM-SETUP.md` |
+| YouTube / Aparat | Copy-ready upload package from every preview; see "Manual upload platforms" |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
+
+## Manual upload platforms
+
+Telegram and Instagram publish through their APIs. Platforms that need a
+human upload step (YouTube, Aparat) are reachable from the same previews:
+
+1. Press **More platforms...** on the draft preview or a media preview.
+2. Pick the platform. The bot sends a copy-ready package with the title (cut
+   to the platform limit), the description with the source link and
+   hashtags, the direct upload link, and the stored media file re-sent for a
+   quick download.
+3. Upload the file in the platform editor and paste the two text blocks.
+
+A package never publishes anything by itself, never consumes the draft, and
+never counts toward the daily limit; **Approve** and **Reject** keep working
+as before. The package content is driven by the `platforms:` section of
+`editorial-policy.yaml`: override the label, upload URL, title and description
+limits, note, or hashtags, add your own platform keys, or set a key to `null`
+to hide its button. Telegram and Instagram are not listed there because they
+publish through their APIs.
 
 ## Media assets
 

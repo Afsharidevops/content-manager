@@ -105,3 +105,25 @@ exclusions:
     - "pump and dump"
     - "pyramid scheme"
     - "get rich quick"
+
+# Platforms that need a manual upload step. Each key becomes a button under
+# "More platforms..." on draft previews; the bot then sends a copy-ready
+# package (title, description, hashtags, upload link) plus the stored media
+# file. Telegram and Instagram publish through their APIs and are not listed
+# here. Override any value below, add a new platform key, or set a key to
+# null to hide its button; no code change is required.
+platforms:
+  youtube:
+    label: "YouTube"
+    upload_url: "https://studio.youtube.com/"
+    title_limit: 100
+    description_limit: 5000
+    note: "Vertical clips publish as Shorts; keep the title under 100 characters."
+    hashtags: []
+  aparat:
+    label: "Aparat"
+    upload_url: "https://www.aparat.com/upload"
+    title_limit: 100
+    description_limit: 4000
+    note: "Upload the video file and paste the title and description."
+    hashtags: []

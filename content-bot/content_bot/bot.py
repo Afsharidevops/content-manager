@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from content_bot import extract, fetch, state as state_mod, telegram as telegram_mod
 from content_bot import instagram as instagram_mod
 from content_bot import mediastudio as media_mod, rtl as rtl_mod, search as search_mod
+from content_bot import platforms as platforms_mod
 from content_bot import workflow, writer as writer_mod
 from content_bot.config import BotSettings
 from content_pipeline.normalize import canonicalize_url, content_hash as canonical_content_hash
@@ -881,6 +882,8 @@ class ContentBot:
             "After a draft choose Text only, AI image, send your own image,\n"
             "or get a video prompt and send the finished file back; then\n"
             "approve the media preview.\n"
+            "More platforms... on a preview sends a copy-ready package for\n"
+            "YouTube, Aparat, or any platform added to editorial-policy.yaml.\n"
             "Reply to a proposal with edit notes, then press Reject to revise;\n"
             "press Reject without notes to discard. Approved drafts are\n"
             "published to the configured Telegram channel with any media."
@@ -1709,6 +1712,21 @@ class ContentBot:
             else:
                 self.api.answer_callback_query(query_id, "Unknown media action.")
             return
+        if data.startswith("platforms:"):
+            draft_id = data.split(":", 1)[1]
+            record = self.state.get_draft(draft_id)
+            if record is None:
+                self.api.answer_callback_query(query_id, "This draft is no longer active.")
+                return
+            self._offer_platforms(query_id, record)
+            return
+        if data.startswith("package:"):
+            tokens = data.split(":", 2)
+            if len(tokens) == 3 and tokens[2]:
+                self._send_platform_package(query_id, tokens[1], tokens[2])
+            else:
+                self.api.answer_callback_query(query_id, "Unknown platform action.")
+            return
         action, separator, draft_id = data.partition(":")
         if not separator or not draft_id:
             self.api.answer_callback_query(query_id, "Unknown action.")
@@ -1831,6 +1849,97 @@ class ContentBot:
             self.api.answer_callback_query(query_id, text)
         except telegram_mod.TelegramError as error:
             log.debug("callback answer skipped: %s", error)
+
+    def _offer_platforms(self, query_id: str, record: dict) -> None:
+        """Send the manual-upload platform chooser for one draft."""
+        chat_id = record.get("chat_id")
+        if chat_id is None:
+            self.api.answer_callback_query(query_id, "No chat is attached to this draft.")
+            return
+        policy = workflow.load_policy(self.settings.policy_dir)
+        profiles = platforms_mod.load_profiles(policy)
+        if not profiles:
+            self.api.answer_callback_query(
+                query_id,
+                "No manual platform is configured; add a platforms section to "
+                "editorial-policy.yaml.",
+            )
+            return
+        pairs = [(key, profile.label) for key, profile in profiles.items()]
+        self.api.send_message(
+            chat_id,
+            "Pick a platform for a copy-ready upload package:",
+            telegram_mod.platforms_keyboard(str(record.get("id") or ""), pairs),
+        )
+        self._safe_answer(query_id, "Choose a platform.")
+
+    def _send_platform_package(self, query_id: str, key: str, draft_id: str) -> None:
+        """Send one platform package plus the stored media for a draft."""
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            self.api.answer_callback_query(query_id, "This draft is no longer active.")
+            return
+        policy = workflow.load_policy(self.settings.policy_dir)
+        profiles = platforms_mod.load_profiles(policy)
+        profile = profiles.get(str(key or "").strip().lower())
+        if profile is None:
+            self.api.answer_callback_query(query_id, "Unknown platform.")
+            return
+        chat_id = record.get("chat_id")
+        if chat_id is None:
+            self.api.answer_callback_query(query_id, "No chat is attached to this draft.")
+            return
+        try:
+            self.api.send_message(
+                chat_id,
+                platforms_mod.package_text(record, profile),
+                parse_mode="HTML",
+            )
+        except telegram_mod.TelegramError as error:
+            self.api.answer_callback_query(query_id, f"Package failed: {error}")
+            return
+        self._send_package_media(chat_id, record, profile)
+        self._safe_answer(query_id, f"{profile.label} package sent.")
+
+    def _send_package_media(self, chat_id, record: dict, profile) -> None:
+        """Re-send the stored media so it can be uploaded without scrolling."""
+        entries = platforms_mod.stored_media(record)
+        if not entries:
+            return
+        caption = f"{profile.label} upload file"
+        if len(entries) > 1:
+            files: list[tuple[str, bytes]] = []
+            for _kind, path, name in entries:
+                file_path = Path(path)
+                if not file_path.is_file():
+                    continue
+                try:
+                    files.append((name, file_path.read_bytes()))
+                except OSError as error:
+                    log.warning("package media unreadable (%s): %s", path, error)
+            if files:
+                try:
+                    self.api.send_media_group(chat_id, files[:10], caption=caption)
+                except telegram_mod.TelegramError as error:
+                    log.warning("package media send failed: %s", error)
+            return
+        kind, path, name = entries[0]
+        file_path = Path(path)
+        if not file_path.is_file():
+            log.warning("package media missing from storage: %s", path)
+            return
+        try:
+            payload = file_path.read_bytes()
+        except OSError as error:
+            log.warning("package media unreadable (%s): %s", path, error)
+            return
+        try:
+            if kind == "video":
+                self.api.send_video(chat_id, name, payload, caption=caption)
+            else:
+                self.api.send_photo(chat_id, name, payload, caption=caption)
+        except telegram_mod.TelegramError as error:
+            log.warning("package media send failed: %s", error)
 
     def _approve(
         self,
