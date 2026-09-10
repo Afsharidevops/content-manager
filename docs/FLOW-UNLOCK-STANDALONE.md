@@ -7,18 +7,25 @@ extension plus an optional uBlock filter; both live in this repository under
 
 What it does:
 
-1. Browser rules abort every request to the Flow `/unsupported-country` page:
+1. A content script in the page rewrites the two batchexecute answers that
+   carry the region verdict before the web app reads them: the country and age
+   flags of `VideoFxService.GetFlowAppConfig` (`cPZSdc`) and the tool status of
+   `AiSandbox.CheckToolAvailability` (`KV2T2d`). Only those fields change, so
+   the dashboard renders for the account in the tab.
+2. Browser rules abort every request to the Flow `/unsupported-country` page:
    the bare path, multi-account paths such as `/u/1/unsupported-country`,
    `flow.google-*.com` variants, and the `labs.google` tool path. The redirect
    that replaces the Flow UI therefore never lands.
-2. A small content script stops in-flight network for a short window as soon
+3. As a fallback for tabs where the patched answer does not arrive, a second
+   content script stops in-flight network for a short window as soon
    as the project creation button appears, which prevents the background
-   region check from swapping the editor for the block page.
-3. The same script watches the address bar. When the web app swaps the route
+   region check from swapping the editor for the block page. It stands down as
+   soon as the page carries the `data-locallab-flow-config="patched"` marker.
+4. The fallback script also watches the address bar. When the web app swaps the route
    client-side (no network request for the rule set to block), it restarts the
    app root, at most twice per tab, so a client-side route change cannot
    strand the tab on the block page.
-4. A background worker returns the tab to the app root (up to twice a minute)
+5. A background worker returns the tab to the app root (up to twice a minute)
    when a blocked navigation still leaves Chrome's `ERR_BLOCKED_BY_CLIENT`
    page, where no content script can run.
 
@@ -57,14 +64,29 @@ Requirements:
 The filter file is also stored at
 `extensions/locallab-flow-unlock/ublock-filter.txt`.
 
+## Check that the patch applied
+
+The page marks itself once the config answer was rewritten. Open the Flow tab,
+open DevTools, and run this in the console:
+
+```js
+document.documentElement.getAttribute('data-locallab-flow-config')
+```
+
+`"patched"` means the dashboard should render. If it returns `null` on an
+account that still shows the block page, the answer arrived in a shape the
+script did not patch: reload the extension and send the `cPZSdc` response from
+the Network tab (right-click the request, **Copy response**) so the parser can
+be extended.
+
 ## Use
 
 1. Open https://flow.google.com in the same Chrome.
 2. Sign in to the Google account that has Flow access if you are not signed
    in yet. Multi-account URLs such as `/u/1/` are covered, but Flow access is
-   granted per account: if the block page appears for one signed-in account
-   and not another, the problem is the account, not the browser or the
-   network.
+   granted per account: when one signed-in account reaches the dashboard and
+   another only reaches its projects page, that difference is what the
+   response patch removes.
 3. Create a project as usual. The first screen may take a moment; if the page
    freezes briefly when the "New project" button appears, that is the unlock
    working.
@@ -87,12 +109,12 @@ The filter file is also stored at
   rule set aborts that navigation and Chrome shows "This page has been
   blocked by an extension". Type `https://flow.google.com/` instead, or let
   the background worker bring the tab back.
-- The block view itself is decided for the signed-in session (the app shell is
-  served with `200` for both `/` and `/unsupported-country`, and the
-  `batchexecute` calls on that page are telemetry only). If Flow still reports
-  an unsupported country after a reload, compare Google accounts
-  (`/u/0/` vs `/u/1/`) and the tunnel exit country; the extension cannot
-  bypass a server-side verdict.
+- Flow decides the verdict in the page, from the `cPZSdc` and `KV2T2d`
+  answers, which is why the response patch works; the app shell itself is
+  served with `200` for both `/` and `/unsupported-country`. If an account
+  still reports an unsupported country after a reload, confirm the marker
+  above, then compare the `cPZSdc` response of that account with a working
+  one and extend the patch.
 - Buttons show raw text such as `add` or `videocam` instead of icons? That is
   only the icon font failing to load and is cosmetic; the labels remain
   clickable.
@@ -103,6 +125,7 @@ The filter file is also stored at
   files.
 
 This standalone path is independent of Media Studio; when you later run Media
-Studio on a server, the same two techniques are applied automatically by the
-`flow-video` driver (`MEDIA_STUDIO_BLOCK_GEO_REDIRECT` and
-`MEDIA_STUDIO_FREEZE_ON_READY`). See `docs/MEDIA-STUDIO.md`.
+Studio on a server, the bundled extension applies the same response patch and
+the `flow-video` driver adds request interception
+(`MEDIA_STUDIO_BLOCK_GEO_REDIRECT`) and the page freeze
+(`MEDIA_STUDIO_FREEZE_ON_READY`). See `docs/MEDIA-STUDIO.md`.

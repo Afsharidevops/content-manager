@@ -103,6 +103,30 @@ platform; this section tracks the fork additions.
   container log. The long-poll HTTP read timeout is now derived from the poll
   timeout instead of a fixed 35 seconds.
 
+### Fixes — Flow app-config response patch (2026-09-10)
+
+- The `locallab-flow-unlock` extension no longer depends on winning a race
+  against the region check. Flow decides the unsupported-country verdict inside
+  the page, from two batchexecute answers, and both are now rewritten in
+  flight: `VideoFxService.GetFlowAppConfig` (`cPZSdc`) carries the country flag
+  in field 31 and the age flag in field 32, `AiSandbox.CheckToolAvailability`
+  (`KV2T2d`) carries the per-tool status in field 1. Only those fields change
+  and the rest of the answer passes through untouched.
+- The patch runs in the page world (`unlock.js`, `world: MAIN`, loaded at
+  `document_start`) and handles both encodings the backend uses, the JSON
+  protocol-buffer form and the base64 one, so the dashboard renders for an
+  account the Flow backend marks as an unsupported country.
+- `freeze.js` stands down as soon as the config answer is known to be patched
+  (the page carries a `data-locallab-flow-config="patched"` marker), which
+  keeps the freeze a fallback for tabs where the patch did not apply.
+- The declarative rules are anchored to the `/unsupported-country` path
+  (`regexFilter`) instead of matching the string anywhere in the URL. The old
+  wildcard filters also blocked the app's own `batchexecute` calls, because
+  their `source-path` parameter contains the blocked route.
+- `tests/test-flow-unlock-patch.mjs` covers both payload encodings, the
+  omitted-field case, and the pass-through of unrelated RPCs; the rules test
+  now also guards the second content script and the anchored filters.
+
 ### Fixes — Instagram API version default (2026-09-10)
 
 - The default Graph API version moves from `v23.0` to `v26.0`, matching the

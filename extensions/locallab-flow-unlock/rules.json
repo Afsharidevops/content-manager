@@ -4,7 +4,7 @@
     "priority": 1,
     "action": { "type": "block" },
     "condition": {
-      "urlFilter": "||flow.google.com/unsupported-country",
+      "regexFilter": "^https://flow\\.google\\.com(/u/[0-9]+)?/unsupported-country([?#]|$)",
       "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
     }
   },
@@ -13,7 +13,7 @@
     "priority": 1,
     "action": { "type": "block" },
     "condition": {
-      "urlFilter": "||flow.google.com/*unsupported-country",
+      "regexFilter": "^https://flow\\.google-[a-z0-9-]+\\.com(/u/[0-9]+)?/unsupported-country([?#]|$)",
       "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
     }
   },
@@ -22,16 +22,7 @@
     "priority": 1,
     "action": { "type": "block" },
     "condition": {
-      "urlFilter": "||flow.google-*.com/*unsupported-country",
-      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
-    }
-  },
-  {
-    "id": 4,
-    "priority": 1,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "||labs.google/*unsupported-country",
+      "regexFilter": "^https://labs\\.google/.*/unsupported-country([?#]|$)",
       "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
     }
   }

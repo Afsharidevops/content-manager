@@ -18,6 +18,13 @@
   let bounceStarted = false;
   let freezeTimers = [];
 
+  // unlock.js rewrites the app-config answer in the page. Once that answer is
+  // known to be patched the region check can no longer replace the editor, so
+  // the freeze and the bounce are both unnecessary.
+  function configHandled() {
+    return document.documentElement.getAttribute('data-locallab-flow-config') === 'patched';
+  }
+
   function onBlockRoute() {
     return window.location.pathname.toLowerCase().includes(BLOCK_MARKER);
   }
@@ -96,7 +103,7 @@
   if (bounceOffBlockRoute()) return;
 
   const observer = new MutationObserver(() => {
-    if (froze) return;
+    if (froze || configHandled()) return;
     if (findCreateButton()) {
       observer.disconnect();
       writeBounces(0);
@@ -108,6 +115,7 @@
   // Client-side routing never issues a request, so watch the address bar too
   // and restart the app instead of letting the block view render.
   window.setInterval(() => {
+    if (configHandled()) return;
     if (onBlockRoute()) bounceOffBlockRoute();
   }, 250);
 })();

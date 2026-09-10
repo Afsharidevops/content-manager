@@ -29,6 +29,7 @@ jobs:
           python3 -m unittest -v tests/test_stack_package_policy.py tests/test_stack_execution_policy.py tests/test_execution_broker.py
           node --test tests/test-bootstrap-n8n.mjs
           node --test tests/test-verify-n8n.mjs
+          node --test tests/test-flow-unlock-patch.mjs
           tests/test-manage-n8n.sh
           tests/test-flow-unlock-rules.sh
       - name: Test content layer and Content Bot

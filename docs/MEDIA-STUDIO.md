@@ -75,22 +75,28 @@ profile per Media Studio instance.
 ## Google Flow region handling
 
 When Google considers the visitor region unsupported, Flow redirects to
-`/unsupported-country` and stops. Media Studio ships two layers:
+`/unsupported-country` and stops. Flow reaches that decision inside the page,
+from two batchexecute answers, so Media Studio ships three layers:
 
-1. request interception that aborts any Flow request to
+1. response patching through the bundled `locallab-flow-unlock` extension: the
+   country and age flags of `GetFlowAppConfig` and the tool status of
+   `CheckToolAvailability` are rewritten before the web app reads them, so the
+   dashboard renders for the signed-in account;
+2. request interception that aborts any Flow request to
    `flow.google.com/unsupported-country` (and `flow.google-*.com`), controlled
    by `MEDIA_STUDIO_BLOCK_GEO_REDIRECT`;
-2. an optional short page freeze once the project creation button appears
+3. an optional short page freeze once the project creation button appears
    (`MEDIA_STUDIO_FREEZE_ON_READY`), which stops the background region check
-   from replacing the editor UI.
+   from replacing the editor UI when the patched answer is not what the page
+   received.
 
-Both default to enabled. The same two techniques are available standalone for
+All three default to enabled. The same techniques are available standalone for
 manual browser use, independent of Media Studio:
 
 - `extensions/locallab-flow-unlock/` — an unpacked Chrome extension (MV3): a
-  declarative rule blocks the unsupported-country page and a content script
-  applies the freeze. Load it from `chrome://extensions` with Developer mode
-  enabled.
+  page-world content script patches the two region answers, a declarative rule
+  blocks the unsupported-country page, and a second content script applies the
+  freeze. Load it from `chrome://extensions` with Developer mode enabled.
 - `extensions/locallab-flow-unlock/ublock-filter.txt` — the two filter lines for
   uBlock Origin.
 
