@@ -167,4 +167,9 @@ CONTENT_VIDEO_CHARACTER            saved Flow character handle (blank disables)
 CONTENT_VIDEO_CHARACTER_PROMPT     character block override, keeps {handle}/{aspect}
 CONTENT_VIDEO_ASPECT               reel frame for prompt packages (default 9:16 vertical)
 CONTENT_VIDEO_SEGMENT_SECONDS      seconds Flow generates per segment (default 10)
+CONTENT_PLATFORMS_ENABLED          manual upload packages on previews (default false)
+INSTAGRAM_BUSINESS_ID              Instagram professional account id (blank disables)
+INSTAGRAM_ACCESS_TOKEN             long-lived Graph API token for that account
+INSTAGRAM_MEDIA_PUBLIC_BASE_URL    public URL serving data/content-bot/media
+INSTAGRAM_API_VERSION              Graph API version (default v26.0)
 ```
