@@ -169,6 +169,28 @@ class WriterBrokenJsonTest(unittest.TestCase):
         self.assertIsNone(Writer._regex_fields('{"title": "فقط تیتر"}'))
 
 
+class WriterLiteralNewlineTest(unittest.TestCase):
+    """Replies that put literal control characters inside JSON strings."""
+
+    def test_parse_post_accepts_literal_newlines_inside_strings(self):
+        content = (
+            "\u200f"
+            '{"title": "تیتر سالم", "body": "پاراگراف اول\n\nپاراگراف دوم {با بریس}"}'
+        )
+        post = Writer._parse_post(content)
+        self.assertIsNotNone(post)
+        self.assertEqual(post["title"], "تیتر سالم")
+        self.assertIn("پاراگراف اول", post["body"])
+        self.assertIn("پاراگراف دوم", post["body"])
+
+    def test_regex_fallback_keeps_persian_with_literal_newlines(self):
+        broken = '{"title": "تیتر", "body": "خط اول\nخط دوم"'
+        fields = Writer._regex_fields(broken)
+        self.assertIsNotNone(fields)
+        self.assertEqual(fields["title"], "تیتر")
+        self.assertIn("خط اول", fields["body"])
+
+
 class WriterSourceDedupeTest(unittest.TestCase):
     def test_dedupe_keeps_single_final_url(self):
         url = "https://example.com/post"

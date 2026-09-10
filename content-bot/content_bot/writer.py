@@ -180,7 +180,7 @@ class Writer:
                     depth -= 1
                     if depth == 0:
                         try:
-                            parsed = json.loads(text[start : index + 1])
+                            parsed = json.loads(text[start : index + 1], strict=False)
                         except ValueError:
                             break
                         return parsed if isinstance(parsed, dict) else None
@@ -352,9 +352,9 @@ class Writer:
                 return ""
             value = match.group(1)
             try:
-                value = json.loads(f'"{value}"')
+                value = json.loads(f'"{value}"', strict=False)
             except ValueError:
-                value = value.encode("utf-8").decode("unicode_escape", errors="ignore")
+                value = Writer._unescape_json_fragment(value)
             return str(value).strip()
 
         title = grab("title")
@@ -362,6 +362,31 @@ class Writer:
         if not title or not body:
             return None
         return {"title": title[:120], "body": Writer._clean_body(body)}
+
+    @staticmethod
+    def _unescape_json_fragment(value: str) -> str:
+        """Decode JSON backslash escapes while keeping non-ASCII text intact."""
+        simple = {
+            "n": "\n",
+            "r": "\r",
+            "t": "\t",
+            "b": "\b",
+            "f": "\f",
+            '"': '"',
+            "\\": "\\",
+            "/": "/",
+        }
+
+        def replace(match):
+            token = match.group(1)
+            if token.startswith("u") and len(token) == 5:
+                try:
+                    return chr(int(token[1:], 16))
+                except ValueError:
+                    return token
+            return simple.get(token, token)
+
+        return re.sub(r"\\(u[0-9a-fA-F]{4}|.)", replace, value)
 
     @staticmethod
     def _strip_source_url(body: str, source_url: str) -> str:
