@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from unittest import mock
 from pathlib import Path
 
 from content_bot.bot import ContentBot
@@ -79,7 +80,7 @@ class FakeApi(TelegramApi):
         self.download_bytes = b"fake-media-bytes"
         self.file_size = len(self.download_bytes)
 
-    def _transport(self, url, payload):
+    def _transport(self, url, payload, *, timeout=35):
         method = url.rsplit("/", 1)[-1]
         self.calls.append((method, payload))
         if method == "getMe":
@@ -607,6 +608,28 @@ def _media_settings(
         instagram_access_token="IGQ-test-token" if instagram else "",
     )
 
+
+    def test_run_survives_poll_connection_errors(self):
+        bot = self.build_bot()
+        polls = {"count": 0}
+
+        def flaky_poll():
+            polls["count"] += 1
+            if polls["count"] == 1:
+                raise ConnectionError("connection error: The read operation timed out")
+            raise KeyboardInterrupt
+
+        bot.poll_once = flaky_poll
+        bot.maybe_run_daily = lambda: None
+        bot.maybe_poll_media_jobs = lambda: None
+        with mock.patch("content_bot.bot.time.sleep"):
+            with self.assertLogs("content_bot", level="WARNING") as captured:
+                with self.assertRaises(KeyboardInterrupt):
+                    bot.run()
+        self.assertEqual(polls["count"], 2)
+        joined = "\n".join(captured.output)
+        self.assertIn("connection problem", joined)
+        self.assertNotIn("unhandled error", joined)
 
 class MediaFlowTestCase(unittest.TestCase):
     def setUp(self):

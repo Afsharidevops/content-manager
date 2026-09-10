@@ -58,6 +58,9 @@ def _rtl_body_html(body: str) -> str:
 _MEDIA_CAPTION_MAX = 1024
 _TEXT_MESSAGE_MAX = 4096
 
+# Backoff after a transient network failure in the polling loop.
+_CONNECTION_RETRY_SECONDS = 5
+
 
 def _media_caption(record: dict) -> str:
     """Best-effort single caption (max 1024 chars) for one media post."""
@@ -205,6 +208,9 @@ class ContentBot:
                 self.maybe_poll_media_jobs()
             except telegram_mod.TelegramError as error:
                 log.warning("Telegram API error: %s", error)
+            except (ConnectionError, TimeoutError) as error:
+                log.warning("Telegram connection problem, retrying: %s", error)
+                time.sleep(_CONNECTION_RETRY_SECONDS)
             except Exception:
                 log.exception("unhandled error in the main loop")
             time.sleep(1)
@@ -250,6 +256,8 @@ class ContentBot:
             self._offset = max(self._offset, update_id + 1)
             try:
                 self.handle_update(update)
+            except (ConnectionError, TimeoutError) as error:
+                log.warning("update %s hit a connection problem: %s", update_id, error)
             except Exception:
                 log.exception("update %s failed", update_id)
         return len(updates)

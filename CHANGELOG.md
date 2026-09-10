@@ -73,6 +73,22 @@ platform; this section tracks the fork additions.
   on hidden reasoning and return empty content, which silently pushed every
   reel package back to the post-text fallback.
 
+### Fixes — Flow unlock for multi-account URLs and long-poll timeouts (2026-09-10)
+
+- The `locallab-flow-unlock` rules only matched the bare
+  `/unsupported-country` path. With several Google accounts signed in the
+  block page is reached through `/u/<n>/unsupported-country`, which the rules
+  missed; the rule set now covers the account-scoped paths, `flow.google-*`
+  hosts, and the `labs.google` tool path, and the companion filter file was
+  extended the same way. The content script also watches the address bar and
+  restarts the app root (at most twice per tab) when the web app swaps the
+  route client-side, where no request exists for the rule set to block.
+- The Content Bot polling loop survives transient network failures: Telegram
+  long polls that time out through a slow route are logged as a warning and
+  retried after a short backoff instead of dumping a full traceback into the
+  container log. The long-poll HTTP read timeout is now derived from the poll
+  timeout instead of a fixed 35 seconds.
+
 ### Fixes — Instagram API version default (2026-09-10)
 
 - The default Graph API version moves from `v23.0` to `v26.0`, matching the

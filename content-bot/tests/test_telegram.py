@@ -11,7 +11,7 @@ class FakeTransport:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, url, payload):
+    def __call__(self, url, payload, *, timeout=35):
         self.calls.append((url, payload))
         method = url.rsplit("/", 1)[-1]
         if method == "getUpdates":
@@ -48,8 +48,19 @@ class TelegramApiTest(unittest.TestCase):
         self.assertTrue(url.endswith("/getUpdates"))
         self.assertEqual(payload, {"offset": 7, "timeout": 25})
 
+    def test_get_updates_read_timeout_outlives_the_long_poll(self):
+        timeouts = []
+
+        def capturing(url, payload, *, timeout=35):
+            timeouts.append(timeout)
+            return {"ok": True, "result": []}
+
+        self.api._transport = capturing
+        self.api.get_updates(offset=3, timeout=25)
+        self.assertEqual(timeouts, [50])
+
     def test_error_response_raises_telegram_error(self):
-        def failing(url, payload):
+        def failing(url, payload, *, timeout=35):
             return {"ok": False, "description": "Unauthorized"}
 
         self.api._transport = failing

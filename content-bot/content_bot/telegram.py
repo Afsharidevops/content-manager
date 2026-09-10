@@ -20,12 +20,24 @@ class TelegramApi:
         self.token = token
         self.root = f"{self.api_base}/bot{token}"
 
-    def _transport(self, url: str, payload: dict | None) -> object:
-        return request_json(url, payload=payload, timeout=35)
+    def _transport(
+        self,
+        url: str,
+        payload: dict | None,
+        *,
+        timeout: int = 35,
+    ) -> object:
+        return request_json(url, payload=payload, timeout=timeout)
 
-    def _call(self, method: str, params: dict | None = None) -> object:
+    def _call(
+        self,
+        method: str,
+        params: dict | None = None,
+        *,
+        timeout: int = 35,
+    ) -> object:
         try:
-            data = self._transport(f"{self.root}/{method}", params)
+            data = self._transport(f"{self.root}/{method}", params, timeout=timeout)
         except HttpError as error:
             raise TelegramError(f"Telegram {method} HTTP {error.status}") from error
         if not isinstance(data, dict) or data.get("ok") is not True:
@@ -180,7 +192,9 @@ class TelegramApi:
         params: dict = {"timeout": timeout}
         if offset is not None:
             params["offset"] = offset
-        result = self._call("getUpdates", params)
+        # The read timeout has to outlive the long poll: Telegram answers when
+        # the poll expires, and a slow route adds several seconds on top.
+        result = self._call("getUpdates", params, timeout=timeout + 25)
         return result if isinstance(result, list) else []
 
     def send_message(
