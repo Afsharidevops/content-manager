@@ -86,6 +86,23 @@ REVISE_PROMPT = (
 )
 
 
+VIDEO_SCRIPT_PROMPT = (
+    "You script one short vertical social video (a reel) in Persian (Farsi) "
+    "about a single post from a technical channel. Reply with exactly one "
+    "JSON object with one key: 'segments'. Its value is an array of {count} "
+    "objects, one per ten-second shot, each with two keys: 'say' (the exact "
+    "Persian sentence spoken during that shot) and 'visual' (one English "
+    "sentence describing what the camera shows). Write like a friend talking "
+    "to the viewer: warm, conversational, direct second person, short "
+    "everyday sentences. The first 'say' line hooks the viewer, every later "
+    "line continues the previous one, and the last line closes with one clear "
+    "takeaway. Each 'say' is a single sentence of about 20 to 30 Persian "
+    "words that ends on a natural pause. Base everything only on the provided "
+    "post; do not invent facts. Do not use Markdown, hashtags, labels, "
+    "quotes, or emoji."
+)
+
+
 class WriterError(RuntimeError):
     pass
 
@@ -115,7 +132,13 @@ class Writer:
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort
 
-    def _chat(self, messages: list[dict]) -> str:
+    def _chat(
+        self,
+        messages: list[dict],
+        *,
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+    ) -> str:
         headers = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -124,10 +147,11 @@ class Writer:
             "messages": messages,
             "stream": False,
             "temperature": 0.7,
-            "max_tokens": self.max_tokens,
+            "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
         }
-        if self.reasoning_effort:
-            payload["reasoning_effort"] = self.reasoning_effort
+        effort = self.reasoning_effort if reasoning_effort is None else reasoning_effort
+        if effort:
+            payload["reasoning_effort"] = effort
         try:
             data = request_json(
                 self.endpoint,
@@ -330,6 +354,59 @@ class Writer:
         if last_error is not None:
             raise last_error
         raise WriterError("revision returned no usable JSON output")
+
+    def video_script(
+        self,
+        *,
+        title: str,
+        body: str,
+        source_url: str = "",
+        segments: int = 3,
+    ) -> list[dict]:
+        """Return one ``{"say", "visual"}`` beat per video segment.
+
+        Raises ``WriterError`` when the model returns no usable script so the
+        caller can fall back to the post text.
+        """
+        count = max(int(segments), 1)
+        user_message = json.dumps(
+            {"title": title, "body": body, "source_url": source_url},
+            ensure_ascii=True,
+            indent=2,
+        )
+        content = self._chat(
+            [
+                {
+                    "role": "system",
+                    "content": VIDEO_SCRIPT_PROMPT.replace("{count}", str(count)),
+                },
+                {"role": "user", "content": user_message},
+            ],
+            max_tokens=max(self.max_tokens, 2600),
+            reasoning_effort=self.reasoning_effort or "low",
+        )
+        parsed = Writer._parse_json_object(content)
+        raw = parsed.get("segments") if isinstance(parsed, dict) else None
+        beats: list[dict] = []
+        if isinstance(raw, list):
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                beats.append(
+                    {
+                        "say": Writer._clean_line(item.get("say")),
+                        "visual": Writer._clean_line(item.get("visual")),
+                    }
+                )
+        beats = [beat for beat in beats if beat["say"] or beat["visual"]]
+        if len(beats) < count:
+            raise WriterError("writer returned an incomplete video script")
+        return beats[:count]
+
+    @staticmethod
+    def _clean_line(value) -> str:
+        """Collapse one model line into a single clean sentence."""
+        return " ".join(str(value or "").split()).strip()
 
     @staticmethod
     def _parse_post(content: str) -> dict | None:

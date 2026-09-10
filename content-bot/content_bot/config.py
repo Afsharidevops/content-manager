@@ -59,11 +59,15 @@ class BotSettings:
     topic_drafts_enabled: bool = True
     search_max_results: int = 5
     search_timeout: int = 25
+    video_character: str = ""
+    video_character_prompt: str = ""
+    video_aspect: str = "9:16 vertical"
+    video_segment_seconds: int = 10
     instagram_business_id: str = ""
     instagram_access_token: str = ""
     instagram_media_public_base_url: str = ""
     instagram_api_base: str = "https://graph.facebook.com"
-    instagram_api_version: str = "v23.0"
+    instagram_api_version: str = "v26.0"
     instagram_poll_timeout_seconds: int = 600
 
     @classmethod
@@ -90,6 +94,10 @@ class BotSettings:
             topic_drafts_enabled=_env_bool("CONTENT_TOPIC_DRAFTS_ENABLED", True),
             search_max_results=_env_int("CONTENT_SEARCH_MAX_RESULTS", 5),
             search_timeout=_env_int("CONTENT_SEARCH_TIMEOUT", 25),
+            video_character=_env("CONTENT_VIDEO_CHARACTER"),
+            video_character_prompt=_env("CONTENT_VIDEO_CHARACTER_PROMPT"),
+            video_aspect=_env("CONTENT_VIDEO_ASPECT", "9:16 vertical"),
+            video_segment_seconds=_env_int("CONTENT_VIDEO_SEGMENT_SECONDS", 10),
             instagram_business_id=_env("INSTAGRAM_BUSINESS_ID"),
             instagram_access_token=_env("INSTAGRAM_ACCESS_TOKEN"),
             instagram_media_public_base_url=_env(
@@ -98,11 +106,16 @@ class BotSettings:
             instagram_api_base=_env(
                 "INSTAGRAM_API_BASE", "https://graph.facebook.com"
             ),
-            instagram_api_version=_env("INSTAGRAM_API_VERSION", "v23.0"),
+            instagram_api_version=_env("INSTAGRAM_API_VERSION", "v26.0"),
             instagram_poll_timeout_seconds=_env_int(
                 "INSTAGRAM_POLL_TIMEOUT_SECONDS", 600
             ),
         )
+
+    @property
+    def video_character_enabled(self) -> bool:
+        """True when a saved Flow character can carry the reel narration."""
+        return bool(self.video_character)
 
     @property
     def instagram_enabled(self) -> bool:

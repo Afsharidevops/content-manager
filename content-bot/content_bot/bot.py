@@ -570,21 +570,209 @@ class ContentBot:
             return content
         return branded or content
 
-    def _user_video_prompt(self, record: dict) -> str:
-        title = str(record.get("title") or "").strip()
-        body = re.sub(r"\s+", " ", str(record.get("body") or "")).strip()
-        if not body and title:
-            body = title
-        source = str(record.get("source_url") or "").strip()
-        if source:
-            body = writer_mod.Writer._strip_source_url(body, source)
-        return (
-            "Create one short video clip (8-12 seconds, landscape 16:9, no "
-            "burned-in text, no watermark) that illustrates this post. Keep "
-            "the style clean, modern, and photorealistic.\n"
-            f"Title: {title}\n"
-            f"Post: {body[:600]}"
+    _VIDEO_CHARACTER_TEMPLATE = (
+        "{handle} is speaking directly to the camera in a clean modern studio. "
+        "Medium shot, chest-up framing. Eye-level camera. Soft diffused frontal "
+        "lighting with gentle fill. Natural healthy skin texture. Relaxed and "
+        "confident posture. Natural blinking and subtle head movements. Very "
+        "subtle realistic hand gestures. Use {handle} consistently throughout "
+        "the video. Maintain the existing character appearance and youthful "
+        "look. Keep the under-eye area soft. Keep facial expressions natural "
+        "and subtle. Avoid harsh shadows or exaggerated facial lines. Use "
+        "{handle}'s assigned character voice. Natural contemporary Persian "
+        "delivery. Accurate lip sync. Clean studio audio. Single continuous "
+        "shot. No camera cuts. No subtitles. No captions. No text on screen. "
+        "No background music. Photorealistic. Keep the delivery natural, calm, "
+        "and conversational. Aspect: {aspect}."
+    )
+    _PROMPT_ASK_MAX = 3400
+
+    def _video_character_block(self) -> str:
+        """Return the reusable Flow character description."""
+        handle = self.settings.video_character or "the character"
+        template = (
+            self.settings.video_character_prompt or self._VIDEO_CHARACTER_TEMPLATE
         )
+        return template.replace("{handle}", handle).replace(
+            "{aspect}", self.settings.video_aspect
+        )
+
+    def _video_beats(self, record: dict, *, seconds: int) -> tuple[list[dict], bool]:
+        """Return one script beat per segment and whether a model wrote it."""
+        segment_seconds = max(int(self.settings.video_segment_seconds or 10), 5)
+        count = max(1, int(round(seconds / segment_seconds)))
+        body = str(record.get("body") or "")
+        source_url = str(record.get("source_url") or "")
+        if source_url:
+            body = writer_mod.Writer._strip_source_url(body, source_url)
+        writer = self.writer
+        if writer is not None and hasattr(writer, "video_script"):
+            try:
+                beats = writer.video_script(
+                    title=str(record.get("title") or ""),
+                    body=body,
+                    source_url=source_url,
+                    segments=count,
+                )
+            except writer_mod.WriterError as error:
+                log.warning("video script generation failed: %s", error)
+            else:
+                if beats:
+                    return beats[:count], True
+        chunks = self._fallback_beats(body, count)
+        return [{"say": chunk, "visual": ""} for chunk in chunks], False
+
+    @staticmethod
+    def _fallback_beats(text: str, count: int) -> list[str]:
+        """Split the post text into even chunks when no script model is left."""
+        words = [word for word in re.sub(r"\s+", " ", str(text or "")).split(" ") if word]
+        if not words:
+            return [""] * count
+        size = max(1, -(-len(words) // count))
+        chunks: list[str] = []
+        for index in range(count):
+            start = index * size
+            end = len(words) if index == count - 1 else start + size
+            chunks.append(" ".join(words[start:end]).strip())
+        return chunks
+
+    def _video_prompt_package(
+        self,
+        record: dict,
+        *,
+        beats: list[dict],
+        style: str,
+        seconds: int,
+    ) -> str:
+        """Build one copy-ready prompt package with a prompt per segment."""
+        aspect = self.settings.video_aspect
+        handle = self.settings.video_character or "the character"
+        blocks: list[str] = []
+        for index, beat in enumerate(beats, start=1):
+            say = str(beat.get("say") or "").strip()
+            visual = str(beat.get("visual") or "").strip()
+            lines: list[str] = []
+            if style == "character":
+                if index == 1:
+                    lines.append("Segment 1 prompt:")
+                else:
+                    lines.append(
+                        f"Segment {index} prompt (press Extend, then paste):"
+                    )
+                lines.append(self._video_character_block())
+                if index > 1:
+                    lines.append(
+                        "Continue directly from the last frame of the previous "
+                        "clip. Same framing, same lighting, single continuous "
+                        "take, no cuts."
+                    )
+                if say:
+                    lines.append(
+                        f"{handle} speaks naturally in Persian and says "
+                        f'exactly: "{say}"'
+                    )
+                lines.append(
+                    "Ends with a short natural pause. No subtitles, no captions, "
+                    "no text on screen, no background music. Photorealistic."
+                )
+            else:
+                shot = visual or (
+                    "A clean cinematic shot that illustrates this part of the "
+                    "story"
+                )
+                tail = (
+                    f"Clean modern look, photorealistic, {aspect}, no text "
+                    "overlays, no watermark, no logos. Single continuous shot, "
+                    "no camera cuts."
+                )
+                if index == 1:
+                    lines.append("Segment 1 prompt:")
+                    lines.append(f"{shot} {tail}")
+                else:
+                    lines.append(
+                        f"Segment {index} prompt (press Extend, then paste):"
+                    )
+                    lines.append(
+                        f"Continue directly from the last frame. {shot} Same "
+                        f"look and lighting. {tail}"
+                    )
+                if say:
+                    lines.append(f'Optional Persian voiceover line: "{say}"')
+            blocks.append("\n".join(lines))
+        header = (
+            f"Reel package: {len(blocks)} segment(s), about {seconds} seconds "
+            f"total, {aspect}."
+        )
+        return "\n\n\n".join([header] + blocks)
+
+    @staticmethod
+    def _prompt_chunks(package: str, limit: int = 3000) -> list[str]:
+        """Split a prompt package into one copy-ready message per segment."""
+        chunks: list[str] = []
+        for part in str(package or "").split("\n\n\n"):
+            part = part.strip("\n")
+            while len(part) > limit:
+                chunks.append(part[:limit].rstrip())
+                part = part[limit:].lstrip()
+            if part:
+                chunks.append(part)
+        return chunks
+
+    def _send_video_prompt_package(
+        self,
+        draft_id: str,
+        *,
+        query_id: str,
+        seconds: int,
+    ) -> None:
+        """Send the segmented Flow package and wait for the finished video."""
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            self._safe_answer(query_id, "This draft is no longer active.")
+            return
+        style = str(record.get("video_style") or "ai")
+        beats, from_model = self._video_beats(record, seconds=seconds)
+        package = self._video_prompt_package(
+            record,
+            beats=beats,
+            style=style,
+            seconds=seconds,
+        )
+        footer = (
+            "Reel prompt package for this draft. Build the segments with the "
+            "tool of your choice (for example Google Flow): paste segment 1, "
+            "press Extend for the following segments, join the parts if you "
+            "want one file, then send the finished video here."
+        )
+        if not from_model:
+            footer += " (No script model was available; the lines come from the post text.)"
+        chat_id = record.get("chat_id")
+        ask_text = f"{footer}\n\n<pre>{_html_escape(package)}</pre>"
+        inline = len(ask_text) <= self._PROMPT_ASK_MAX
+        chunks: list[str] = []
+        if not inline:
+            header, _, body_text = package.partition("\n\n\n")
+            ask_text = f"{footer}\n\n{_html_escape(header)}"
+            chunks = self._prompt_chunks(body_text)
+        if not self._begin_user_media_wait(
+            record,
+            kind="video",
+            ask_text=ask_text,
+        ):
+            self._safe_answer(query_id, "Another media upload is already waiting.")
+            return
+        if chunks and chat_id is not None:
+            for chunk in chunks:
+                try:
+                    self.api.send_message(
+                        chat_id,
+                        f"<pre>{_html_escape(chunk)}</pre>",
+                        parse_mode="HTML",
+                    )
+                except telegram_mod.TelegramError as error:
+                    log.warning("video prompt chunk failed: %s", error)
+                    break
+        self._safe_answer(query_id, "Prompt package sent; waiting for your video file.")
 
     def _begin_user_image_wait(
         self,
@@ -960,18 +1148,57 @@ class ContentBot:
             self._begin_user_image_wait(record, query_id, multi=True)
             return
         if sub == "video_prompt":
-            if not self._begin_user_media_wait(
-                record,
-                kind="video",
-                ask_text="Video prompt for this draft:\n\n"
-                f"<pre>{_html_escape(self._user_video_prompt(record))}</pre>\n\n"
-                "Create the video with the tool of your choice (for example "
-                "Google Flow), then send the video file here. It will be "
-                "attached to the draft for approval.",
-            ):
-                self._safe_answer(query_id, "Another media upload is already waiting.")
+            ask_id = record.get("ask_message_id")
+            chat_id = record.get("chat_id")
+            if chat_id is None or ask_id is None:
+                self._safe_answer(query_id, "No active media question was found.")
                 return
-            self._safe_answer(query_id, "Prompt sent; waiting for your video file.")
+            if not self.settings.video_character_enabled:
+                self.state.update_draft(draft_id, {"video_style": "ai"})
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    "How long should the reel be?",
+                    telegram_mod.video_prompt_duration_keyboard(draft_id),
+                )
+                self._safe_answer(query_id, "Choose a length.")
+                return
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "Should the reel use your saved Flow character or pure AI shots?",
+                telegram_mod.video_style_keyboard(draft_id, character=True),
+            )
+            self._safe_answer(query_id, "Choose the reel style.")
+            return
+        if sub in {"vstyle_char", "vstyle_ai"}:
+            style = "character" if sub == "vstyle_char" else "ai"
+            ask_id = record.get("ask_message_id")
+            chat_id = record.get("chat_id")
+            if style == "character" and not self.settings.video_character_enabled:
+                self._safe_answer(
+                    query_id,
+                    "No character is configured (CONTENT_VIDEO_CHARACTER).",
+                )
+                return
+            if chat_id is None or ask_id is None:
+                self._safe_answer(query_id, "No active media question was found.")
+                return
+            self.state.update_draft(draft_id, {"video_style": style})
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "How long should the reel be?",
+                telegram_mod.video_prompt_duration_keyboard(draft_id),
+            )
+            self._safe_answer(query_id, "Choose a length.")
+            return
+        if sub in {"script10", "script30"}:
+            self._send_video_prompt_package(
+                draft_id,
+                query_id=query_id,
+                seconds=10 if sub == "script10" else 30,
+            )
             return
         if sub == "video":
             ask_id = record.get("ask_message_id")

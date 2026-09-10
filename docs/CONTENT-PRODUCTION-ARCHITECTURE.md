@@ -152,4 +152,8 @@ CONTENT_SEARCH_ENABLED              topic/short-page search (default true)
 CONTENT_TOPIC_DRAFTS_ENABLED        draft from topic messages (default true)
 CONTENT_SEARCH_MAX_RESULTS          search results used (default 5)
 CONTENT_SEARCH_TIMEOUT              search timeout seconds (default 25)
+CONTENT_VIDEO_CHARACTER            saved Flow character handle (blank disables)
+CONTENT_VIDEO_CHARACTER_PROMPT     character block override, keeps {handle}/{aspect}
+CONTENT_VIDEO_ASPECT               reel frame for prompt packages (default 9:16 vertical)
+CONTENT_VIDEO_SEGMENT_SECONDS      seconds Flow generates per segment (default 10)
 ```

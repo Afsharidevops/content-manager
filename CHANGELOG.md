@@ -52,6 +52,35 @@ platform; this section tracks the fork additions.
   already required a Persian opening word and now enforces it together with the
   friendlier voice.
 
+### Improvements — segmented video prompt package and character choice (2026-09-10)
+
+- "My video (get a prompt)" now builds a reel package instead of one prompt:
+  a scene setting and the exact Persian narration line per ten-second
+  segment, ready for the Google Flow Extend flow. Short packages arrive in
+  one message and longer ones as one copy-ready message per segment.
+- The flow asks whether the reel should use the saved Flow character
+  (`CONTENT_VIDEO_CHARACTER`, for example `@mohammad`) or run as a pure-AI
+  promo with no character. Character reels repeat the character block on
+  every segment, AI promo reels describe the shot only and list the Persian
+  line as an optional voiceover.
+- `CONTENT_VIDEO_CHARACTER_PROMPT` overrides the built-in character
+  description, `CONTENT_VIDEO_ASPECT` sets the reel frame (default
+  `9:16 vertical`), and `CONTENT_VIDEO_SEGMENT_SECONDS` sets the clip length
+  Flow generates per segment (default 10). The writer drafts the narration
+  lines and falls back to the post text when the writer backend is down.
+- Video script requests use a larger token budget (at least 2600) with low
+  reasoning effort; reasoning-heavy routers otherwise spend the whole budget
+  on hidden reasoning and return empty content, which silently pushed every
+  reel package back to the post-text fallback.
+
+### Fixes — Instagram API version default (2026-09-10)
+
+- The default Graph API version moves from `v23.0` to `v26.0`, matching the
+  version the Meta dashboard now shows. Live checks against
+  `graph.instagram.com` confirm `v26.0` is the newest accepted version
+  (`v27.0` is rejected as unknown) and that account lookup, media listing,
+  and publishing all keep working on it.
+
 ### Fixes — Instagram approval flow and Media Studio reachability (2026-09-10)
 
 - Media previews now carry the Instagram approval buttons: photo and video

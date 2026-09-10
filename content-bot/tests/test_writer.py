@@ -56,6 +56,78 @@ class WriterTest(unittest.TestCase):
         self.assertEqual(payload["max_tokens"], 3000)
         self.assertEqual(payload["reasoning_effort"], "low")
 
+    def test_video_script_requests_low_reasoning_and_larger_budget(self):
+        writer = Writer("http://writer.test/v1", model="auto", max_tokens=1600)
+        reply = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "segments": [
+                                    {"say": "خط اول", "visual": "Shot one"},
+                                    {"say": "خط دوم", "visual": "Shot two"},
+                                ]
+                            },
+                            ensure_ascii=True,
+                        )
+                    }
+                }
+            ]
+        }
+        with mock.patch(
+            "content_bot.writer.request_json", return_value=reply
+        ) as request:
+            beats = writer.video_script(title="t", body="b", segments=2)
+        payload = request.call_args.kwargs["payload"]
+        self.assertEqual(payload["max_tokens"], 2600)
+        self.assertEqual(payload["reasoning_effort"], "low")
+        self.assertEqual([beat["say"] for beat in beats], ["خط اول", "خط دوم"])
+
+    def test_video_script_keeps_explicit_budget_and_reasoning_effort(self):
+        writer = Writer(
+            "http://writer.test/v1",
+            max_tokens=4000,
+            reasoning_effort="medium",
+        )
+        reply = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"segments": [{"say": "یک", "visual": "One"}]},
+                            ensure_ascii=True,
+                        )
+                    }
+                }
+            ]
+        }
+        with mock.patch(
+            "content_bot.writer.request_json", return_value=reply
+        ) as request:
+            writer.video_script(title="t", body="b", segments=1)
+        payload = request.call_args.kwargs["payload"]
+        self.assertEqual(payload["max_tokens"], 4000)
+        self.assertEqual(payload["reasoning_effort"], "medium")
+
+    def test_video_script_rejects_incomplete_reply(self):
+        writer = Writer("http://writer.test/v1")
+        reply = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"segments": [{"say": "یک", "visual": "One"}]},
+                            ensure_ascii=True,
+                        )
+                    }
+                }
+            ]
+        }
+        with mock.patch("content_bot.writer.request_json", return_value=reply):
+            with self.assertRaisesRegex(WriterError, "incomplete"):
+                writer.video_script(title="t", body="b", segments=3)
+
     def test_revise_returns_shortened_post(self):
         writer = StubWriter(
             [

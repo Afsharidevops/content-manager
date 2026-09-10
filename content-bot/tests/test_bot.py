@@ -31,6 +31,24 @@ class FakeWriter:
     def __init__(self):
         self.calls = []
         self.revisions = []
+        self.video_calls = []
+
+    def video_script(self, *, title, body, source_url="", segments=3):
+        self.video_calls.append(
+            {
+                "title": title,
+                "body": body,
+                "source_url": source_url,
+                "segments": segments,
+            }
+        )
+        return [
+            {
+                "say": f"جمله شماره {index}",
+                "visual": f"Shot number {index} of the story",
+            }
+            for index in range(1, segments + 1)
+        ]
 
     def generate_post(self, item, guidance=""):
         self.calls.append(item)
@@ -570,7 +588,12 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def _media_settings(tmp_dir: str, *, instagram: bool = False) -> BotSettings:
+def _media_settings(
+    tmp_dir: str,
+    *,
+    instagram: bool = False,
+    character: str = "",
+) -> BotSettings:
     return BotSettings(
         bot_token="123:TESTTOKENABCDEFGHIJKLMN",
         telegram_channel="@channel",
@@ -579,6 +602,7 @@ def _media_settings(tmp_dir: str, *, instagram: bool = False) -> BotSettings:
         data_dir=tmp_dir,
         scheduler_enabled=False,
         media_studio_url="http://media-studio:8850",
+        video_character=character,
         instagram_business_id="17841400000000000" if instagram else "",
         instagram_access_token="IGQ-test-token" if instagram else "",
     )
@@ -605,6 +629,19 @@ class MediaFlowTestCase(unittest.TestCase):
             fetch_feed=lambda url: b"",
             now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
         )
+
+    def package_text(self):
+        """Join every message body so package asserts cover chunked sends."""
+        parts = []
+        for method, payload in self.api.calls:
+            if method not in {"editMessageText", "sendMessage"}:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            text = str(payload.get("text") or "")
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
 
     def send_link(self, bot):
         bot.handle_message(
@@ -988,6 +1025,14 @@ class MediaFlowTestCase(unittest.TestCase):
                 "data": f"media:video_prompt:{draft_id}",
             }
         )
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:script10:{draft_id}",
+            }
+        )
         bot.handle_message(
             {
                 "chat": {"id": 11},
@@ -1003,6 +1048,151 @@ class MediaFlowTestCase(unittest.TestCase):
         record = bot.state.load()["drafts"][draft_id]
         self.assertEqual(record["status"], "media_ready")
 
+    def test_video_prompt_character_package_has_extend_segments(self):
+        self.settings = _media_settings(self.tmp.name, character="@mohammad")
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:video_prompt:{draft_id}",
+            }
+        )
+        style_rows = [
+            payload["reply_markup"]["inline_keyboard"]
+            for method, payload in self.api.calls
+            if method == "editMessageText" and isinstance(payload, dict)
+        ][-1]
+        labels = [button["text"] for row in style_rows for button in row]
+        self.assertIn("With my character", labels)
+        self.assertIn("AI promo (no character)", labels)
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:vstyle_char:{draft_id}",
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "q3",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:script30:{draft_id}",
+            }
+        )
+        package = self.package_text()
+        self.assertIn("3 segment(s)", package)
+        self.assertIn("Segment 1 prompt:", package)
+        self.assertIn("Segment 2 prompt (press Extend, then paste):", package)
+        self.assertIn("Segment 3 prompt (press Extend, then paste):", package)
+        self.assertIn("@mohammad is speaking directly to the camera", package)
+        self.assertIn("Continue directly from the last frame", package)
+        self.assertIn("جمله شماره 1", package)
+        self.assertEqual(len(bot.writer.video_calls), 1)
+        self.assertEqual(bot.writer.video_calls[0]["segments"], 3)
+
+    def test_long_character_prompt_sends_one_message_per_segment(self):
+        self.settings = _media_settings(self.tmp.name, character="@mohammad")
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        for index, data in enumerate(
+            (
+                f"media:video_prompt:{draft_id}",
+                f"media:vstyle_char:{draft_id}",
+                f"media:script30:{draft_id}",
+            )
+        ):
+            bot.handle_callback(
+                {
+                    "id": f"q{index}",
+                    "from": {"id": 11},
+                    "message": {"chat": {"id": 11}, "message_id": 103},
+                    "data": data,
+                }
+            )
+        chunks = [
+            message["text"]
+            for message in self.api.sent_messages
+            if str(message.get("text") or "").startswith("<pre>")
+        ]
+        self.assertEqual(len(chunks), 3)
+        self.assertIn("Segment 1 prompt:", chunks[0])
+        self.assertIn("Segment 2 prompt (press Extend, then paste):", chunks[1])
+        self.assertIn("Segment 3 prompt (press Extend, then paste):", chunks[2])
+        for chunk in chunks:
+            self.assertIn("9:16 vertical", chunk)
+            self.assertLessEqual(len(chunk), 3000)
+
+    def test_ai_promo_package_uses_shots_without_the_character(self):
+        self.settings = _media_settings(self.tmp.name, character="@mohammad")
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:video_prompt:{draft_id}",
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:vstyle_ai:{draft_id}",
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "q3",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:script10:{draft_id}",
+            }
+        )
+        package = self.package_text()
+        self.assertIn("1 segment(s)", package)
+        self.assertIn("Shot number 1 of the story", package)
+        self.assertNotIn("@mohammad", package)
+        self.assertIn("Optional Persian voiceover line", package)
+
+    def test_video_prompt_falls_back_to_post_text_without_script_model(self):
+        bot = self.build_bot()
+
+        class PlainWriter:
+            def generate_post(self, item, guidance=""):
+                return {"title": "T", "body": "B", "source_url": ""}
+
+            def revise_post(self, **kwargs):
+                return {"title": "T", "body": "B", "source_url": ""}
+
+        bot.writer = PlainWriter()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:video_prompt:{draft_id}",
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:script10:{draft_id}",
+            }
+        )
+        package = self.package_text()
+        self.assertIn("No script model was available", package)
+        self.assertIn("Segment 1 prompt:", package)
+
     def test_video_prompt_then_uploaded_video_publishes(self):
         bot = self.build_bot(artifact=("clip.mp4", "video"))
         draft_id = self.send_link(bot)
@@ -1014,14 +1204,20 @@ class MediaFlowTestCase(unittest.TestCase):
                 "data": f"media:video_prompt:{draft_id}",
             }
         )
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:script10:{draft_id}",
+            }
+        )
         edits = [
             payload["text"]
             for method, payload in self.api.calls
             if method == "editMessageText" and isinstance(payload, dict)
         ]
-        self.assertTrue(
-            any("Video prompt for this draft" in text for text in edits)
-        )
+        self.assertTrue(any("Reel prompt package" in text for text in edits))
         self.assertTrue(any("<pre>" in text for text in edits))
         record = bot.state.load()["drafts"][draft_id]
         self.assertEqual(record["status"], "awaiting_media")

@@ -293,6 +293,43 @@ def media_choice_keyboard(draft_id: str) -> dict:
     }
 
 
+def video_style_keyboard(draft_id: str, *, character: bool) -> dict:
+    """Ask whether a hand-made reel uses the saved character or pure AI shots."""
+    rows = []
+    if character:
+        rows.append(
+            [
+                {
+                    "text": "With my character",
+                    "callback_data": f"media:vstyle_char:{draft_id}",
+                }
+            ]
+        )
+    rows.append(
+        [
+            {
+                "text": "AI promo (no character)",
+                "callback_data": f"media:vstyle_ai:{draft_id}",
+            }
+        ]
+    )
+    rows.append([{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}])
+    return {"inline_keyboard": rows}
+
+
+def video_prompt_duration_keyboard(draft_id: str) -> dict:
+    """Pick the reel length before the segmented prompt package is built."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "~10 seconds", "callback_data": f"media:script10:{draft_id}"},
+                {"text": "Up to 30 seconds", "callback_data": f"media:script30:{draft_id}"},
+            ],
+            [{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}],
+        ]
+    }
+
+
 def upload_wait_keyboard(draft_id: str) -> dict:
     """Shown while the bot waits for the operator to send a media file."""
     return {

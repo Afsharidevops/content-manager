@@ -110,10 +110,11 @@ question with four choices:
 - **Send my image** - the bot waits for a photo you send in the chat and
   attaches it to the draft. Uploaded photos get the same corner brand chip as
   AI-generated images; uploaded videos are stored unchanged.
-- **My video (get a prompt)** - the bot composes a ready-to-use video prompt
-  from the post title and body. Create the clip yourself in any tool (for
-  example Google Flow), then send the video file back in the chat; the bot
-  attaches it to the draft for approval.
+- **My video (get a prompt)** - the bot composes a copy-ready prompt
+  package from the post title and body (see "Video prompt packages" below).
+  Create the clip yourself in any tool (for example Google Flow), then send
+  the video file back in the chat; the bot attaches it to the draft for
+  approval.
 
 While the bot waits for an upload, the media question shows a **Cancel
 upload** button and new drafts are blocked until the upload is cancelled or
@@ -126,6 +127,35 @@ The brand chip is configurable on Media Studio: `MEDIA_STUDIO_BRAND_LABEL`
 `MEDIA_STUDIO_BRAND_POSITION` (default `bottom-right`). Every AI-generated
 image and every uploaded photo is branded in a corner before it is previewed
 or published.
+
+### Video prompt packages
+
+The **My video (get a prompt)** choice does not generate the clip; it hands
+you a package you can paste into an external video tool such as Google Flow,
+which generates roughly ten seconds per clip and extends them on demand:
+
+1. Choose the style. When `CONTENT_VIDEO_CHARACTER` names a saved Flow
+   character (for example `@mohammad`), the bot asks **With my character** or
+   **AI promo (no character)**. With no configured character it goes straight
+   to the AI promo package.
+2. Choose the length: **~10 seconds** (one segment) or **Up to 30 seconds**
+   (three segments by default, from `CONTENT_VIDEO_SEGMENT_SECONDS`).
+3. The bot picks one scene setting and one Persian narration line per segment
+   from the post and sends the prompts. Short packages arrive in one message;
+   longer packages arrive as one copy-ready message per segment.
+4. In Flow: paste the segment 1 prompt, generate, press **Extend**, paste the
+   next segment prompt, and repeat to the end. Join the clips afterwards if
+   you want a single file.
+5. Send the finished video back in the chat; the bot attaches it to the draft
+   and shows the usual approval buttons. Uploaded videos are never branded.
+
+Character reels repeat the same character description in every segment so
+Flow keeps the face and voice consistent, while AI promo reels describe the
+shot only and list the Persian line as an optional voiceover.
+`CONTENT_VIDEO_CHARACTER_PROMPT` replaces the built-in character block and
+must keep the `{handle}` and `{aspect}` placeholders; `CONTENT_VIDEO_ASPECT`
+sets the frame (default `9:16 vertical`). When the writer backend is
+unavailable the narration lines fall back to the post text.
 
 Experimental AI video jobs (`CONTENT_MEDIA_VIDEO_DRIVER`, default
 `flow-video`) can still be triggered from older media questions, but Google

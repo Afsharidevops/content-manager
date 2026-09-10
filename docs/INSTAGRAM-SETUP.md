@@ -69,7 +69,7 @@ INSTAGRAM_BUSINESS_ID=
 INSTAGRAM_ACCESS_TOKEN=
 INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir/bot
 INSTAGRAM_API_BASE=https://graph.facebook.com
-INSTAGRAM_API_VERSION=v23.0
+INSTAGRAM_API_VERSION=v26.0
 INSTAGRAM_POLL_TIMEOUT_SECONDS=600
 ```
 
@@ -82,7 +82,7 @@ INSTAGRAM_POLL_TIMEOUT_SECONDS=600
   tokens minted through Facebook Login; use `https://graph.instagram.com` for
   tokens from **Instagram API with Instagram Login** (an app whose only job is
   to own the Instagram app id; the Instagram account authorises it directly).
-- `INSTAGRAM_API_VERSION` - Graph API version (default `v23.0`).
+- `INSTAGRAM_API_VERSION` - Graph API version (default `v26.0`).
 - `INSTAGRAM_POLL_TIMEOUT_SECONDS` - how long to wait for Meta media
   processing before failing (default 600).
 

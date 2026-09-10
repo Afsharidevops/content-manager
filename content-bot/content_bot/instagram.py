@@ -12,7 +12,7 @@ from content_bot import rtl as rtl_mod
 from content_bot.http import request_bytes
 
 GRAPH_BASE = "https://graph.facebook.com"
-DEFAULT_API_VERSION = "v23.0"
+DEFAULT_API_VERSION = "v26.0"
 CAPTION_MAX = 2200
 CAROUSEL_MAX = 10
 DEFAULT_POLL_INTERVAL_SECONDS = 5
