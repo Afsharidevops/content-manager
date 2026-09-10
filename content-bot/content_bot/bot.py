@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import html
 import logging
+import os
 import re
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time as clock_time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -28,6 +29,17 @@ log = logging.getLogger("content_bot")
 # contains Latin-script product names.
 _TITLE_RTL_OPEN = "\u202b"
 _TITLE_RTL_CLOSE = "\u202c"
+
+# Weekday names accepted by the per-platform routine cadence in the policy.
+_WEEKDAY_INDEX = {
+    "mon": 0,
+    "tue": 1,
+    "wed": 2,
+    "thu": 3,
+    "fri": 4,
+    "sat": 5,
+    "sun": 6,
+}
 
 
 def _html_escape(value) -> str:
@@ -181,6 +193,7 @@ class ContentBot:
         self.fetch_feed = fetch_feed or fetch.fetch_feed
         self.search_topic = search_topic or search_mod.search_topic
         self.now_fn = now_fn
+        self.tools = workflow.load_tools(settings.policy_dir)
         self._offset = 0
         self._instagram = None
 
@@ -206,6 +219,7 @@ class ContentBot:
             try:
                 self.poll_once()
                 self.maybe_run_daily()
+                self.maybe_run_routines()
                 self.maybe_poll_media_jobs()
             except telegram_mod.TelegramError as error:
                 log.warning("Telegram API error: %s", error)
@@ -234,6 +248,10 @@ class ContentBot:
             {
                 "command": "forget_link",
                 "description": "Allow a published link to be drafted again",
+            },
+            {
+                "command": "tools",
+                "description": "List the shared tool registry entries",
             },
         ]
         for scope in (None, {"type": "all_private_chats"}):
@@ -317,6 +335,9 @@ class ContentBot:
             return
         if text == "/status":
             self.api.send_message(chat_id, self.status_text())
+            return
+        if text.split("@", 1)[0] == "/tools":
+            self.api.send_message(chat_id, self.tools_text(), parse_mode="HTML")
             return
         if text.startswith(("/forget-link", "/forget_link")):
             link_match = URL_RE.search(text)
@@ -557,7 +578,154 @@ class ContentBot:
                     "Media received, but the preview could not be sent.",
                 )
             return
+        if str(media.get("kind") or "") == "video":
+            self._ask_video_edit(draft_id, draft, media)
+            return
         self._finish_user_media(draft_id, draft, media)
+
+    _VIDEO_CONTENT_TYPES = {
+        "mp4": "video/mp4",
+        "m4v": "video/mp4",
+        "mov": "video/quicktime",
+        "webm": "video/webm",
+        "mkv": "video/x-matroska",
+        "avi": "video/x-msvideo",
+    }
+
+    def _video_content_type(self, path: Path) -> str:
+        suffix = path.suffix.lstrip(".").lower()
+        return self._VIDEO_CONTENT_TYPES.get(suffix, "video/mp4")
+
+    def _ask_video_edit(self, draft_id: str, draft: dict, media: dict) -> None:
+        """Ask whether an operator-recorded clip should be edited first.
+
+        A file the operator sends is kept untouched until they answer; the
+        usual Approve still decides whether the post is published.
+        """
+        chat_id = draft.get("chat_id")
+        if chat_id is None:
+            return
+        try:
+            sent = self.api.send_message(
+                chat_id,
+                "Video received. Should I edit it before publishing "
+                "(normalise the file, cap the size, fix rotation), or publish "
+                "it exactly as it is?",
+                telegram_mod.video_edit_keyboard(draft_id),
+            )
+        except telegram_mod.TelegramError:
+            log.warning("video edit question failed for draft %s", draft_id)
+            self._finish_user_media(draft_id, draft, media)
+            return
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_ready",
+                "media": media,
+                "video_edit_pending": True,
+                "video_edit_ask_message_id": sent.get("message_id"),
+            },
+        )
+        self._record_event(draft_id, "video_edit_asked")
+
+    def _resolve_video_edit(
+        self, query_id: str, sub: str, record: dict, draft_id: str
+    ) -> None:
+        """Handle "Edit it" / "Publish as-is" for one operator clip."""
+        if not record.get("video_edit_pending"):
+            self._safe_answer(query_id, "This clip was already handled.")
+            return
+        media = dict(record.get("media") or {})
+        chat_id = record.get("chat_id")
+        ask_id = record.get("video_edit_ask_message_id")
+        if sub == "video_keep":
+            self.state.update_draft(
+                draft_id,
+                {"video_edit_pending": False, "video_edit_choice": "as-is"},
+            )
+            self._record_event(draft_id, "video_kept_as_is")
+            if chat_id is not None and ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    "Publishing the clip as it is.",
+                )
+            self._finish_user_media(draft_id, record, media)
+            self._safe_answer(query_id, "The clip will publish unchanged.")
+            return
+        if self.media is None:
+            self._safe_answer(
+                query_id,
+                "Media Studio is not configured (CONTENT_MEDIA_STUDIO_URL); "
+                "choose Publish as-is instead.",
+            )
+            return
+        local_path = str(media.get("local_path") or "")
+        path = Path(local_path) if local_path else None
+        if path is None or not path.is_file():
+            self._safe_answer(
+                query_id,
+                "Editing needs the clip itself, but only Telegram holds it. "
+                "Send a copy under 20 MB or choose Publish as-is.",
+            )
+            return
+        try:
+            content = path.read_bytes()
+        except OSError as error:
+            self._safe_answer(query_id, f"The clip could not be read: {error}")
+            return
+        try:
+            upload_id = self.media.upload_video(
+                content,
+                filename=path.name,
+                content_type=self._video_content_type(path),
+            )
+            job_id = self.media.submit(
+                self.settings.video_edit_driver,
+                "Prepare the operator-recorded clip for publishing.",
+                params={"upload_id": upload_id},
+            )
+        except media_mod.MediaStudioError as error:
+            self._record_event(draft_id, "video_edit_start_failed", str(error))
+            self._safe_answer(
+                query_id,
+                f"Editing could not start: {error}. Choose Publish as-is to "
+                "use the clip unchanged.",
+            )
+            return
+        edit_source = {
+            "artifact": str(media.get("artifact") or ""),
+            "local_path": local_path,
+            "file_id": str(media.get("file_id") or ""),
+            "as_document": bool(media.get("as_document")),
+        }
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_running",
+                "video_edit_pending": False,
+                "video_edit_choice": "edit",
+                "media": {
+                    "kind": "video",
+                    "driver": self.settings.video_edit_driver,
+                    "status": "running",
+                    "job_id": job_id,
+                    "artifact": "",
+                    "local_path": "",
+                    "duration": "",
+                    "created_at": self.now_fn().isoformat(),
+                    "edit_source": edit_source,
+                },
+            },
+        )
+        self._record_event(draft_id, "video_edit_started", job_id)
+        if chat_id is not None and ask_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "Editing the clip now; the preview follows when it is ready.",
+            )
+        self._safe_answer(query_id, "Editing started.")
 
     def _finish_user_media(self, draft_id: str, draft: dict, media: dict) -> None:
         """Refresh the previews after an upload landed on the draft."""
@@ -956,6 +1124,7 @@ class ContentBot:
             "Content Bot commands:",
             "/start or /help - this message",
             "/status - configuration and counters",
+            "/tools - shared tool registry entries",
             "/forget_link <url> - allow a published link to be drafted again",
             "Send any http(s) link - draft a post with Approve/Reject buttons",
             "Send a topic without a link - search the web and draft a post",
@@ -967,6 +1136,11 @@ class ContentBot:
             lines.append(
                 "More platforms... on a preview sends a copy-ready package for "
                 "YouTube, Aparat, or any platform added to editorial-policy.yaml."
+            )
+        if self._routines_summary() != "not configured":
+            lines.append(
+                "Scheduled routines run from the policy routines: list; "
+                "/status shows the active ones."
             )
         lines.append(
             "Reply to a proposal with edit notes, then press Reject to revise; "
@@ -987,11 +1161,84 @@ class ContentBot:
             f"Writer endpoint: {self.settings.writer_base_url or 'not configured'}\n"
             f"Media Studio: {self.settings.media_studio_url or 'not configured'}\n"
             f"Web search: {'enabled' if self.settings.search_enabled else 'disabled'}\n"
+            f"Tool registry: {self._tools_summary()}\n"
+            f"Scheduled routines: {self._routines_summary()}\n"
             f"Platform packages: {'enabled' if self.settings.platforms_enabled else 'disabled'}\n"
             f"Pending drafts: {drafts}\n"
             f"Published today: {today}\n"
             f"Total published: {published}"
         )
+
+    def _registry_entries(self) -> tuple:
+        """Registry entries this bot may call, if a registry was loaded."""
+        registry = self.tools
+        if registry is None:
+            return ()
+        return registry.for_consumer("bot")
+
+    def _tools_summary(self) -> str:
+        registry = self.tools
+        if registry is None:
+            return "not configured (add tools.json to the policy directory)"
+        return f"{len(self._registry_entries())} entries for this bot"
+
+    def _routines_summary(self) -> str:
+        """One line about the enabled scheduled routines in the policy."""
+        try:
+            policy = workflow.load_policy(self.settings.policy_dir)
+        except Exception:  # noqa: BLE001
+            return "not configured"
+        routines = [
+            item
+            for item in (policy.get("routines") or [])
+            if isinstance(item, dict)
+            and str(item.get("id") or "").strip()
+            and item.get("enabled") is not False
+        ]
+        if not routines:
+            return "not configured"
+        labels = sorted({str(item.get("platform") or item["id"]) for item in routines})
+        return f"{len(routines)} active ({', '.join(labels)})"
+
+    def tools_text(self) -> str:
+        """Operator view of the shared tool registry."""
+        registry = self.tools
+        if registry is None:
+            return (
+                "No tool registry is configured. Add tools.json next to "
+                "editorial-policy.yaml (the repository ships a default)."
+            )
+        entries = self._registry_entries()
+        if not entries:
+            return "The tool registry holds no entry for this bot."
+        missing = {
+            tool_id: env_name
+            for tool_id, env_name in registry.missing_credentials(os.environ)
+            if registry.find(tool_id) in entries
+        }
+        lines = ["Tool registry", f"Source: {registry.path}", ""]
+        for tool in entries:
+            state = "ready"
+            if tool.auth_env and tool.id in missing:
+                state = f"missing {tool.auth_env}"
+            elif tool.auth_env:
+                state = f"{tool.auth_type} credential set"
+            lines.append(
+                f"<b>{_html_escape(tool.id)}</b> [{_html_escape(tool.kind)}] "
+                f"- {state}"
+            )
+            lines.append(f"  {_html_escape(tool.title)}: {_html_escape(tool.endpoint())}")
+            if tool.capabilities:
+                lines.append(
+                    f"  capabilities: {_html_escape(', '.join(tool.capabilities))}"
+                )
+            if tool.notes:
+                lines.append(f"  {_html_escape(tool.notes)}")
+        warnings = [w for w in registry.warnings]
+        if warnings:
+            lines.append("")
+            lines.append("Warnings: " + "; ".join(_html_escape(w) for w in warnings))
+        return "\n".join(lines)
 
     def request_on_demand(self, url: str, chat_id) -> None:
         try:
@@ -1112,20 +1359,21 @@ class ContentBot:
             return
         self.send_draft(item, chat_id, kind="on_demand")
 
-    def send_draft(self, item: dict, chat_id, *, kind: str) -> None:
+    def send_draft(self, item: dict, chat_id, *, kind: str):
+        """Draft one item and send it for approval; returns the draft id."""
         if self.writer is None:
             self.api.send_message(
                 chat_id,
                 "No writer endpoint is configured; add CONTENT_WRITER_BASE_URL and restart.",
             )
-            return
+            return None
         try:
             lessons = self.state.lessons(6)
             guidance = "\n".join(f"- {lesson}" for lesson in lessons)
             post = self.writer.generate_post(item, guidance=guidance)
         except writer_mod.WriterError as error:
             self.api.send_message(chat_id, f"Copy generation failed: {error}")
-            return
+            return None
         draft_id = secrets.token_urlsafe(9)
         record = {
             "id": draft_id,
@@ -1157,6 +1405,7 @@ class ContentBot:
         self._record_event(draft_id, "draft_sent")
         if kind == "on_demand" and self.media is not None:
             self._send_media_ask(record)
+        return draft_id
 
     def _send_media_ask(self, record: dict) -> None:
         """Offer media generation for one fresh on-demand draft."""
@@ -1238,6 +1487,9 @@ class ContentBot:
                     telegram_mod.media_choice_keyboard(draft_id),
                 )
             self._safe_answer(query_id, "Upload cancelled.")
+            return
+        if sub in {"video_keep", "video_edit"}:
+            self._resolve_video_edit(query_id, sub, record, draft_id)
             return
         if sub == "user_image":
             self._begin_user_image_wait(record, query_id, multi=False)
@@ -1490,6 +1742,7 @@ class ContentBot:
                     isinstance(record, dict)
                     and record.get("status") == "media_ready"
                     and not record.get("preview_message_id")
+                    and not record.get("video_edit_pending")
                 ):
                     if not self._send_media_preview(draft_id):
                         self._media_failed(draft_id, "Media preview could not be sent.")
@@ -1557,12 +1810,15 @@ class ContentBot:
         chat_id = record.get("chat_id")
         text_id = record.get("text_message_id")
         ask_id = record.get("ask_message_id")
+        edited = str(updated_media.get("driver") or "") == str(
+            self.settings.video_edit_driver
+        )
         if chat_id is not None and text_id is not None:
             self._edit_safe(
                 chat_id,
                 int(text_id),
                 f"{self.preview_text(record)}\n\n"
-                "Media preview is ready below.",
+                + ("Edited clip is ready below." if edited else "Media preview is ready below."),
                 self._approval_keyboard(draft_id),
             )
         if chat_id is not None and ask_id is not None:
@@ -1727,11 +1983,57 @@ class ContentBot:
             self.state.update_draft(draft_id, {"preview_message_id": message_id})
         return True
 
+    def _video_edit_failed(
+        self, draft_id: str, record: dict, media: dict, detail: str
+    ) -> None:
+        """Keep the operator clip when an edit job cannot finish.
+
+        The original file is restored, the preview is re-sent, and the
+        operator can still publish the clip unchanged.
+        """
+        source = media.get("edit_source") or {}
+        restored = {
+            "kind": "video",
+            "driver": "user-upload",
+            "status": "done",
+            "artifact": str(source.get("artifact") or ""),
+            "local_path": str(source.get("local_path") or ""),
+            "duration": "",
+            "edit_failed": str(detail)[:300],
+        }
+        file_id = str(source.get("file_id") or "")
+        if file_id:
+            restored["file_id"] = file_id
+            restored["as_document"] = bool(source.get("as_document"))
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_ready",
+                "media": restored,
+                "video_edit_choice": "edit-failed",
+            },
+        )
+        self._record_event(draft_id, "video_edit_failed", str(detail))
+        chat_id = record.get("chat_id")
+        ask_id = record.get("video_edit_ask_message_id")
+        if chat_id is not None and ask_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                f"Editing failed: {detail}\nThe clip stays as it is; press "
+                "Approve on the preview to publish it unchanged.",
+            )
+        self._finish_user_media(draft_id, {**record, "media": restored}, restored)
+
     def _media_failed(self, draft_id: str, detail: str) -> None:
         record = self.state.get_draft(draft_id)
         if record is None:
             return
         media = dict(record.get("media") or {})
+        source = media.get("edit_source")
+        if isinstance(source, dict) and source:
+            self._video_edit_failed(draft_id, record, media, str(detail))
+            return
         media.update({"status": "failed", "error": str(detail)[:300]})
         self.state.update_draft(draft_id, {"status": "media_failed", "media": media})
         self._record_event(draft_id, "media_failed", str(detail))
@@ -1744,6 +2046,16 @@ class ContentBot:
                 f"Media generation failed: {detail}",
                 telegram_mod.media_retry_keyboard(draft_id),
             )
+        elif chat_id is not None:
+            # Scheduled drafts have no media-ask message to edit; without a
+            # note the operator would never learn the image did not arrive.
+            try:
+                self.api.send_message(
+                    chat_id,
+                    f"Media generation failed for this scheduled draft: {detail}",
+                )
+            except telegram_mod.TelegramError:
+                pass
 
     @staticmethod
     def _parse_dt(value):
@@ -1791,7 +2103,13 @@ class ContentBot:
         self._record_event(str(draft["id"]), "feedback_saved", text)
 
     def preview_text(self, record: dict) -> str:
-        label = "Daily proposal" if record.get("kind") == "daily" else "Draft proposal"
+        kind = str(record.get("kind") or "")
+        if kind == "daily":
+            label = "Daily proposal"
+        elif kind == "routine":
+            label = "Scheduled proposal"
+        else:
+            label = "Draft proposal"
         channel = self.settings.telegram_channel or "(no channel configured)"
         body = str(record.get("body") or "")
         source_url = str(record.get("source_url") or "")
@@ -1961,6 +2279,8 @@ class ContentBot:
 
     def _safe_answer(self, query_id: str, text: str) -> None:
         """Answer a callback query, ignoring failures on stale query ids."""
+        if not query_id:
+            return
         try:
             self.api.answer_callback_query(query_id, text)
         except telegram_mod.TelegramError as error:
@@ -2312,19 +2632,25 @@ class ContentBot:
 
     # ---------------------------------------------------------------- daily
 
+    @staticmethod
+    def _minutes_of_day(raw, default: int) -> int:
+        """Parse an "HH:MM" policy value into minutes, falling back on default."""
+        try:
+            hours_text, minutes_text = str(raw).split(":", 1)
+            hours, minutes = int(hours_text), int(minutes_text)
+        except (TypeError, ValueError):
+            return default
+        if 0 <= hours <= 23 and 0 <= minutes <= 59:
+            return hours * 60 + minutes
+        return default
+
     def _daily_schedule(self) -> tuple[ZoneInfo, int]:
         policy = workflow.load_policy(self.settings.policy_dir)
         pipeline = policy.get("pipeline") or {}
         zone = _policy_zone(policy)
-        raw_time = str(pipeline.get("daily_proposal_time") or "08:00")
-        proposal_minutes = 8 * 60
-        try:
-            hours_text, minutes_text = raw_time.split(":", 1)
-            hours, minutes = int(hours_text), int(minutes_text)
-            if 0 <= hours <= 23 and 0 <= minutes <= 59:
-                proposal_minutes = hours * 60 + minutes
-        except ValueError:
-            pass
+        proposal_minutes = self._minutes_of_day(
+            pipeline.get("daily_proposal_time"), 8 * 60
+        )
         return zone, proposal_minutes
 
     def maybe_run_daily(self) -> None:
@@ -2351,23 +2677,11 @@ class ContentBot:
         data["daily_last_run"] = day
         self.state.save()
 
-    def run_daily(self, day: str) -> None:
-        owner = self._owner_chat_id()
-        policy = workflow.load_policy(self.settings.policy_dir)
-        sources = workflow.load_sources(self.settings.policy_dir)
-        if not sources:
-            self._mark_daily_run(day)
-            log.info("daily run: no discovery sources configured; skipped")
-            if owner is not None:
-                self.api.send_message(
-                    owner,
-                    "Daily content run: no discovery sources configured. "
-                    "Add RSS/Atom feeds to data/content-manager/config/sources.yaml.",
-                )
-            return
+    def _research(self, policy: dict) -> tuple[dict, list, list, int]:
+        """Research step: fetch feeds, then normalize, filter, rank, and pick."""
         raw_items = []
         failed = 0
-        for source in sources:
+        for source in workflow.load_sources(self.settings.policy_dir):
             try:
                 body = self.fetch_feed(source["url"])
                 raw_items.extend(
@@ -2384,6 +2698,22 @@ class ContentBot:
             self.state.load().get("last_categories") or [],
             max_streak,
         )
+        return prepared, queue, skipped, failed
+
+    def run_daily(self, day: str) -> None:
+        owner = self._owner_chat_id()
+        policy = workflow.load_policy(self.settings.policy_dir)
+        if not workflow.load_sources(self.settings.policy_dir):
+            self._mark_daily_run(day)
+            log.info("daily run: no discovery sources configured; skipped")
+            if owner is not None:
+                self.api.send_message(
+                    owner,
+                    "Daily content run: no discovery sources configured. "
+                    "Add RSS/Atom feeds to data/content-manager/config/sources.yaml.",
+                )
+            return
+        prepared, queue, skipped, failed = self._research(policy)
         self._mark_daily_run(day)
         if owner is None:
             log.info("daily run: no operator user configured; proposals not sent")
@@ -2406,3 +2736,133 @@ class ContentBot:
             log.info("daily run: %s candidates skipped by the category mix rule", len(skipped))
         if failed:
             log.warning("daily run: %s source(s) failed", failed)
+
+    # ------------------------------------------------------------- routines
+
+    def _routine_due(
+        self, routine: dict, now_local, default_minutes: int
+    ) -> tuple[bool, str]:
+        """Return whether one scheduled routine is due and its period key.
+
+        A daily routine runs once per local day; a weekly routine runs once
+        per ISO week on or after its configured weekday. The period key is
+        what the state store keeps, so a restart never reruns a period.
+        """
+        cadence = str(routine.get("cadence") or "daily").strip().lower()
+        if cadence not in {"daily", "weekly"}:
+            cadence = "daily"
+        minutes = self._minutes_of_day(routine.get("time"), default_minutes)
+        run_at = clock_time(hour=minutes // 60, minute=minutes % 60)
+        if cadence == "daily":
+            day = now_local.date()
+            period = day.isoformat()
+        else:
+            name = str(routine.get("weekday") or "monday").strip().lower()
+            index = _WEEKDAY_INDEX.get(name[:3], 0)
+            day = now_local.date() - timedelta(days=now_local.weekday())
+            day = day + timedelta(days=index)
+            iso = now_local.isocalendar()
+            period = f"{iso.year}-W{iso.week:02d}"
+        scheduled = datetime.combine(day, run_at).replace(tzinfo=now_local.tzinfo)
+        if now_local < scheduled:
+            return False, period
+        routine_id = str(routine.get("id") or "")
+        runs = self.state.load().get("routine_last_run") or {}
+        return str(runs.get(routine_id) or "") != period, period
+
+    def _mark_routine_run(self, routine_id: str, period: str) -> None:
+        data = self.state.load()
+        runs = dict(data.get("routine_last_run") or {})
+        runs[routine_id] = period
+        data["routine_last_run"] = runs
+        self.state.save()
+
+    def maybe_run_routines(self) -> None:
+        """Start every enabled routine whose cadence period came due."""
+        if not self.settings.scheduler_enabled:
+            return
+        try:
+            policy = workflow.load_policy(self.settings.policy_dir)
+        except Exception:  # noqa: BLE001
+            log.exception("routine policy could not be loaded")
+            return
+        routines = [
+            item
+            for item in (policy.get("routines") or [])
+            if isinstance(item, dict)
+        ]
+        if not routines:
+            return
+        pipeline = policy.get("pipeline") or {}
+        default_minutes = self._minutes_of_day(
+            pipeline.get("daily_proposal_time"), 8 * 60
+        )
+        zone = _policy_zone(policy)
+        now_local = self.now_fn().astimezone(zone)
+        for routine in routines:
+            routine_id = str(routine.get("id") or "").strip()
+            if not routine_id or routine.get("enabled") is False:
+                continue
+            due, period = self._routine_due(routine, now_local, default_minutes)
+            if not due:
+                continue
+            try:
+                self.run_routine(routine, period)
+            except Exception:  # noqa: BLE001
+                log.exception("routine %s failed", routine_id)
+
+    def run_routine(self, routine: dict, period: str) -> None:
+        """One scheduled pass: research, draft, media, then queue for approval."""
+        routine_id = str(routine.get("id") or "routine")
+        self._mark_routine_run(routine_id, period)
+        owner = self._owner_chat_id()
+        if owner is None:
+            log.info("routine %s: no operator user configured; nothing queued", routine_id)
+            return
+        policy = workflow.load_policy(self.settings.policy_dir)
+        if not workflow.load_sources(self.settings.policy_dir):
+            self.api.send_message(
+                owner,
+                f"Scheduled routine {routine_id}: no discovery sources configured. "
+                "Add RSS/Atom feeds to data/content-manager/config/sources.yaml.",
+            )
+            return
+        prepared, queue, skipped, failed = self._research(policy)
+        if not queue:
+            message = (
+                f"Scheduled routine {routine_id}: "
+                "no candidates passed the editorial filters."
+            )
+            if prepared["rejected"] or prepared["dropped"]:
+                message += (
+                    f" ({len(prepared['rejected'])} rejected, "
+                    f"{len(prepared['dropped'])} duplicates)"
+                )
+            self.api.send_message(owner, message)
+            return
+        limit = max(1, int(routine.get("count") or 1))
+        media_mode = str(routine.get("media") or "auto").strip().lower()
+        platform = str(routine.get("platform") or "")
+        queued = 0
+        for item in queue[:limit]:
+            try:
+                draft_id = self.send_draft(item, owner, kind="routine")
+            except telegram_mod.TelegramError as error:
+                log.warning("routine %s: proposal could not be sent: %s", routine_id, error)
+                continue
+            if draft_id is None:
+                continue
+            queued += 1
+            if media_mode == "auto" and self.media is not None:
+                self._start_media_job(
+                    draft_id, self.settings.image_driver, "image", ""
+                )
+        log.info(
+            "routine %s (%s): %s queued, %s skipped by the category mix rule, "
+            "%s source(s) failed",
+            routine_id,
+            platform or "no platform",
+            queued,
+            len(skipped),
+            failed,
+        )

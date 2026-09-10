@@ -25,7 +25,7 @@ On an existing install the wizard asks whether to add or reconfigure Media
 Studio (menu group 8 in `./manage.sh`, or `./manage.sh media-configure`). The
 wizard collects:
 
-- enabled drivers (default `api-image,flow-video`);
+- enabled drivers (default `api-image,flow-video,video-edit`);
 - the image API endpoint/model when `api-image` is enabled;
 - an API token for the local HTTP API (recommended when the bind IP is not
   loopback);
@@ -148,6 +148,19 @@ curl -X POST http://127.0.0.1:8850/brand \
   -H 'Content-Type: image/png' \
   --data-binary @photo.png -o branded.png
 
+# store one operator-recorded clip for the video-edit driver
+curl -X POST http://127.0.0.1:8850/uploads \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: video/mp4' \
+  --data-binary @clip.mp4
+
+# normalise that clip (the id comes back from /uploads)
+curl -X POST http://127.0.0.1:8850/jobs \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"driver": "video-edit", "prompt": "prepare the clip",
+       "params": {"upload_id": "<id>"}}'
+
 # cancel a queued job
 curl -X DELETE http://127.0.0.1:8850/jobs/<id> \
   -H 'Authorization: Bearer <token>'
@@ -161,7 +174,31 @@ curl -X POST http://127.0.0.1:8850/session/probe \
 
 Endpoints: `GET /healthz`, `GET /session/info`, `POST /session/probe`,
 `POST /jobs`, `GET /jobs`, `GET /jobs/<id>` (includes the log tail),
-`DELETE /jobs/<id>`, `GET /artifacts/<id>/<name>`, `POST /brand`.
+`DELETE /jobs/<id>`, `GET /artifacts/<id>/<name>`, `POST /brand`,
+`POST /uploads`.
+
+### Video edit for operator clips
+
+The Content Bot offers **Edit it / Publish as-is** whenever the operator sends
+a recorded clip. "Edit it" uploads the file to `POST /uploads` (raw bytes,
+64 MiB limit) and submits a `video-edit` job that carries only the returned
+id, so a job can never read outside the uploads directory. The driver runs
+ffmpeg and returns one `edited-<name>.mp4` artifact:
+
+- H.264 video and AAC audio in an MP4 container with `faststart`, so Telegram,
+  Instagram, and desktop players accept the file,
+- the long side capped at `MEDIA_STUDIO_VIDEO_EDIT_MAX_SIDE` (default 1920)
+  with the aspect ratio and even pixel dimensions preserved,
+- an optional trim to `MEDIA_STUDIO_VIDEO_EDIT_MAX_SECONDS` (default 0, keep
+  the full clip),
+- container metadata (rotation, GPS, device tags) stripped.
+
+`MEDIA_STUDIO_VIDEO_EDIT_TIMEOUT_SECONDS` bounds one ffmpeg run and
+`MEDIA_STUDIO_UPLOAD_TTL_SECONDS` (default 86400) prunes stored uploads.
+`MEDIA_STUDIO_FFMPEG` pins a specific binary; when it is empty the image falls
+back to `imageio-ffmpeg` from `requirements.txt`, so no system package is
+needed. `video-edit` must be listed in `MEDIA_STUDIO_DRIVERS` (it is part of
+the shipped default). `Publish as-is` never calls Media Studio.
 
 ### Brand chip
 

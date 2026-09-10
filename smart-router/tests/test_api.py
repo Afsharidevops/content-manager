@@ -131,3 +131,63 @@ def test_sticky_tier_cannot_bypass_tool_capability(settings):
     assert first.status_code == 200
     assert second.status_code == 200
     assert second.json()["echo"]["model"] == unsafe.standard.model
+
+
+def test_tools_endpoint_serves_the_shared_registry(settings, tmp_path):
+    registry = tmp_path / "tools.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "tools": [
+                    {
+                        "id": "media-studio",
+                        "title": "Media Studio",
+                        "kind": "openapi",
+                        "base_url": "http://media-studio:8850",
+                        "spec_url": "http://media-studio:8850/openapi.json",
+                        "auth": {"type": "bearer", "env": "MEDIA_STUDIO_API_TOKEN"},
+                        "consumers": ["bot", "router"],
+                        "capabilities": ["media.image"],
+                    },
+                    {
+                        "id": "n8n-mcp",
+                        "title": "n8n MCP tools",
+                        "kind": "mcp",
+                        "url": "http://n8n:5678/webhook/hermes/mcp",
+                        "auth": {"type": "bearer", "env": "N8N_MCP_BEARER_TOKEN"},
+                        "consumers": ["n8n"],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = create_app(
+        replace(settings, tools_registry=str(registry)), httpx.MockTransport(upstream)
+    )
+    with TestClient(app) as client:
+        payload = client.get("/v1/tools").json()
+    assert [item["id"] for item in payload["data"]] == ["media-studio"]
+    assert payload["data"][0]["auth"]["env"] == "MEDIA_STUDIO_API_TOKEN"
+    assert payload["registry"] == str(registry)
+
+
+def test_tools_endpoint_without_a_registry_returns_an_empty_list(settings):
+    app = create_app(settings, httpx.MockTransport(upstream))
+    with TestClient(app) as client:
+        payload = client.get("/v1/tools").json()
+    assert payload["data"] == []
+    assert payload["registry"] == ""
+
+
+def test_tools_endpoint_reports_an_invalid_registry(settings, tmp_path):
+    registry = tmp_path / "tools.json"
+    registry.write_text('{"schema_version": 99, "tools": []}', encoding="utf-8")
+    app = create_app(
+        replace(settings, tools_registry=str(registry)), httpx.MockTransport(upstream)
+    )
+    with TestClient(app) as client:
+        response = client.get("/v1/tools")
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "tools_registry_invalid"

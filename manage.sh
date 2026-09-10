@@ -1148,7 +1148,7 @@ media_status() {
   token="$(env_value "$ENV_FILE" MEDIA_STUDIO_API_TOKEN)"
   freeze="$(env_value "$ENV_FILE" MEDIA_STUDIO_FREEZE_ON_READY)"
   printf 'Media Studio status\n'
-  printf '  Enabled drivers: %s\n' "${drivers:-api-image,flow-video}"
+  printf '  Enabled drivers: %s\n' "${drivers:-api-image,flow-video,video-edit}"
   printf '  Session mode: %s\n' "${mode:-cdp}"
   printf '  Writer endpoint: %s\n' "${writer:-not configured}"
   printf '  API token: %s\n' "$([[ -n "$token" ]] && printf 'stored (secret not shown)' || printf 'not set (localhost only)')"
@@ -1884,6 +1884,13 @@ PY
   env_file="$(mktemp "$STACK_SECRETS_DIR/n8n-reconcile.env.tmp.XXXXXX")"
   TEMP_SECRET_FILES+=("$env_file")
   chmod 600 "$env_file"
+  # The shared tool registry lives in the Content Manager config directory; it
+  # is mounted read-only so the bootstrap can report the n8n entries without
+  # copying the file into the container image.
+  registry_args=()
+  if [[ -d "$ROOT_DIR/data/content-manager/config" ]]; then
+    registry_args=(-v "$ROOT_DIR/data/content-manager/config:/tools:ro")
+  fi
   {
     printf 'N8N_API_URL=http://n8n:5678/api/v1\n'
     printf 'N8N_API_KEY=%s\n' "$api_key"
@@ -1895,6 +1902,9 @@ PY
     printf 'N8N_PREVIOUS_ROUTER_BASE_URL=%s\n' "$previous_router_base_url"
     printf 'N8N_CHAT_MODEL=%s\n' "$router_model"
     printf 'N8N_STATE_FILE=/state/n8n-bootstrap-state.json\n'
+    if [[ "${#registry_args[@]}" -gt 0 ]]; then
+      printf 'N8N_TOOLS_REGISTRY=/tools/tools.json\n'
+    fi
   } > "$env_file"
   image_repo="$(env_value "$ENV_FILE" N8N_IMAGE_REPOSITORY)"; image_repo="${image_repo:-n8nio/n8n}"
   image_tag="$(env_value "$ENV_FILE" N8N_IMAGE_TAG)"; image_tag="${image_tag:-latest}"
@@ -1904,6 +1914,7 @@ PY
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     --tmpfs /tmp:size=16m,mode=1777 \
     -v "$ROOT_DIR/scripts:/stack/scripts:ro" \
+    ${registry_args[@]+"${registry_args[@]}"} \
     -v "$state_dir:/state" \
     --env-file "$env_file" \
     --entrypoint node "$image" \

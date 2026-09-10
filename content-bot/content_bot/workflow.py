@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import yaml
@@ -11,6 +12,9 @@ from content_pipeline.dedupe import dedupe_items
 from content_pipeline.filter import filter_items
 from content_pipeline.normalize import normalize_items
 from content_pipeline.score import rank_candidates
+from content_pipeline.tools import Registry, ToolRegistryError, load_registry
+
+log = logging.getLogger("content_bot")
 
 REJECTION_LABELS = {
     "stale": "older than the configured freshness window",
@@ -27,6 +31,22 @@ def load_policy(policy_dir: str | Path) -> dict:
     if path.is_file():
         return _load_merged_policy(str(path))
     return _load_merged_policy()
+
+
+def load_tools(policy_dir: str | Path) -> Registry | None:
+    """Load the shared tool registry when the deployment ships one.
+
+    A missing file is normal (the registry is optional); an unreadable or
+    invalid one is worth a warning but must never stop the bot.
+    """
+    path = Path(policy_dir) / "tools.json"
+    if not path.is_file():
+        return None
+    try:
+        return load_registry(path)
+    except ToolRegistryError as error:
+        log.warning("tool registry ignored: %s", error)
+        return None
 
 
 def load_sources(policy_dir: str | Path) -> list[dict]:

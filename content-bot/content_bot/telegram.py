@@ -470,6 +470,24 @@ def user_media_preview_keyboard(
     return {"inline_keyboard": rows}
 
 
+def video_edit_keyboard(draft_id: str) -> dict:
+    """Ask what to do with an operator-recorded video before publishing.
+
+    The operator can send a clip they recorded themselves; the bot asks
+    whether Media Studio should prepare it first or the file should publish
+    unchanged. Both answers only decide the media; the draft still needs the
+    usual Approve.
+    """
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Edit it", "callback_data": f"media:video_edit:{draft_id}"},
+                {"text": "Publish as-is", "callback_data": f"media:video_keep:{draft_id}"},
+            ]
+        ]
+    }
+
+
 def media_duration_keyboard(draft_id: str) -> dict:
     """Pick an approximate duration for a generated video."""
     return {

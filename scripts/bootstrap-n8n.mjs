@@ -13,6 +13,7 @@ import {
   workflowComparable,
   workflowFingerprint,
 } from "./lib/n8n-workflows.mjs";
+import { summarizeRegistry } from "./lib/tools-registry.mjs";
 
 const STATE_VERSION = 1;
 const SECRET_KEYS = new Set(["apikey", "token", "authorization"]);
@@ -410,6 +411,7 @@ export async function reconcileN8n({
   previousMcpToken = mcpToken,
   previousRouterApiKey = routerApiKey,
   previousRouterBaseUrl = routerBaseUrl,
+  toolsRegistry = "",
   stateFile,
   fetchImpl = globalThis.fetch,
   stateWriter = writeStateAtomic,
@@ -600,6 +602,11 @@ export async function reconcileN8n({
       },
       urls: publicUrls(apiUrl, mode, chatWorkflow.workflow),
       stateFile: resolvedStateFile,
+      // Shared tool registry (content/config/tools.json): the same file the
+      // Content Bot and the Smart Router read. n8n entries are reported here
+      // so a deployment can see what the connector may call; turning them
+      // into workflow tool nodes is the Phase 3 connector.
+      tools: summarizeRegistry(toolsRegistry, "n8n"),
     };
   } catch (error) {
     const rollback = await rollbackMutations(client, journal, rollbackState);
@@ -643,6 +650,7 @@ export function configFromEnv(env = process.env) {
     previousRouterBaseUrl:
       env.N8N_PREVIOUS_ROUTER_BASE_URL || env.N8N_ROUTER_BASE_URL || "http://smart-router:8080/v1",
     stateFile: env.N8N_STATE_FILE,
+    toolsRegistry: env.N8N_TOOLS_REGISTRY || "",
   };
 }
 

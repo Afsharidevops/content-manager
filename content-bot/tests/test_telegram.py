@@ -27,6 +27,15 @@ class TelegramApiTest(unittest.TestCase):
         self.api = TelegramApi("123:TESTTOKENABCDEFGHIJKLMN", "https://api.telegram.org")
         self.api._transport = self.transport
 
+    def test_video_edit_keyboard_offers_edit_or_publish(self):
+        from content_bot.telegram import video_edit_keyboard
+
+        rows = video_edit_keyboard("draft1")["inline_keyboard"]
+        self.assertEqual(
+            [button["callback_data"] for button in rows[0]],
+            ["media:video_edit:draft1", "media:video_keep:draft1"],
+        )
+
     def test_send_message_builds_url_and_keyboard(self):
         result = self.api.send_message(
             12345,

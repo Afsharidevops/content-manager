@@ -62,14 +62,19 @@ services:
       API_HOST: "0.0.0.0"
       HOSTNAME: "0.0.0.0"
       NODE_ENV: production
-      JWT_SECRET: ${OMNIROUTE_JWT_SECRET}
-      INITIAL_PASSWORD: ${OMNIROUTE_INITIAL_PASSWORD}
-      API_KEY_SECRET: ${OMNIROUTE_API_KEY_SECRET}
-      OMNIROUTE_API_KEY: ${OMNIROUTE_MANAGEMENT_API_KEY}
-      STORAGE_ENCRYPTION_KEY: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY}
+      # The installer (install.sh / ./manage.sh configure) writes these secrets
+      # into .env for every install, so the empty fallbacks below only keep
+      # Docker Compose from warning when the "omniroute" profile is not the
+      # selected backend. The omniroute service itself still requires real
+      # values before it is started.
+      JWT_SECRET: ${OMNIROUTE_JWT_SECRET:-}
+      INITIAL_PASSWORD: ${OMNIROUTE_INITIAL_PASSWORD:-}
+      API_KEY_SECRET: ${OMNIROUTE_API_KEY_SECRET:-}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_MANAGEMENT_API_KEY:-}
+      STORAGE_ENCRYPTION_KEY: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY:-}
       STORAGE_ENCRYPTION_KEY_VERSION: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY_VERSION:-v1}
-      MACHINE_ID_SALT: ${OMNIROUTE_MACHINE_ID_SALT}
-      OMNIROUTE_WS_BRIDGE_SECRET: ${OMNIROUTE_WS_BRIDGE_SECRET}
+      MACHINE_ID_SALT: ${OMNIROUTE_MACHINE_ID_SALT:-}
+      OMNIROUTE_WS_BRIDGE_SECRET: ${OMNIROUTE_WS_BRIDGE_SECRET:-}
       REQUIRE_API_KEY: ${OMNIROUTE_REQUIRE_API_KEY:-false}
       AUTH_COOKIE_SECURE: ${OMNIROUTE_AUTH_COOKIE_SECURE:-false}
       NEXT_PUBLIC_BASE_URL: ${OMNIROUTE_PUBLIC_BASE_URL:-http://localhost:20128}
@@ -235,9 +240,13 @@ services:
       SMART_ROUTER_READ_TIMEOUT_SECONDS: ${SMART_ROUTER_READ_TIMEOUT_SECONDS:-600}
       SMART_ROUTER_MAX_REQUEST_BYTES: ${SMART_ROUTER_MAX_REQUEST_BYTES:-10485760}
       SMART_ROUTER_OBSERVATION_FILE: ${SMART_ROUTER_OBSERVATION_FILE:-/data/observations-v4.jsonl}
+      SMART_ROUTER_TOOLS_REGISTRY: ${SMART_ROUTER_TOOLS_REGISTRY:-/policy-content/tools.json}
     volumes:
       - ./data/smart-router:/data
       - ./smart-router/policy:/policy:ro
+      # Shared tool registry: the same file the Content Bot reads from its
+      # policy directory. GET /v1/tools serves the entries marked for the router.
+      - ./data/content-manager/config:/policy-content:ro
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -656,6 +665,7 @@ services:
       CONTENT_MEDIA_STUDIO_TOKEN: ${CONTENT_MEDIA_STUDIO_TOKEN:-}
       CONTENT_MEDIA_IMAGE_DRIVER: ${CONTENT_MEDIA_IMAGE_DRIVER:-api-image}
       CONTENT_MEDIA_VIDEO_DRIVER: ${CONTENT_MEDIA_VIDEO_DRIVER:-flow-video}
+      CONTENT_MEDIA_VIDEO_EDIT_DRIVER: ${CONTENT_MEDIA_VIDEO_EDIT_DRIVER:-video-edit}
       CONTENT_MEDIA_JOB_TIMEOUT_SECONDS: ${CONTENT_MEDIA_JOB_TIMEOUT_SECONDS:-1200}
       CONTENT_SEARCH_ENABLED: ${CONTENT_SEARCH_ENABLED:-true}
       CONTENT_TOPIC_DRAFTS_ENABLED: ${CONTENT_TOPIC_DRAFTS_ENABLED:-true}
@@ -702,7 +712,7 @@ services:
       # The API always listens on every container interface so the rest of the
       # stack can reach it; MEDIA_STUDIO_BIND_IP controls the host port only.
       MEDIA_STUDIO_BIND_IP: 0.0.0.0
-      MEDIA_STUDIO_DRIVERS: ${MEDIA_STUDIO_DRIVERS:-api-image,flow-video}
+      MEDIA_STUDIO_DRIVERS: ${MEDIA_STUDIO_DRIVERS:-api-image,flow-video,video-edit}
       MEDIA_STUDIO_API_TOKEN: ${MEDIA_STUDIO_API_TOKEN:-}
       MEDIA_STUDIO_WRITER_BASE_URL: ${MEDIA_STUDIO_WRITER_BASE_URL:-}
       MEDIA_STUDIO_WRITER_API_KEY: ${MEDIA_STUDIO_WRITER_API_KEY:-}
@@ -717,6 +727,11 @@ services:
       MEDIA_STUDIO_FREEZE_ON_READY: ${MEDIA_STUDIO_FREEZE_ON_READY:-true}
       MEDIA_STUDIO_STEP_TIMEOUT_SECONDS: ${MEDIA_STUDIO_STEP_TIMEOUT_SECONDS:-30}
       MEDIA_STUDIO_JOB_TIMEOUT_SECONDS: ${MEDIA_STUDIO_JOB_TIMEOUT_SECONDS:-900}
+      MEDIA_STUDIO_VIDEO_EDIT_MAX_SIDE: ${MEDIA_STUDIO_VIDEO_EDIT_MAX_SIDE:-1920}
+      MEDIA_STUDIO_VIDEO_EDIT_MAX_SECONDS: ${MEDIA_STUDIO_VIDEO_EDIT_MAX_SECONDS:-0}
+      MEDIA_STUDIO_VIDEO_EDIT_TIMEOUT_SECONDS: ${MEDIA_STUDIO_VIDEO_EDIT_TIMEOUT_SECONDS:-900}
+      MEDIA_STUDIO_UPLOAD_TTL_SECONDS: ${MEDIA_STUDIO_UPLOAD_TTL_SECONDS:-86400}
+      MEDIA_STUDIO_FFMPEG: ${MEDIA_STUDIO_FFMPEG:-}
       MEDIA_STUDIO_TIMEZONE: ${MEDIA_STUDIO_TIMEZONE:-Asia/Tehran}
       TZ: ${N8N_TIMEZONE:-Asia/Tehran}
     ports:

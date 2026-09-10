@@ -6,6 +6,8 @@ import json
 import shutil
 import tempfile
 import unittest
+
+import yaml
 from dataclasses import replace
 from datetime import datetime, timezone
 from unittest import mock
@@ -126,6 +128,12 @@ class FakeMedia:
         self.artifact = artifact
         self.brand_calls = []
         self.fail_brand = False
+        self.uploads = []
+        self.fail_upload = False
+
+    def upload_video(self, content, *, filename="clip.mp4", content_type="video/mp4"):
+        self.uploads.append({"filename": filename, "content_type": content_type, "size": len(content)})
+        return f"upload-{len(self.uploads)}"
 
     def brand_image(self, content, *, content_type="image/png"):
         if self.fail_brand:
@@ -595,6 +603,53 @@ class BotTestCase(unittest.TestCase):
         names = [command["command"] for command in registrations[0]["commands"]]
         self.assertIn("forget_link", names)
         self.assertIn("status", names)
+        self.assertIn("tools", names)
+
+    def test_tools_command_lists_the_shared_registry(self):
+        self.bot.handle_message({"chat": {"id": 11}, "from": {"id": 11}, "text": "/tools"})
+        reply = self.api.sent_messages[-1]
+        self.assertIn("Tool registry", reply["text"])
+        self.assertIn("media-studio", reply["text"])
+        self.assertIn("capabilities", reply["text"])
+        self.assertEqual(reply["parse_mode"], "HTML")
+
+    def test_tools_command_without_a_registry_explains_how_to_add_one(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = replace(self.bot.settings, policy_dir=directory)
+            bot = ContentBot(
+                settings,
+                api=self.api,
+                writer=self.writer,
+                fetch_page=lambda url: HTML_PAGE,
+                fetch_feed=lambda url: b"",
+                now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
+            )
+            self.assertIsNone(bot.tools)
+            bot.handle_message(
+                {"chat": {"id": 11}, "from": {"id": 11}, "text": "/tools"}
+            )
+        self.assertIn("No tool registry", self.api.sent_messages[-1]["text"])
+
+    def test_broken_registry_never_stops_the_bot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "tools.json").write_text("{broken", encoding="utf-8")
+            settings = replace(self.bot.settings, policy_dir=directory)
+            bot = ContentBot(
+                settings,
+                api=self.api,
+                writer=self.writer,
+                fetch_page=lambda url: HTML_PAGE,
+                fetch_feed=lambda url: b"",
+                now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
+            )
+            self.assertIsNone(bot.tools)
+            self.assertIn(
+                "not configured",
+                bot.status_text(),
+            )
+
+    def test_status_reports_the_registry_summary(self):
+        self.assertIn("Tool registry: 4 entries for this bot", self.bot.status_text())
 
 
 if __name__ == "__main__":
@@ -1273,6 +1328,22 @@ class MediaFlowTestCase(unittest.TestCase):
         self.assertEqual(record["media"]["kind"], "video")
         self.assertEqual(record["media"]["driver"], "user-upload")
         self.assertTrue(record["media"]["local_path"].endswith(".mp4"))
+        self.assertTrue(record["video_edit_pending"])
+        self.assertTrue(
+            any(
+                "Should I edit it" in str(payload.get("text") or "")
+                for method, payload in self.api.calls
+                if method == "sendMessage"
+            )
+        )
+        bot.handle_callback(
+            {
+                "id": "q-keep",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 105},
+                "data": f"media:video_keep:{draft_id}",
+            }
+        )
         preview = [
             u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == 11
         ]
@@ -2102,3 +2173,397 @@ class MultiPhotoAndInstagramTests(BotTestCase):
             if method == "answerCallbackQuery"
         ]
         self.assertTrue(any("Unknown platform." in a.get("text", "") for a in answers))
+
+
+class UploadedVideoEditTests(MediaFlowTestCase):
+    """An operator-recorded clip is offered an edit before it can publish."""
+
+    def _upload_video(self, bot, draft_id):
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:video_prompt:{draft_id}",
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:script10:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "video": {
+                    "file_id": "vid1",
+                    "mime_type": "video/mp4",
+                    "file_name": "clip.mp4",
+                },
+            }
+        )
+
+    def test_upload_asks_before_any_preview_is_sent(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        self._upload_video(bot, draft_id)
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertTrue(record["video_edit_pending"])
+        self.assertIsNone(record.get("preview_message_id"))
+        question = bot.state.load()["drafts"][draft_id]["video_edit_ask_message_id"]
+        self.assertIsNotNone(question)
+        self.assertEqual(record["media"]["driver"], "user-upload")
+        previews = [
+            u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == 11
+        ]
+        self.assertEqual(previews, [])
+
+    def test_edit_choice_runs_the_media_studio_job_and_publishes(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        self._upload_video(bot, draft_id)
+        with open(
+            Path(bot.state.load()["drafts"][draft_id]["media"]["local_path"]), "rb"
+        ) as handle:
+            original = handle.read()
+        bot.handle_callback(
+            {
+                "id": "q-edit",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 106},
+                "data": f"media:video_edit:{draft_id}",
+            }
+        )
+        self.assertEqual(len(self.media.uploads), 1)
+        self.assertEqual(self.media.uploads[0]["content_type"], "video/mp4")
+        self.assertEqual(self.media.uploads[0]["size"], len(original))
+        self.assertEqual(self.media.submits[0][0], "video-edit")
+        self.assertEqual(self.media.submits[0][2]["upload_id"], "upload-1")
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_running")
+        self.assertFalse(record["video_edit_pending"])
+        self.assertEqual(record["media"]["driver"], "video-edit")
+        self.assertTrue(record["media"]["edit_source"]["local_path"])
+        self.media.status_by_job["job-1"] = "done"
+        bot.maybe_poll_media_jobs()
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ready")
+        self.assertEqual(record["media"]["local_path"], str(Path(bot.settings.data_dir) / "media" / f"{draft_id}.mp4"))
+        edited = Path(record["media"]["local_path"]).read_bytes()
+        self.assertIn(b"ftyp", edited)
+        self.assertTrue(
+            any(
+                "Edited clip is ready below." in str(payload.get("text") or "")
+                for method, payload in self.api.calls
+                if method == "editMessageText"
+            )
+        )
+        bot.handle_callback(
+            {
+                "id": "q-approve",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published = [
+            u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == "@channel"
+        ]
+        self.assertEqual(len(published), 1)
+
+    def test_edit_choice_without_media_studio_keeps_the_question(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        self._upload_video(bot, draft_id)
+        bot.media = None
+        bot.handle_callback(
+            {
+                "id": "q-edit",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 106},
+                "data": f"media:video_edit:{draft_id}",
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertTrue(record["video_edit_pending"])
+        answers = [
+            payload.get("text", "")
+            for method, payload in self.api.calls
+            if method == "answerCallbackQuery"
+        ]
+        self.assertTrue(any("Media Studio is not configured" in a for a in answers))
+
+    def test_failed_edit_keeps_the_original_clip(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        self._upload_video(bot, draft_id)
+        original_path = bot.state.load()["drafts"][draft_id]["media"]["local_path"]
+        bot.handle_callback(
+            {
+                "id": "q-edit",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 106},
+                "data": f"media:video_edit:{draft_id}",
+            }
+        )
+        self.media.status_by_job["job-1"] = "error"
+        bot.maybe_poll_media_jobs()
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertEqual(record["status"], "media_ready")
+        self.assertEqual(record["media"]["driver"], "user-upload")
+        self.assertEqual(record["media"]["local_path"], original_path)
+        self.assertTrue(
+            any(
+                "Editing failed" in str(payload.get("text") or "")
+                for method, payload in self.api.calls
+                if method == "editMessageText"
+            )
+        )
+        bot.handle_callback(
+            {
+                "id": "q-approve",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        published = [
+            u for u in self.api.uploads if u[0] == "sendVideo" and u[1]["chat_id"] == "@channel"
+        ]
+        self.assertEqual(len(published), 1)
+
+    def test_oversized_video_skips_the_edit_question(self):
+        bot = self.build_bot(artifact=("clip.mp4", "video"))
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:video_prompt:{draft_id}",
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "q2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:script10:{draft_id}",
+            }
+        )
+        self.api.file_size = 30_000_000
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "video": {
+                    "file_id": "vid-big",
+                    "mime_type": "video/mp4",
+                    "file_name": "clip.mp4",
+                    "file_size": 30_000_000,
+                },
+            }
+        )
+        record = bot.state.load()["drafts"][draft_id]
+        self.assertFalse(record.get("video_edit_pending"))
+        self.assertEqual(record["media"]["file_id"], "vid-big")
+        previews = [
+            payload
+            for method, payload in self.api.calls
+            if method == "sendVideo" and payload.get("video") == "vid-big"
+        ]
+        self.assertEqual(len(previews), 1)
+
+
+ROUTINE_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>Test feed</title>
+  <item>
+    <title>Docker image optimization tips</title>
+    <link>https://docker.example.com/images</link>
+    <pubDate>Mon, 07 Sep 2026 09:00:00 GMT</pubDate>
+    <description>Smaller images, multi-stage builds, and non-root containers.</description>
+  </item>
+  <item>
+    <title>Kubernetes policy automation notes</title>
+    <link>https://k8s.example.com/policies</link>
+    <pubDate>Mon, 07 Sep 2026 08:00:00 GMT</pubDate>
+    <description>Declarative policies for cluster automation and review.</description>
+  </item>
+</channel></rss>"""
+
+
+class RoutineScheduleTests(unittest.TestCase):
+    """Scheduled per-platform routines: research -> draft -> media -> queue."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.policy_dir = Path(self.tmp.name) / "policy"
+        self.policy_dir.mkdir()
+        shutil.copyfile(
+            POLICY_DIR / "editorial-policy.yaml",
+            self.policy_dir / "editorial-policy.yaml",
+        )
+        (self.policy_dir / "sources.yaml").write_text(
+            "sources:\n  - name: Test feed\n    url: https://example.com/feed.xml\n",
+            encoding="utf-8",
+        )
+        self.api = FakeApi()
+        self.writer = FakeWriter()
+        self.media = FakeMedia()
+        settings = BotSettings(
+            bot_token="123:TESTTOKENABCDEFGHIJKLMN",
+            telegram_channel="@channel",
+            telegram_users=frozenset({11}),
+            policy_dir=str(self.policy_dir),
+            data_dir=self.tmp.name,
+            scheduler_enabled=True,
+        )
+        self.bot = ContentBot(
+            settings,
+            api=self.api,
+            writer=self.writer,
+            media=self.media,
+            fetch_page=lambda url: HTML_PAGE,
+            fetch_feed=lambda url: ROUTINE_FEED.encode("utf-8"),
+            now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
+        )
+
+    def write_routines(self, routines, freshness_hours=None):
+        path = self.policy_dir / "editorial-policy.yaml"
+        policy = yaml.safe_load(path.read_text(encoding="utf-8"))
+        policy["routines"] = routines
+        if freshness_hours is not None:
+            policy["freshness_hours"] = freshness_hours
+        path.write_text(yaml.safe_dump(policy, allow_unicode=True), encoding="utf-8")
+
+    def drafts(self):
+        return self.bot.state.load()["drafts"]
+
+    def test_daily_routine_queues_one_draft_per_day(self):
+        self.write_routines(
+            [
+                {
+                    "id": "ig-daily",
+                    "platform": "instagram",
+                    "cadence": "daily",
+                    "time": "10:00",
+                    "count": 1,
+                    "media": "none",
+                }
+            ]
+        )
+        self.bot.maybe_run_routines()
+        self.assertEqual(
+            self.bot.state.load()["routine_last_run"], {"ig-daily": "2026-09-07"}
+        )
+        self.assertEqual(len(self.writer.calls), 1)
+        self.assertEqual(len(self.drafts()), 1)
+        record = list(self.drafts().values())[0]
+        self.assertEqual(record["kind"], "routine")
+        self.assertTrue(
+            self.api.sent_messages[0]["text"].startswith("Scheduled proposal")
+        )
+        self.assertIn("Scheduled routines: 1 active (instagram)", self.bot.status_text())
+        self.assertIn("Scheduled routines run from the policy", self.bot.help_text())
+        self.bot.maybe_run_routines()
+        self.assertEqual(len(self.writer.calls), 1)
+        self.assertEqual(len(self.drafts()), 1)
+
+    def test_routine_waits_for_its_local_time(self):
+        self.write_routines(
+            [{"id": "ig", "cadence": "daily", "time": "10:00", "media": "none"}]
+        )
+        self.bot.now_fn = lambda: datetime(2026, 9, 7, 3, 0, tzinfo=timezone.utc)
+        self.bot.maybe_run_routines()
+        self.assertEqual(self.bot.state.load().get("routine_last_run") or {}, {})
+        self.assertEqual(self.writer.calls, [])
+        self.bot.now_fn = lambda: datetime(2026, 9, 7, 7, 0, tzinfo=timezone.utc)
+        self.bot.maybe_run_routines()
+        self.assertEqual(
+            self.bot.state.load()["routine_last_run"], {"ig": "2026-09-07"}
+        )
+        self.assertEqual(len(self.writer.calls), 1)
+
+    def test_weekly_routine_runs_once_per_iso_week(self):
+        self.write_routines(
+            [
+                {
+                    "id": "weekly",
+                    "cadence": "weekly",
+                    "weekday": "monday",
+                    "time": "09:00",
+                    "media": "none",
+                }
+            ],
+            freshness_hours=2000,
+        )
+        self.bot.maybe_run_routines()
+        self.assertEqual(
+            self.bot.state.load()["routine_last_run"], {"weekly": "2026-W37"}
+        )
+        self.assertEqual(len(self.writer.calls), 1)
+        self.bot.now_fn = lambda: datetime(2026, 9, 8, 12, 0, tzinfo=timezone.utc)
+        self.bot.maybe_run_routines()
+        self.assertEqual(len(self.writer.calls), 1)
+        self.bot.now_fn = lambda: datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+        self.bot.maybe_run_routines()
+        self.assertEqual(len(self.writer.calls), 2)
+        self.assertEqual(
+            self.bot.state.load()["routine_last_run"], {"weekly": "2026-W38"}
+        )
+
+    def test_routine_with_media_auto_starts_an_image_job(self):
+        self.write_routines(
+            [{"id": "ig", "cadence": "daily", "time": "10:00", "media": "auto"}]
+        )
+        self.bot.maybe_run_routines()
+        self.assertEqual(len(self.media.submits), 1)
+        driver, prompt, _params = self.media.submits[0]
+        self.assertEqual(driver, "api-image")
+        self.assertIn("Generated title", prompt)
+        record = list(self.drafts().values())[0]
+        self.assertEqual(record["status"], "media_running")
+        self.assertFalse(
+            any(
+                "Add media to this post" in str(message.get("text"))
+                for message in self.api.sent_messages
+            )
+        )
+
+    def test_routine_media_failure_is_reported(self):
+        self.write_routines(
+            [{"id": "ig", "cadence": "daily", "time": "10:00", "media": "auto"}]
+        )
+        self.bot.maybe_run_routines()
+        draft_id = list(self.drafts())[0]
+        self.media.status_by_job["job-1"] = "failed"
+        self.bot.maybe_poll_media_jobs()
+        self.assertEqual(self.drafts()[draft_id]["status"], "media_failed")
+        self.assertTrue(
+            any(
+                "Media generation failed for this scheduled draft" in str(message.get("text"))
+                for message in self.api.sent_messages
+            )
+        )
+
+    def test_routine_count_limits_queued_drafts(self):
+        self.write_routines(
+            [{"id": "ig", "cadence": "daily", "time": "10:00", "count": 2, "media": "none"}]
+        )
+        self.bot.maybe_run_routines()
+        self.assertEqual(len(self.drafts()), 2)
+        self.assertEqual(len(self.writer.calls), 2)
+
+    def test_disabled_routine_is_skipped(self):
+        self.write_routines(
+            [{"id": "ig", "enabled": False, "cadence": "daily", "time": "00:00"}]
+        )
+        self.bot.maybe_run_routines()
+        self.assertEqual(self.bot.state.load().get("routine_last_run") or {}, {})
+        self.assertEqual(self.writer.calls, [])

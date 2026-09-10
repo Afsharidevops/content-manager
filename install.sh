@@ -1546,9 +1546,10 @@ fi
 # Media Studio settings. The api-image driver reuses the writer endpoint
 # selected above (Smart Router, 9router/OmniRoute, or an external hosted API)
 # so Media Studio works without any Google subscription. flow-video and
-# gemini-image are optional and need a signed-in Google session.
+# gemini-image are optional and need a signed-in Google session; video-edit
+# normalises an operator-recorded clip locally with ffmpeg.
 media_drivers="$(existing_env_value MEDIA_STUDIO_DRIVERS)"
-media_drivers="${media_drivers:-api-image,flow-video}"
+media_drivers="${media_drivers:-api-image,flow-video,video-edit}"
 media_api_token="$(existing_env_value MEDIA_STUDIO_API_TOKEN)"
 media_writer_url="$(existing_env_value MEDIA_STUDIO_WRITER_BASE_URL)"
 media_writer_key="$(existing_env_value MEDIA_STUDIO_WRITER_API_KEY)"
@@ -1561,19 +1562,19 @@ if [[ "$install_media" == true && "$configure_media" == true ]]; then
   printf '\nMedia Studio settings\n'
   printf '%s\n' '------------------------'
   while true; do
-    media_drivers="$(prompt "Enabled drivers, comma-separated (api-image, flow-video, gemini-image)" "$media_drivers")"
+    media_drivers="$(prompt "Enabled drivers, comma-separated (api-image, flow-video, gemini-image, video-edit)" "$media_drivers")"
     media_drivers="$(printf '%s' "$media_drivers" | tr ',' ' ' | tr -s ' ' | tr ' ' ',')"
     media_drivers_valid=true
     if IFS=',' read -r -a driver_list <<< "$media_drivers"; then
       for driver in "${driver_list[@]}"; do
         case "$driver" in
-          api-image|flow-video|gemini-image) ;;
+          api-image|flow-video|gemini-image|video-edit) ;;
           *) media_drivers_valid=false ;;
         esac
       done
     fi
     [[ "$media_drivers_valid" == true && -n "$media_drivers" ]] && break
-    warn "Choose from api-image, flow-video, and gemini-image only." >&2
+    warn "Choose from api-image, flow-video, gemini-image, and video-edit only." >&2
   done
   if [[ ",$media_drivers," == *,api-image,* ]]; then
     media_writer_default="$media_writer_url"
@@ -1832,6 +1833,11 @@ if [[ "$install_content" == true && "$install_media" == true ]]; then
   fi
   if [[ ",$media_drivers," == *,flow-video,* ]]; then
     replace_env_value "$tmp_env" CONTENT_MEDIA_VIDEO_DRIVER "flow-video"
+  fi
+  # video-edit normalises an operator-recorded clip with ffmpeg; it is local
+  # to Media Studio and needs no Google session.
+  if [[ ",$media_drivers," == *,video-edit,* ]]; then
+    replace_env_value "$tmp_env" CONTENT_MEDIA_VIDEO_EDIT_DRIVER "video-edit"
   fi
 fi
 # When Media Studio is disabled while the Content Bot stays enabled, drop the
@@ -2110,7 +2116,7 @@ ok "Configuration generated."
 if [[ "$DRY_RUN" != true ]] && [[ -d "$ROOT_DIR/content/config" ]]; then
   mkdir -p "$ROOT_DIR/data/content-manager/config"
   seeded_content_config=false
-  for policy_file in editorial-policy.yaml categories.yaml sources.yaml; do
+  for policy_file in editorial-policy.yaml categories.yaml sources.yaml tools.json; do
     if [[ -f "$ROOT_DIR/content/config/$policy_file" \
       && ! -f "$ROOT_DIR/data/content-manager/config/$policy_file" ]]; then
       cp "$ROOT_DIR/content/config/$policy_file" "$ROOT_DIR/data/content-manager/config/$policy_file"

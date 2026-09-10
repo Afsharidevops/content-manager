@@ -38,6 +38,73 @@ platform; this section tracks the fork additions.
 - Component images advance to `0.2.0`: `afsharidevops/content-bot:0.2.0` and
   `afsharidevops/media-studio:0.2.0` (plus `:latest`).
 
+### Features — scheduled per-platform routines (2026-09-10)
+
+- `editorial-policy.yaml` gains an optional `routines:` list. Each enabled
+  routine runs one research -> draft -> media -> queue pass per cadence period
+  (daily at `time`, or weekly on or after `weekday`), drafts up to `count` of
+  the ranked candidates, and drops them into the Telegram approval queue as
+  "Scheduled proposal" drafts.
+- `media: auto` submits one AI image per queued draft through Media Studio and
+  attaches it when the job finishes; `media: none` queues text only. Drafts
+  are still queued when Media Studio is not configured, and a failed image job
+  is reported to the operator (scheduled drafts have no media question).
+- Run markers live in `data/content-bot/state.json` under `routine_last_run`,
+  so a restart never repeats a period; `/status` and `/help` report the active
+  routines. Routines share the discovery feeds, dedupe/filter/scoring rules,
+  and the category-mix rule with the daily proposal; the shipped default is
+  `routines: []` and the daily flow is unchanged.
+
+### Features — shared tool registry for the bot, router, and n8n (2026-09-10)
+
+- `content/config/tools.json` is the single source of truth for the remote
+  tools the content stack calls (MCP servers, OpenAPI services, plain HTTP
+  endpoints). Each entry lists the kind, address, capabilities, allowed
+  consumers, and the *name* of the environment variable that holds the
+  credential; secrets are never stored in the file, and `${ENV_NAME}`
+  placeholders are substituted by each runtime, so one registry works for a
+  combined server and for a split deployment.
+- The Content Bot loads the registry from its policy directory and exposes
+  `/tools` (entries for the bot with credential state and warnings) plus a
+  one-line summary in `/status`. A missing or invalid file never stops the
+  bot.
+- The Smart Router serves `GET /v1/tools` behind the same client auth as
+  `/v1/models`, read from `SMART_ROUTER_TOOLS_REGISTRY`; a broken file answers
+  with `tools_registry_invalid` and HTTP 500.
+- The n8n bootstrap reads the same file (mounted at `/tools` by
+  `./manage.sh bootstrap-n8n` or the `N8N_TOOLS_REGISTRY` override) and adds a
+  tool summary with the count of missing credential variables to its
+  reconcile result.
+- Media Studio publishes `GET /openapi.json` (no token, no secrets) so the
+  registry entry can point at a live spec, including the `video-edit` driver
+  and `POST /uploads`.
+- `docs/TOOL-REGISTRY.md` documents the schema, the per-consumer wiring, and
+  how to add a tool; `.env.example`, `docker-compose.yml`, `install.sh`, and
+  the CI validation workflow ship the new file and settings.
+
+### Features — edit or publish an operator-sent video (2026-09-10)
+
+- When the operator sends a recorded clip to the bot, the media question now
+  asks **Edit it** or **Publish as-is** instead of attaching the file
+  straight away. **Publish as-is** keeps the recording untouched; **Edit it**
+  uploads the clip to Media Studio and runs the new offline `video-edit`
+  driver, which re-encodes it to an MP4 with H.264/AAC and faststart, caps
+  the long side at 1920 px with the aspect ratio preserved, fixes rotation,
+  strips container metadata, and can trim with
+  `MEDIA_STUDIO_VIDEO_EDIT_MAX_SECONDS`.
+- Media Studio gained `POST /uploads` (raw video bytes in, upload id out),
+  the `video-edit` driver and registry entry, and ffmpeg resolution that
+  prefers `MEDIA_STUDIO_FFMPEG`, then a system binary, then the
+  `imageio-ffmpeg` wheel, so the image needs no extra system package.
+  Stored uploads are pruned after `MEDIA_STUDIO_UPLOAD_TTL_SECONDS`.
+- A failed edit job never loses the recording: the original file is restored
+  as the draft media, the bot explains the failure, and **Approve** publishes
+  the clip unchanged. Clips above the 20 MB Bot API limit stay on Telegram
+  and skip the question because they cannot be copied into Media Studio.
+- `CONTENT_MEDIA_VIDEO_EDIT_DRIVER`, the `MEDIA_STUDIO_VIDEO_EDIT_*` set,
+  `MEDIA_STUDIO_UPLOAD_TTL_SECONDS`, and `MEDIA_STUDIO_FFMPEG` are documented
+  in `.env.example`, `docker-compose.yml`, and `docs/MEDIA-STUDIO.md`.
+
 ### Changes — manual platform packages are opt-in (2026-09-10)
 
 - The copy-ready upload packages (YouTube, Aparat) and their **More

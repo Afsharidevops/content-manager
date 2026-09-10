@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from content_bot.http import HttpError, request_bytes, request_json
 
 MEDIA_KINDS = ("image", "video")
@@ -9,6 +11,24 @@ MEDIA_KINDS = ("image", "video")
 
 class MediaStudioError(RuntimeError):
     pass
+
+
+def _error_detail(body: bytes | str, limit: int = 200) -> str:
+    """Return the readable detail of one Media Studio error response."""
+    if isinstance(body, bytes):
+        text = body.decode("utf-8", "replace")
+    else:
+        text = str(body or "")
+    text = text.strip()
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return text[:limit]
+    if isinstance(parsed, dict) and parsed.get("error"):
+        return str(parsed["error"])[:limit]
+    return text[:limit]
 
 
 def _job_payload(payload: dict | None) -> dict:
@@ -59,7 +79,11 @@ class MediaStudio:
                 timeout=self.timeout,
             )
         except HttpError as error:
-            raise MediaStudioError(f"job submit failed with HTTP {error.status}") from error
+            detail = _error_detail(error.body)
+            suffix = f": {detail}" if detail else ""
+            raise MediaStudioError(
+                f"job submit failed with HTTP {error.status}{suffix}"
+            ) from error
         except ConnectionError as error:
             raise MediaStudioError(f"job submit network error: {error}") from error
         job = _job_payload(payload)
@@ -67,6 +91,48 @@ class MediaStudio:
         if not job_id:
             raise MediaStudioError("job submit returned no job id")
         return job_id
+
+    def upload_video(
+        self,
+        content: bytes,
+        *,
+        filename: str = "clip.mp4",
+        content_type: str = "video/mp4",
+    ) -> str:
+        """Store one operator-recorded clip in Media Studio.
+
+        Video editing happens inside Media Studio, and the two containers do
+        not share a volume, so the clip travels in one request body. The job
+        that follows only carries the returned upload id.
+        """
+        if not content:
+            raise MediaStudioError("the clip is empty")
+        headers = self._headers()
+        headers["Content-Type"] = content_type
+        headers["X-Upload-Name"] = str(filename or "clip.mp4")
+        try:
+            status, body = self.request_bytes(
+                self._url("uploads"),
+                raw_body=content,
+                headers=headers,
+                timeout=300,
+                max_bytes=2_000_000,
+            )
+        except ConnectionError as error:
+            raise MediaStudioError(f"clip upload network error: {error}") from error
+        if status >= 400:
+            detail = _error_detail(body)
+            suffix = f": {detail}" if detail else ""
+            raise MediaStudioError(f"clip upload failed with HTTP {status}{suffix}")
+        try:
+            payload = json.loads(body.decode("utf-8", "replace"))
+        except ValueError as error:
+            raise MediaStudioError("clip upload returned invalid JSON") from error
+        upload = payload.get("upload") if isinstance(payload, dict) else None
+        upload_id = str((upload or {}).get("id") or "")
+        if not upload_id:
+            raise MediaStudioError("clip upload returned no upload id")
+        return upload_id
 
     def job(self, job_id: str) -> dict:
         """Return the full job record for one job id."""

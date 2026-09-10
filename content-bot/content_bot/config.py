@@ -55,6 +55,7 @@ class BotSettings:
     media_job_timeout_seconds: int = 1200
     image_driver: str = "api-image"
     video_driver: str = "flow-video"
+    video_edit_driver: str = "video-edit"
     search_enabled: bool = True
     topic_drafts_enabled: bool = True
     search_max_results: int = 5
@@ -91,6 +92,7 @@ class BotSettings:
             media_job_timeout_seconds=_env_int("CONTENT_MEDIA_JOB_TIMEOUT_SECONDS", 1200),
             image_driver=_env("CONTENT_MEDIA_IMAGE_DRIVER", "api-image"),
             video_driver=_env("CONTENT_MEDIA_VIDEO_DRIVER", "flow-video"),
+            video_edit_driver=_env("CONTENT_MEDIA_VIDEO_EDIT_DRIVER", "video-edit"),
             search_enabled=_env_bool("CONTENT_SEARCH_ENABLED", True),
             topic_drafts_enabled=_env_bool("CONTENT_TOPIC_DRAFTS_ENABLED", True),
             search_max_results=_env_int("CONTENT_SEARCH_MAX_RESULTS", 5),

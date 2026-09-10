@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "description": "Shared tool registry for the content stack. One entry per remote tool source (MCP, OpenAPI, or plain HTTP) so the Content Bot, the Smart Router, and n8n call the same endpoints with the same capabilities. Values may use ${ENV_NAME} placeholders; the loader substitutes them from the process environment and never stores credentials here. Deployments edit data/content-manager/config/tools.json; the shipped copy is only the default.",
+  "tools": [
+    {
+      "id": "media-studio",
+      "title": "Media Studio",
+      "kind": "openapi",
+      "base_url": "http://media-studio:8850",
+      "spec_url": "http://media-studio:8850/openapi.json",
+      "transport": "http",
+      "auth": { "type": "bearer", "env": "MEDIA_STUDIO_API_TOKEN" },
+      "capabilities": ["media.image", "media.video", "media.video_edit", "media.brand"],
+      "consumers": ["bot", "router", "n8n"],
+      "notes": "Job queue for AI images, Flow videos, and operator-clip edits; POST /uploads stores a raw clip for the video-edit driver."
+    },
+    {
+      "id": "n8n-mcp",
+      "title": "n8n MCP tools",
+      "kind": "mcp",
+      "transport": "streamable-http",
+      "url": "http://n8n:5678/webhook/hermes/mcp",
+      "auth": { "type": "bearer", "env": "N8N_MCP_BEARER_TOKEN" },
+      "capabilities": ["tool.host", "workflow.trigger"],
+      "consumers": ["bot", "router"],
+      "notes": "MCP Server Trigger workflow created by scripts/bootstrap-n8n.mjs; the bearer token is the one the workflow stores."
+    },
+    {
+      "id": "smart-router",
+      "title": "Smart Router",
+      "kind": "openapi",
+      "base_url": "http://smart-router:8080/v1",
+      "spec_url": "",
+      "transport": "http",
+      "auth": { "type": "bearer", "env": "SMART_ROUTER_CLIENT_API_KEY" },
+      "capabilities": ["llm.chat", "llm.models"],
+      "consumers": ["bot", "n8n"],
+      "notes": "OpenAI-compatible gateway; the router also serves GET /v1/tools with the entries it may call."
+    },
+    {
+      "id": "web-search",
+      "title": "Web search",
+      "kind": "http",
+      "base_url": "https://html.duckduckgo.com/html/",
+      "transport": "http",
+      "auth": { "type": "none" },
+      "capabilities": ["search.web"],
+      "consumers": ["bot"],
+      "notes": "Keyless HTML endpoint used by the Content Bot topic search."
+    }
+  ]
+}

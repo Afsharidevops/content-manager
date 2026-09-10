@@ -151,8 +151,17 @@ which generates roughly ten seconds per clip and extends them on demand:
 4. In Flow: paste the segment 1 prompt, generate, press **Extend**, paste the
    next segment prompt, and repeat to the end. Join the clips afterwards if
    you want a single file.
-5. Send the finished video back in the chat; the bot attaches it to the draft
-   and shows the usual approval buttons. Uploaded videos are never branded.
+5. Send the finished video back in the chat. The bot then asks **Edit it**
+   or **Publish as-is**:
+   - **Edit it** uploads the clip to Media Studio, which normalises it with
+     ffmpeg (MP4 with H.264/AAC and faststart, long side capped at 1920 px,
+     rotation fixed, metadata stripped) and shows the edited preview. If the
+     edit fails, the original clip is kept and the bot says so.
+   - **Publish as-is** keeps the file exactly as recorded.
+   Both answers only decide the media; the draft still needs the usual
+   **Approve**. Videos above 20 MB stay on Telegram and skip the question
+   because the bot cannot copy them into Media Studio. Uploaded videos are
+   never branded.
 
 Character reels repeat the same character description in every segment so
 Flow keeps the face and voice consistent, while AI promo reels describe the
@@ -161,6 +170,15 @@ shot only and list the Persian line as an optional voiceover.
 must keep the `{handle}` and `{aspect}` placeholders; `CONTENT_VIDEO_ASPECT`
 sets the frame (default `9:16 vertical`). When the writer backend is
 unavailable the narration lines fall back to the post text.
+
+### Tool registry
+
+The stack keeps one registry file (`content/config/tools.json`, working copy
+`data/content-manager/config/tools.json`) that lists the remote tools the
+Content Bot, the Smart Router, and n8n may call. Send `/tools` in the bot chat
+to see the entries marked for the bot, together with the environment variable
+each one needs; `/status` shows how many entries exist. The file format and
+the per-service wiring are documented in `docs/TOOL-REGISTRY.md`.
 
 Experimental AI video jobs (`CONTENT_MEDIA_VIDEO_DRIVER`, default
 `flow-video`) can still be triggered from older media questions, but Google
@@ -201,6 +219,8 @@ and is reloaded on every request and callback:
 - `on_demand.unlimited_approvals` - set `false` to make your own link
   approvals count against `max_approved_per_day` (default `true`).
 - `pipeline.max_approved_per_day` - daily proposal cap.
+- `routines` - scheduled per-platform passes (research -> draft -> media ->
+  queue); see the section below.
 - `freshness_hours`, `exclusions`, and `scoring` - discovery-time filters.
 
 ## Daily flow: scheduled proposals
@@ -225,6 +245,41 @@ sources:
 
 With no sources configured, the daily run notifies the operator and skips.
 Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
+
+## Scheduled routines (per-platform cadence)
+
+`routines:` in `editorial-policy.yaml` adds scheduled multi-step passes on top
+of the single daily proposal: research -> draft -> media -> queue. Each enabled
+routine runs once per cadence period, drafts up to `count` of the ranked
+candidates, optionally attaches an AI image, and drops everything into the same
+Telegram approval queue (the draft card reads "Scheduled proposal").
+
+```yaml
+routines:
+  - id: instagram-daily      # unique key; remembered in data/content-bot/state.json
+    platform: instagram      # label only, shown in /status and on drafts
+    enabled: true
+    cadence: daily           # daily | weekly
+    time: "10:00"            # local time in pipeline.timezone
+    weekday: monday          # weekly cadence only
+    count: 1                 # drafts queued per run
+    media: auto              # auto (AI image) | none
+```
+
+- A daily routine runs once per local day; a weekly routine runs once per ISO
+  week on or after `weekday`. The run marker lives in
+  `data/content-bot/state.json` under `routine_last_run`, so a restart never
+  repeats a period.
+- `media: auto` submits one AI image per queued draft through Media Studio
+  (`CONTENT_MEDIA_IMAGE_DRIVER`, default `api-image`) and delivers it as the
+  usual media preview when the job finishes. `media: none` queues text only.
+  Without Media Studio configured the drafts are still queued, and a failed
+  image job is reported to the operator.
+- Routines share the discovery feeds, dedupe/filter/scoring rules, and the
+  `max_consecutive_same_category` rule with the daily run; `/status` lists the
+  active routines.
+- The shipped default is `routines: []`, so nothing is scheduled until you add
+  one; the daily proposal flow above keeps working unchanged.
 
 ## Telegram setup checklist
 
@@ -319,6 +374,22 @@ To update a running stack to the newest published build:
 
 See `docs/publishing/CONTENT-BOT-DOCKERHUB.md` for the publish workflow,
 required repository settings, and version bumps.
+
+### Local test builds
+
+While developing, build the image locally and tag it with a `-local` suffix,
+for example `CONTENT_BOT_IMAGE_TAG=0.2.0-local`. Compose reuses that local image
+on `docker compose up -d content-bot` (or `./manage.sh start`); never run
+`docker compose pull` on a `-local` tag, because it is not published to any
+registry and the pull fails with `not found`. To rebuild and switch over:
+
+```bash
+docker build -f content-bot/Dockerfile -t afsharidevops/content-bot:0.2.0-local .
+docker compose up -d --pull never content-bot
+```
+
+The same naming works for `afsharidevops/media-studio:0.2.0-local` with
+`-f media-studio/Dockerfile`.
 
 The `media-studio` image is published the same way as
 `afsharidevops/media-studio:0.2.0`; see

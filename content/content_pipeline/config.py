@@ -27,6 +27,7 @@ _POLICY_DEFAULTS = {
         "max_consecutive_same_category": 3,
     },
     "dedupe": {"title_similarity_threshold": 0.90},
+    "routines": [],
     "freshness_hours": 72,
     "scoring": {
         "weights": {

@@ -44,6 +44,7 @@ from .observations import ObservationWriter
 from .privacy import session_identity
 from .proxy import forward_headers, proxy_buffered, proxy_streaming, response_header_pairs
 from .routing import AUTO_ALIASES, Decision, build_policy_runtime, decide, tier_satisfies_capabilities
+from .tools_registry import ToolsRegistryError, load_tools
 
 logger = logging.getLogger("smart-router")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -396,6 +397,34 @@ def create_app(
             logger.error(json.dumps({"event": "v51_control_telemetry_error", "reason": type(error).__name__}))
         return response
 
+    async def tools(request: Request) -> Response:
+        """Serve the shared tool registry entries the router may call."""
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        try:
+            entries = load_tools(settings.tools_registry)
+        except ToolsRegistryError as error:
+            return JSONResponse(
+                {
+                    "data": [],
+                    "error": {
+                        "message": str(error),
+                        "type": "smart_router_error",
+                        "code": "tools_registry_invalid",
+                    },
+                },
+                status_code=500,
+                headers={"Cache-Control": "no-store"},
+            )
+        return JSONResponse(
+            {
+                "data": [tool.to_dict() for tool in entries],
+                "registry": settings.tools_registry or "",
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
     async def router_info(_: Request) -> Response:
         return JSONResponse({
             "version": __version__,
@@ -419,6 +448,7 @@ def create_app(
         Route("/dashboard/api/traces/{request_id:str}", dashboard_trace, methods=["GET"]),
         Mount("/control", app=control_plane.app),
         Route("/v1/models", models, methods=["GET"]),
+        Route("/v1/tools", tools, methods=["GET"]),
         Route("/v1/chat/completions", completions, methods=["POST"]),
     ]
     app = Starlette(routes=routes, lifespan=lifespan)

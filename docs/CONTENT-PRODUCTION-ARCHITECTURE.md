@@ -107,6 +107,8 @@ snapshots stay in Media Studio (`data/media-studio/`). This satisfies the
   or refused.
 - Telegram API client supports multipart photo/video uploads and raw binary
   requests.
+- Scheduled routines (research -> draft -> media -> queue) run per-platform
+  cadences from the policy `routines:` list; see "Scheduled routines".
 
 ### Limits in Phase 1
 
@@ -114,9 +116,31 @@ snapshots stay in Media Studio (`data/media-studio/`). This satisfies the
   interactive confirmations plus a signed-in session; true multi-scene
   composition is Phase 3, and the supported video path is the operator-created
   prompt + upload flow.
-- The media question is only asked for operator-driven (`on_demand`) drafts,
-  not for scheduled daily proposals.
+- The media question is only asked for operator-driven (`on_demand`) drafts.
+  Scheduled routines use their own `media: auto | none` step instead; the
+  daily proposal stays text-only.
+- An operator-sent video is offered **Edit it / Publish as-is**. "Edit it"
+  runs the offline `video-edit` driver in Media Studio (ffmpeg re-encode,
+  long side cap, optional trim); AI editing of arbitrary footage is not part
+  of it.
 - Publish adapters beyond Telegram are not implemented yet.
+
+## Scheduled routines
+
+`editorial-policy.yaml` gains a `routines:` list; each entry queues
+research -> draft -> media -> approval for one platform:
+
+- one pass per cadence period (daily at `time`, or weekly on or after
+  `weekday`), tracked in `data/content-bot/state.json` under
+  `routine_last_run`, so a restart never repeats a period;
+- drafts use the same discovery feeds, filters, scoring, and category-mix rule
+  as the daily proposal and arrive as kind `routine` ("Scheduled proposal");
+- `media: auto` submits one image per queued draft through Media Studio and
+  attaches it when the job finishes; `media: none` queues text only. The
+  operator-driven media question stays `on_demand`-only.
+
+The daily proposal remains the global single-pass schedule; routines add
+per-platform cadence on top and share its feeds and caps.
 
 ## Roadmap
 
@@ -127,8 +151,13 @@ Phase 2 - tool registry and platform publishers:
   enabled, a platform chooser on every draft sends a policy-driven copy pack
   (title, description, hashtags, upload link) plus the stored media file for
   platforms whose API needs a human step.
-- Remote MCP/OpenAPI tool sources registered in one place so the bot, n8n,
-  and the router can call the same tools (search, media, publish).
+- Remote MCP/OpenAPI tool sources are registered in one file
+  (`content/config/tools.json`, working copy under
+  `data/content-manager/config/`). The bot reads it (`/tools` lists the
+  entries for its consumer with credential state), the Smart Router serves its
+  entries on `GET /v1/tools`, and the n8n bootstrap reports its entries in the
+  reconcile summary. See `docs/TOOL-REGISTRY.md`; generating n8n tool nodes
+  from the registry stays in Phase 3.
 - Publisher agents per platform (Instagram live through the Graph API,
   YouTube and Aparat through upload packages; more adapters planned) with
   per-platform copy profiles, aspect ratios, and direct manual-action links
@@ -137,10 +166,8 @@ Phase 2 - tool registry and platform publishers:
   summary is already combined, and a single multi-platform approval summary
   for API targets is still open.
 
-Phase 3 - routines and longer video:
+Phase 3 - longer video:
 
-- Scheduled multi-step routines (research -> draft -> media -> queue) with
-  per-platform cadence.
 - Multi-scene Flow videos up to ~30 seconds composed from several clips.
 - Optional n8n connector that drives the same tool registry; Telegram remains
   the operator front-end.
@@ -156,9 +183,17 @@ CONTENT_MEDIA_STUDIO_URL            Media Studio API base URL (blank disables)
 CONTENT_MEDIA_STUDIO_TOKEN          Bearer token for Media Studio
 CONTENT_MEDIA_IMAGE_DRIVER          image driver (default api-image)
 CONTENT_MEDIA_VIDEO_DRIVER          video driver (default flow-video)
+CONTENT_MEDIA_VIDEO_EDIT_DRIVER     driver for an uploaded clip (default video-edit)
+SMART_ROUTER_TOOLS_REGISTRY        tool registry file served on GET /v1/tools
+N8N_TOOLS_REGISTRY                 tool registry file read by the n8n bootstrap
 CONTENT_MEDIA_JOB_TIMEOUT_SECONDS   max wait for one media job (default 1200)
 MEDIA_STUDIO_BRAND_LABEL           brand chip text, blank disables (default Locallab)
 MEDIA_STUDIO_BRAND_POSITION        chip corner: bottom-right/left, top-right/left
+MEDIA_STUDIO_VIDEO_EDIT_MAX_SIDE   uploaded-clip long side cap (default 1920 px)
+MEDIA_STUDIO_VIDEO_EDIT_MAX_SECONDS  trim uploaded clips (default 0 keeps all)
+MEDIA_STUDIO_VIDEO_EDIT_TIMEOUT_SECONDS  one ffmpeg run ceiling (default 900)
+MEDIA_STUDIO_UPLOAD_TTL_SECONDS    stored upload retention (default 86400)
+MEDIA_STUDIO_FFMPEG                ffmpeg binary override (blank uses imageio-ffmpeg)
 CONTENT_SEARCH_ENABLED              topic/short-page search (default true)
 CONTENT_TOPIC_DRAFTS_ENABLED        draft from topic messages (default true)
 CONTENT_SEARCH_MAX_RESULTS          search results used (default 5)

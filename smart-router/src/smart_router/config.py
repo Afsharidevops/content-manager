@@ -47,6 +47,7 @@ class Settings:
     strong: TierConfig
     context_token_safety_factor: float = 1.15
     allow_tier_overrides: bool = False
+    tools_registry: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -135,6 +136,7 @@ class Settings:
             allow_tier_overrides=_bool_env(
                 "SMART_ROUTER_ALLOW_TIER_OVERRIDES", False
             ),
+            tools_registry=os.getenv("SMART_ROUTER_TOOLS_REGISTRY", "").strip(),
             learned_model_file=os.getenv(
                 "SMART_ROUTER_LEARNED_MODEL_FILE", "/policy/learned-v4.joblib"
             ),

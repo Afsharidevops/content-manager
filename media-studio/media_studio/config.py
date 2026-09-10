@@ -33,13 +33,18 @@ class Settings:
     bind_ip: str = "127.0.0.1"
     port: int = 8850
     api_token: str = ""
-    drivers: tuple[str, ...] = ("api-image", "flow-video")
+    drivers: tuple[str, ...] = ("api-image", "flow-video", "video-edit")
     writer_base_url: str = ""
     writer_api_key: str = ""
     writer_model: str = ""
     image_size: str = "1024x1024"
     brand_label: str = "Locallab"
     brand_position: str = "bottom-right"
+    ffmpeg_binary: str = ""
+    video_edit_max_side: int = 1920
+    video_edit_max_seconds: int = 0
+    video_edit_timeout_seconds: int = 900
+    upload_ttl_seconds: int = 86400
     session_mode: str = "cdp"
     cdp_url: str = "http://127.0.0.1:9222"
     headless: bool = True
@@ -55,7 +60,9 @@ class Settings:
     def from_env(cls) -> "Settings":
         drivers = tuple(
             part.strip()
-            for part in _env("MEDIA_STUDIO_DRIVERS", "api-image,flow-video").split(",")
+            for part in _env(
+                "MEDIA_STUDIO_DRIVERS", "api-image,flow-video,video-edit"
+            ).split(",")
             if part.strip()
         )
         raw_brand = os.environ.get("MEDIA_STUDIO_BRAND_LABEL")
@@ -65,13 +72,20 @@ class Settings:
             bind_ip=_env("MEDIA_STUDIO_BIND_IP", "127.0.0.1"),
             port=_env_int("MEDIA_STUDIO_PORT", 8850),
             api_token=_env("MEDIA_STUDIO_API_TOKEN"),
-            drivers=drivers or ("api-image",),
+            drivers=drivers or ("api-image", "video-edit"),
             writer_base_url=_env("MEDIA_STUDIO_WRITER_BASE_URL") or _env("CONTENT_WRITER_BASE_URL"),
             writer_api_key=_env("MEDIA_STUDIO_WRITER_API_KEY") or _env("CONTENT_WRITER_API_KEY"),
             writer_model=_env("MEDIA_STUDIO_WRITER_MODEL") or _env("CONTENT_WRITER_MODEL", "auto"),
             image_size=_env("MEDIA_STUDIO_IMAGE_SIZE", "1024x1024"),
             brand_label=brand_label,
             brand_position=_env("MEDIA_STUDIO_BRAND_POSITION", "bottom-right"),
+            ffmpeg_binary=_env("MEDIA_STUDIO_FFMPEG"),
+            video_edit_max_side=_env_int("MEDIA_STUDIO_VIDEO_EDIT_MAX_SIDE", 1920),
+            video_edit_max_seconds=_env_int("MEDIA_STUDIO_VIDEO_EDIT_MAX_SECONDS", 0),
+            video_edit_timeout_seconds=_env_int(
+                "MEDIA_STUDIO_VIDEO_EDIT_TIMEOUT_SECONDS", 900
+            ),
+            upload_ttl_seconds=_env_int("MEDIA_STUDIO_UPLOAD_TTL_SECONDS", 86400),
             session_mode=_env("MEDIA_STUDIO_SESSION_MODE", "cdp").lower(),
             cdp_url=_env("MEDIA_STUDIO_CDP_URL", "http://127.0.0.1:9222"),
             headless=_env_bool("MEDIA_STUDIO_HEADLESS", True),

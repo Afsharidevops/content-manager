@@ -221,3 +221,157 @@ class BrandServerTests(unittest.TestCase):
             bound.settings = original
         self.assertEqual(status, 200)
         self.assertEqual(body, self.png)
+
+
+class UploadServerTests(unittest.TestCase):
+    """POST /uploads stores a raw clip for the video-edit driver."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="ms-upload-srv-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.settings = Settings(
+            data_dir=self.dir, drivers=("fake", "video-edit"), api_token="test-token"
+        )
+        self.state = StateStore(os.path.join(self.dir, "jobs.json"))
+        self.queue = JobQueue(self.settings, self.state, driver_factory=factory)
+        self.queue.start()
+        self.addCleanup(self.queue.stop)
+
+        class Bound(MediaStudioHandler):
+            settings = self.settings
+            state = self.state
+            queue = self.queue
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Bound)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.httpd.shutdown)
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def _raw(self, body, content_type="video/mp4", token=True):
+        headers = {"Content-Type": content_type}
+        if token:
+            headers["Authorization"] = "Bearer test-token"
+        request = urllib.request.Request(
+            self.base + "/uploads", data=body, headers=headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read()
+
+    def test_upload_requires_token(self):
+        status, body = self._raw(b"clip-bytes", token=False)
+        self.assertEqual(status, 401)
+        self.assertIn(b"error", body)
+
+    def test_upload_returns_id_and_stores_file(self):
+        status, body = self._raw(b"clip-bytes")
+        self.assertEqual(status, 201)
+        payload = json.loads(body)
+        upload_id = payload["upload"]["id"]
+        self.assertEqual(payload["upload"]["size"], 10)
+        stored = os.path.join(self.dir, "uploads", upload_id, "source.mp4")
+        with open(stored, "rb") as handle:
+            self.assertEqual(handle.read(), b"clip-bytes")
+
+    def test_upload_rejects_non_video_payload(self):
+        status, _ = self._raw(b"not-a-clip", content_type="application/json")
+        self.assertEqual(status, 415)
+
+    def test_upload_rejects_empty_body(self):
+        status, _ = self._raw(b"")
+        self.assertEqual(status, 413)
+
+    def test_upload_prunes_expired_directories(self):
+        expired = os.path.join(self.dir, "uploads", "f" * 32)
+        os.makedirs(expired)
+        old = time.time() - 3 * 86400
+        os.utime(expired, (old, old))
+        status, body = self._raw(b"clip-bytes")
+        self.assertEqual(status, 201)
+        self.assertFalse(os.path.isdir(expired))
+        self.assertTrue(
+            os.path.isdir(os.path.join(self.dir, "uploads", json.loads(body)["upload"]["id"]))
+        )
+
+    def test_video_edit_job_runs_from_a_stored_upload(self):
+        from media_studio.drivers.base import Driver, RunContext
+
+        class RecordingDriver(Driver):
+            name = "video-edit"
+
+            def run(self, ctx: RunContext):
+                with open(os.path.join(ctx.work_dir, f"seen-{ctx.params['upload_id']}.txt"), "w") as handle:
+                    handle.write("ok")
+                return [(f"seen-{ctx.params['upload_id']}.txt", "file")]
+
+        original = self.queue._factory  # noqa: SLF001 - test seam
+        self.queue._factory = lambda _name: RecordingDriver()  # noqa: SLF001
+        try:
+            _, raw = self._raw(b"clip-bytes")
+            upload_id = json.loads(raw)["upload"]["id"]
+            request = urllib.request.Request(
+                self.base + "/jobs",
+                data=json.dumps(
+                    {
+                        "driver": "video-edit",
+                        "prompt": "prepare the clip",
+                        "params": {"upload_id": upload_id},
+                    }
+                ).encode(),
+                headers={"Content-Type": "application/json", "Authorization": "Bearer test-token"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(response.status, 202)
+                job_id = json.loads(response.read())["job"]["id"]
+            produced = os.path.join(self.dir, "artifacts", job_id, f"seen-{upload_id}.txt")
+            deadline = time.time() + 8
+            while time.time() < deadline and not os.path.isfile(produced):
+                time.sleep(0.05)
+        finally:
+            self.queue._factory = original  # noqa: SLF001
+        self.assertTrue(os.path.isfile(produced))
+
+
+class OpenApiTests(unittest.TestCase):
+    """GET /openapi.json describes the routes the registry points at."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="ms-openapi-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.settings = Settings(data_dir=self.dir, drivers=("fake",), api_token="test-token")
+        self.state = StateStore(os.path.join(self.dir, "jobs.json"))
+        self.queue = JobQueue(self.settings, self.state, driver_factory=factory)
+
+        class Bound(MediaStudioHandler):
+            settings = self.settings
+            state = self.state
+            queue = self.queue
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Bound)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.httpd.shutdown)
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def test_document_is_readable_without_a_token(self):
+        request = urllib.request.Request(self.base + "/openapi.json", method="GET")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            document = json.loads(response.read())
+        self.assertEqual(document["openapi"], "3.1.0")
+        self.assertIn("/jobs", document["paths"])
+        self.assertIn("/uploads", document["paths"])
+        self.assertIn("/brand", document["paths"])
+        self.assertIn("bearerAuth", document["components"]["securitySchemes"])
+
+    def test_document_lists_the_enabled_drivers(self):
+        from media_studio.openapi import openapi_document
+
+        schema = openapi_document()["paths"]["/jobs"]["post"]["requestBody"]["content"]
+        driver = schema["application/json"]["schema"]["properties"]["driver"]
+        self.assertIn("video-edit", driver["enum"])
+        self.assertIn("api-image", driver["enum"])

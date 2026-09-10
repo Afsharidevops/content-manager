@@ -19,6 +19,7 @@ LOGGER = logging.getLogger("media_studio.runner")
 
 _DRIVER_MODULES = {
     "api-image": ("media_studio.drivers.api_image", "ApiImageDriver"),
+    "video-edit": ("media_studio.drivers.video_edit", "VideoEditDriver"),
     "flow-video": ("media_studio.drivers.flow_video", "FlowVideoDriver"),
     "gemini-image": ("media_studio.drivers.gemini_image", "GeminiImageDriver"),
 }

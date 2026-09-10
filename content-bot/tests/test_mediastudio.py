@@ -52,6 +52,52 @@ class MediaStudioTests(unittest.TestCase):
         with self.assertRaises(MediaStudioError):
             client.submit("api-image", "prompt text")
 
+    def test_upload_video_posts_raw_bytes_and_returns_id(self):
+        calls = []
+
+        def responder(url, **kwargs):
+            calls.append((url, kwargs))
+            return 201, b'{"upload": {"id": "abc123", "size": 4}}'
+
+        client = MediaStudio("http://ms:8850", "tok", request_bytes_fn=responder)
+        upload_id = client.upload_video(b"clip", filename="reel.mp4")
+        self.assertEqual(upload_id, "abc123")
+        url, kwargs = calls[0]
+        self.assertTrue(url.endswith("/uploads"))
+        self.assertEqual(kwargs["raw_body"], b"clip")
+        self.assertEqual(kwargs["headers"]["Content-Type"], "video/mp4")
+        self.assertEqual(kwargs["headers"]["X-Upload-Name"], "reel.mp4")
+
+    def test_upload_video_rejects_empty_body(self):
+        client = MediaStudio("http://ms:8850", request_bytes_fn=lambda *a, **k: (201, b"{}"))
+        with self.assertRaises(MediaStudioError):
+            client.upload_video(b"")
+
+    def test_upload_video_reports_http_error_detail(self):
+        client = MediaStudio(
+            "http://ms:8850",
+            request_bytes_fn=lambda url, **kwargs: (413, b'{"error": "too big"}'),
+        )
+        with self.assertRaises(MediaStudioError) as caught:
+            client.upload_video(b"clip")
+        self.assertIn("too big", str(caught.exception))
+
+    def test_upload_video_requires_an_id_in_the_reply(self):
+        client = MediaStudio(
+            "http://ms:8850", request_bytes_fn=lambda url, **kwargs: (201, b"{}")
+        )
+        with self.assertRaises(MediaStudioError):
+            client.upload_video(b"clip")
+
+    def test_submit_error_includes_the_response_detail(self):
+        def failing(url, *, payload=None, headers=None, timeout=30):
+            raise HttpError(400, b'{"error": "Driver video-edit is not enabled."}')
+
+        client = MediaStudio("http://ms:8850", request_json_fn=failing)
+        with self.assertRaises(MediaStudioError) as caught:
+            client.submit("video-edit", "prompt text")
+        self.assertIn("not enabled", str(caught.exception))
+
     def test_download_bytes(self):
         client = MediaStudio(
             "http://ms:8850",

@@ -18,6 +18,7 @@ jobs:
         run: |
           node --check scripts/bootstrap-openwebui.mjs
           node --check scripts/bootstrap-n8n.mjs
+          node --check scripts/lib/tools-registry.mjs
           node --check scripts/verify-n8n.mjs
           python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("scripts").glob("*.py")]'
           python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("plugins").rglob("*.py")]'
@@ -28,6 +29,7 @@ jobs:
         run: |
           python3 -m unittest -v tests/test_stack_package_policy.py tests/test_stack_execution_policy.py tests/test_execution_broker.py
           node --test tests/test-bootstrap-n8n.mjs
+          node --test tests/test-tools-registry.mjs
           node --test tests/test-verify-n8n.mjs
           node --test tests/test-flow-unlock-patch.mjs
           tests/test-manage-n8n.sh

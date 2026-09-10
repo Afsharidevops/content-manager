@@ -10,6 +10,8 @@ Endpoints:
   DELETE /jobs/<id>              cancel while queued
   GET  /artifacts/<id>/<name>
   POST /brand                    raw image bytes in, branded image bytes out
+  POST /uploads                  raw video bytes in, stored upload id out
+  GET  /openapi.json             OpenAPI description of this API
 """
 
 from __future__ import annotations
@@ -19,18 +21,23 @@ import json
 import logging
 import mimetypes
 import os
+import shutil
 import tempfile
+import time
 import urllib.parse
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from media_studio import branding as branding_mod
 from media_studio.drivers import DRIVERS, PROBE
+from media_studio.openapi import openapi_document
 from media_studio.runner import JobQueue
 from media_studio.state import StateStore
 
 LOGGER = logging.getLogger("media_studio.server")
 MAX_BODY = 512 * 1024
 MAX_IMAGE_UPLOAD = 32 * 1024 * 1024
+MAX_VIDEO_UPLOAD = 64 * 1024 * 1024
 
 
 def _binary_response(handler: BaseHTTPRequestHandler, status: int, body: bytes) -> None:
@@ -50,6 +57,17 @@ def _image_suffix(content_type: str) -> str:
         "image/webp": ".webp",
         "image/bmp": ".bmp",
     }.get(media_type, ".img")
+
+
+def _video_suffix(content_type: str) -> str:
+    media_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    return {
+        "video/mp4": ".mp4",
+        "video/quicktime": ".mov",
+        "video/webm": ".webm",
+        "video/x-matroska": ".mkv",
+        "video/x-msvideo": ".avi",
+    }.get(media_type, ".mp4")
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
@@ -132,11 +150,71 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
                     pass
         _binary_response(self, 200, result)
 
+    def _prune_uploads(self, root: str, ttl_seconds: int) -> None:
+        """Drop stored uploads older than the configured time to live."""
+        if ttl_seconds <= 0 or not os.path.isdir(root):
+            return
+        cutoff = time.time() - ttl_seconds
+        for name in os.listdir(root):
+            path = os.path.join(root, name)
+            if not os.path.isdir(path):
+                continue
+            try:
+                if os.path.getmtime(path) < cutoff:
+                    shutil.rmtree(path, ignore_errors=True)
+            except OSError:
+                continue
+
+    def _store_video_upload(self) -> None:
+        """POST /uploads with raw video bytes returns the stored upload id.
+
+        The bot cannot write into this container, so the clip travels in one
+        request body and the job only carries the returned id.
+        """
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0 or length > MAX_VIDEO_UPLOAD:
+            _json_response(
+                self,
+                413,
+                {"error": "Video body must be between 1 byte and 64 MiB."},
+            )
+            return
+        content_type = str(self.headers.get("Content-Type", ""))
+        if not content_type.lower().startswith(("video/", "application/octet-stream")):
+            _json_response(self, 415, {"error": "Send the video with a video/* content type."})
+            return
+        raw = self.rfile.read(length)
+        if not raw:
+            _json_response(self, 400, {"error": "Empty video body."})
+            return
+        root = os.path.join(self.settings.data_dir, "uploads")
+        upload_id = uuid.uuid4().hex
+        directory = os.path.join(root, upload_id)
+        try:
+            os.makedirs(directory, exist_ok=True)
+            with open(os.path.join(directory, f"source{_video_suffix(content_type)}"), "wb") as handle:
+                handle.write(raw)
+        except OSError as exc:
+            LOGGER.warning("upload could not be stored: %s", exc)
+            _json_response(self, 500, {"error": "Could not store the upload."})
+            return
+        self._prune_uploads(root, int(getattr(self.settings, "upload_ttl_seconds", 86400) or 0))
+        _json_response(
+            self,
+            201,
+            {"upload": {"id": upload_id, "size": len(raw), "content_type": content_type}},
+        )
+
     def _route(self, parts: list[str]) -> None:
         method = self.command
         if method == "GET" and parts == ["healthz"]:
             counts = self.state.counts()
             _json_response(self, 200, {"ok": True, **counts})
+            return
+        # The registry points other services at this document, so it stays
+        # readable without the API token; it holds no credentials.
+        if method == "GET" and parts == ["openapi.json"]:
+            _json_response(self, 200, openapi_document())
             return
         if not self._authorized():
             _json_response(self, 401, {"error": "Unauthorized. Send Authorization: Bearer <token>."})
@@ -179,6 +257,9 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
             return
         if method == "POST" and parts == ["brand"]:
             self._brand_image()
+            return
+        if method == "POST" and parts == ["uploads"]:
+            self._store_video_upload()
             return
         if method == "POST" and parts == ["jobs"]:
             try:

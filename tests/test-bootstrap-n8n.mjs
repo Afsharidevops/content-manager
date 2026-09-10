@@ -880,3 +880,46 @@ test("workflow fingerprint ignores API response metadata but detects managed def
   response.nodes[1].parameters.text = "changed";
   assert.notEqual(workflowFingerprint(workflow), workflowFingerprint(response));
 });
+
+test("the reconcile summary reports the shared tool registry", async (t) => {
+  const server = await fixture(t);
+  const stateFile = await tempState(t);
+  const directory = await mkdtemp(join(os.tmpdir(), "bootstrap-n8n-registry-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const registryPath = join(directory, "tools.json");
+  await writeFile(
+    registryPath,
+    JSON.stringify({
+      schema_version: 1,
+      tools: [
+        {
+          id: "media-studio",
+          title: "Media Studio",
+          kind: "openapi",
+          base_url: "http://media-studio:8850",
+          auth: { type: "bearer", env: "MEDIA_STUDIO_API_TOKEN" },
+          consumers: ["bot", "n8n"],
+        },
+        { id: "bot-only", kind: "http", base_url: "http://bot.test", consumers: ["bot"] },
+      ],
+    }),
+    "utf8",
+  );
+
+  const result = await reconcileN8n({ ...input(server, stateFile), toolsRegistry: registryPath });
+  assert.equal(result.tools.count, 1);
+  assert.equal(result.tools.warning, "");
+  assert.deepEqual(result.tools.tools.map((tool) => tool.id), ["media-studio"]);
+  assert.deepEqual(result.tools.missingCredentials, [
+    { id: "media-studio", env: "MEDIA_STUDIO_API_TOKEN" },
+  ]);
+
+  const withoutRegistry = await reconcileN8n(input(server, stateFile));
+  assert.deepEqual(withoutRegistry.tools, {
+    path: "",
+    count: 0,
+    missingCredentials: [],
+    tools: [],
+    warning: "",
+  });
+});

@@ -13,6 +13,24 @@ pipeline:
   max_approved_per_day: 3
   max_consecutive_same_category: 3
 
+# Scheduled routines: research -> draft -> media -> queue.
+# Each enabled routine runs one pass per cadence period, drafts the ranked
+# candidates, optionally attaches an AI image, and drops the result into the
+# Telegram approval queue. Give every platform its own cadence by adding one
+# routine per platform; the on-demand and daily-proposal paths are unchanged.
+# Shape (all keys except id are optional):
+#
+#   routines:
+#     - id: instagram-daily          # unique key used in state and logs
+#       platform: instagram          # label shown in /status and on drafts
+#       enabled: true
+#       cadence: daily               # daily | weekly
+#       time: "10:00"                # local time in pipeline.timezone
+#       weekday: monday              # weekly cadence only
+#       count: 1                     # drafts queued per run
+#       media: auto                  # auto (AI image) | none
+routines: []
+
 # Deduplication tuning.
 dedupe:
   title_similarity_threshold: 0.90
