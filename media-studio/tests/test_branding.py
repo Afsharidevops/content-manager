@@ -13,7 +13,7 @@ try:
 except ImportError:  # pragma: no cover - exercised only without Pillow
     Image = None
 
-from media_studio.branding import apply_brand_overlay
+from media_studio.branding import apply_brand_overlay, render_chip, render_chip_file
 
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 
@@ -83,3 +83,45 @@ class BrandingOverlayTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrandChipStyleTests(unittest.TestCase):
+    """The aurora style is the LocalLab mark: gradient pill plus halo."""
+
+    def test_aurora_chip_carries_the_gradient_and_a_fading_halo(self):
+        chip, pad = render_chip("Locallab", height=72)
+        self.assertIsNotNone(chip)
+        self.assertGreater(pad, 0)
+        alpha = chip.getchannel("A")
+        self.assertEqual(alpha.getpixel((0, 0)), 0)
+        self.assertGreater(alpha.getpixel((pad + 2, chip.height // 2)), 200)
+        pixels = list(chip.convert("RGB").crop((pad, pad, chip.width - pad, chip.height - pad)).getdata())
+        self.assertTrue(any(pixel[1] > 90 and pixel[2] > 110 and pixel[0] < 80 for pixel in pixels))
+        self.assertTrue(any(pixel[0] > 100 and pixel[2] > 70 and pixel[1] < 80 for pixel in pixels))
+        self.assertTrue(any(max(pixel) < 60 for pixel in pixels))
+
+    def test_legacy_chip_style_stays_flat(self):
+        chip, pad = render_chip("Locallab", height=72, style="chip")
+        self.assertIsNotNone(chip)
+        self.assertEqual(pad, 0)
+        pixels = list(chip.convert("RGB").getdata())
+        self.assertTrue(any(max(pixel) < 60 for pixel in pixels))
+        self.assertFalse(any(pixel[1] > 90 and pixel[2] > 110 and pixel[0] < 80 for pixel in pixels))
+
+    def test_unknown_style_falls_back_to_aurora(self):
+        chip, pad = render_chip("Locallab", height=72, style="does-not-exist")
+        self.assertGreater(pad, 0)
+
+    def test_blank_label_produces_no_chip(self):
+        chip, pad = render_chip("   ")
+        self.assertIsNone(chip)
+        self.assertEqual(pad, 0)
+
+    def test_render_chip_file_writes_a_transparent_png(self):
+        path = os.path.join(tempfile.mkdtemp(prefix="ms-chip-"))
+        self.addCleanup(shutil.rmtree, path, True)
+        target = os.path.join(path, "chip.png")
+        self.assertTrue(render_chip_file(target, "Locallab", max_side=64))
+        image = Image.open(target)
+        self.assertEqual(image.mode, "RGBA")
+        self.assertEqual(image.getchannel("A").getpixel((0, 0)), 0)

@@ -66,6 +66,8 @@ class BotSettings:
     video_segment_seconds: int = 10
     instagram_business_id: str = ""
     instagram_access_token: str = ""
+    instagram_app_id: str = ""
+    instagram_app_secret: str = ""
     instagram_media_public_base_url: str = ""
     instagram_api_base: str = "https://graph.facebook.com"
     instagram_api_version: str = "v26.0"
@@ -103,6 +105,8 @@ class BotSettings:
             video_segment_seconds=_env_int("CONTENT_VIDEO_SEGMENT_SECONDS", 10),
             instagram_business_id=_env("INSTAGRAM_BUSINESS_ID"),
             instagram_access_token=_env("INSTAGRAM_ACCESS_TOKEN"),
+            instagram_app_id=_env("INSTAGRAM_APP_ID"),
+            instagram_app_secret=_env("INSTAGRAM_APP_SECRET"),
             instagram_media_public_base_url=_env(
                 "INSTAGRAM_MEDIA_PUBLIC_BASE_URL"
             ),

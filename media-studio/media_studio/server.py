@@ -115,6 +115,7 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
         """POST /brand with raw image bytes returns the branded image."""
         label = str(getattr(self.settings, "brand_label", "") or "").strip()
         position = str(getattr(self.settings, "brand_position", "") or "bottom-right")
+        style = str(getattr(self.settings, "brand_style", "") or "aurora")
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length <= 0 or length > MAX_IMAGE_UPLOAD:
             _json_response(self, 413, {"error": "Image body must be between 1 byte and 32 MiB."})
@@ -133,7 +134,9 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(raw)
             try:
-                branding_mod.apply_brand_overlay(tmp_path, label, position=position)
+                branding_mod.apply_brand_overlay(
+                    tmp_path, label, position=position, style=style
+                )
             except Exception as exc:  # noqa: BLE001 - never fail a job over branding
                 LOGGER.warning("brand endpoint overlay failed: %s", exc)
             with open(tmp_path, "rb") as handle:

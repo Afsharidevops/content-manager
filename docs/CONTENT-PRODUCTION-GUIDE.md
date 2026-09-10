@@ -82,7 +82,7 @@ token on both hosts.
    times until the post reads the way you want.
 6. **Reject** without a reply comment discards the draft entirely.
 
-Commands in the bot chat: `/start`, `/help`, `/status`.
+Commands in the bot chat: `/start`, `/help`, `/status`, `/tools`, and `/instagram`.
 
 ## Topics and short pages
 
@@ -302,7 +302,7 @@ routines:
 | Platform | State |
 | --- | --- |
 | Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
-| Instagram | Official Meta Graph API: photos, carousels, and video; see `docs/INSTAGRAM-SETUP.md` |
+| Instagram | Official Meta Graph API: photos, carousels, and video; the long-lived token refreshes itself and `/instagram` reports the expiry; see `docs/INSTAGRAM-SETUP.md` |
 | YouTube / Aparat | Optional copy-ready upload package (off by default); see "Manual upload platforms" |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
 

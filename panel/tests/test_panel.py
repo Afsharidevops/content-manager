@@ -2,6 +2,8 @@
 
 import http.client
 import json
+import os
+import stat
 import tempfile
 import threading
 import unittest
@@ -10,6 +12,7 @@ from pathlib import Path
 
 from panel import __version__
 from panel.actions import ActionError, ActionRunner
+from panel import drafts as drafts_mod
 from panel.editors import ConfigStore, EditError, EnvStore
 from panel.server import PanelApp, PanelHandler
 from panel.stack import StackView
@@ -128,6 +131,79 @@ class ConfigStoreTest(unittest.TestCase):
     def test_unknown_config_name_is_rejected(self):
         with self.assertRaisesRegex(EditError, "unknown configuration file"):
             self.store.read("../etc/passwd")
+
+
+class ConfigSeedTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        self.shipped = self.root / "content" / "config"
+        self.shipped.mkdir(parents=True)
+        self.store = ConfigStore(self.root)
+
+    def test_listing_marks_files_that_can_be_created_from_the_default(self):
+        (self.shipped / "tools.json").write_text(VALID_TOOLS, encoding="utf-8")
+        listing = {row["name"]: row for row in self.store.listing()}
+        self.assertTrue(listing["tools"]["can_seed"])
+        self.assertFalse(listing["tools"]["exists"])
+        self.assertFalse(listing["sources"]["can_seed"])
+
+    def test_seed_copies_the_shipped_default(self):
+        (self.shipped / "tools.json").write_text(VALID_TOOLS, encoding="utf-8")
+        result = self.store.seed("tools")
+        target = self.root / "data" / "content-manager" / "config" / "tools.json"
+        self.assertTrue(target.is_file())
+        self.assertEqual(target.read_text(encoding="utf-8"), VALID_TOOLS)
+        self.assertTrue(result["seeded_from"].endswith("content/config/tools.json"))
+
+    def test_seed_refuses_to_overwrite_or_invent_a_default(self):
+        (self.shipped / "tools.json").write_text(VALID_TOOLS, encoding="utf-8")
+        self.store.seed("tools")
+        with self.assertRaises(EditError):
+            self.store.seed("tools")
+        with self.assertRaises(EditError):
+            self.store.seed("editorial-policy")
+
+
+class DraftQueueTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+
+    def queue_path(self) -> Path:
+        return self.root / "data" / "content-bot" / drafts_mod.REQUEST_FILE
+
+    def test_queue_action_appends_a_validated_request(self):
+        request = drafts_mod.queue_action(self.root, "draft-1", "publish")
+        self.assertEqual(request["draft_id"], "draft-1")
+        self.assertEqual(request["action"], "publish")
+        stored = json.loads(self.queue_path().read_text(encoding="utf-8").strip())
+        self.assertEqual(stored["id"], request["id"])
+        self.assertEqual(drafts_mod.pending(self.root)[0]["action"], "publish")
+
+    def test_queue_action_rejects_bad_input(self):
+        with self.assertRaises(drafts_mod.DraftActionError):
+            drafts_mod.queue_action(self.root, "../etc/passwd", "publish")
+        with self.assertRaises(drafts_mod.DraftActionError):
+            drafts_mod.queue_action(self.root, "draft-1", "rm -rf")
+        with self.assertRaises(drafts_mod.DraftActionError):
+            drafts_mod.queue_action(self.root, "", "discard")
+
+    def test_results_are_returned_newest_first(self):
+        path = self.root / "data" / "content-bot" / drafts_mod.RESULT_FILE
+        path.write_text(
+            json.dumps({"results": [{"id": "1"}, {"id": "2"}, {"id": "3"}]}),
+            encoding="utf-8",
+        )
+        self.assertEqual([row["id"] for row in drafts_mod.results(self.root)], ["3", "2", "1"])
+        self.assertEqual(drafts_mod.results(self.root, limit=2), drafts_mod.results(self.root)[:2])
+        self.assertEqual(drafts_mod.results(self.root / "missing"), [])
+
+    def test_instagram_refresh_request_is_written_for_the_bot(self):
+        drafts_mod.request_instagram_refresh(self.root)
+        path = self.root / "data" / "content-bot" / "instagram-refresh.request"
+        self.assertTrue(path.is_file())
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
 
 
 class EnvStoreTest(unittest.TestCase):
@@ -369,13 +445,134 @@ class PanelHttpTest(unittest.TestCase):
         self.assertIn("unknown action", body)
 
 
+class PanelDraftApiTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        self.app = PanelApp(self.root, "token-value")
+        PanelHandler.app = self.app
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), PanelHandler)
+        self.server.app = self.app
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.server.server_close)
+        self.port = self.server.server_address[1]
+        self.cookie = ""
+
+    def request(self, method, path, payload=None, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        body = json.dumps(payload) if payload is not None else None
+        request_headers = dict(headers or {})
+        if body is not None:
+            request_headers["Content-Type"] = "application/json"
+        if self.cookie:
+            request_headers["Cookie"] = self.cookie
+        connection.request(method, path, body=body, headers=request_headers)
+        response = connection.getresponse()
+        raw = response.read().decode("utf-8")
+        set_cookie = response.getheader("Set-Cookie") or ""
+        connection.close()
+        if set_cookie.startswith("panel_session="):
+            self.cookie = set_cookie.split(";", 1)[0]
+        return response.status, raw
+
+    def login(self):
+        status, _ = self.request("POST", "/api/login", {"token": "token-value"})
+        self.assertEqual(status, 200)
+        return status
+
+    def test_draft_actions_need_the_csrf_header(self):
+        self.login()
+        status, _ = self.request("POST", "/api/drafts/draft-1/action", {"action": "publish"})
+        self.assertEqual(status, 403)
+
+    def test_unknown_actions_and_ids_are_rejected(self):
+        self.login()
+        csrf = {"X-Panel-Csrf": "1"}
+        status, body = self.request(
+            "POST", "/api/drafts/draft-1/action", {"action": "destroy"}, headers=csrf
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("unknown draft action", body)
+        status, body = self.request(
+            "POST", "/api/drafts/..%2Fetc/action", {"action": "publish"}, headers=csrf
+        )
+        self.assertEqual(status, 400)
+
+    def test_queued_action_and_results_are_visible_through_the_api(self):
+        self.login()
+        status, body = self.request(
+            "POST", "/api/drafts/draft-1/action", {"action": "discard"}, headers={"X-Panel-Csrf": "1"}
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["queued"])
+        results_path = self.root / "data" / "content-bot" / drafts_mod.RESULT_FILE
+        results_path.write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {
+                            "draft_id": "draft-1",
+                            "action": "discard",
+                            "ok": True,
+                            "message": "Draft discarded.",
+                            "finished_at": "2026-09-10T12:00:00+00:00",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        status, body = self.request("GET", "/api/drafts")
+        payload = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["results"][0]["message"], "Draft discarded.")
+
+    def test_instagram_view_reports_state_without_the_token(self):
+        (self.root / ".env").write_text(
+            "INSTAGRAM_BUSINESS_ID=17841426952001533\n"
+            "INSTAGRAM_ACCESS_TOKEN=super-secret-token\n"
+            "INSTAGRAM_API_VERSION=v26.0\n",
+            encoding="utf-8",
+        )
+        token_file = self.root / "data" / "content-bot" / "instagram-token.json"
+        token_file.write_text(
+            json.dumps(
+                {
+                    "access_token": "refreshed-secret",
+                    "refreshed_at": "2026-09-10T12:00:00+00:00",
+                    "expires_at": "2026-11-09T12:00:00+00:00",
+                    "source": "instagram-login",
+                    "last_error": "",
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.login()
+        status, body = self.request("GET", "/api/instagram")
+        payload = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["token_set"])
+        self.assertTrue(payload["configured"])
+        self.assertEqual(payload["refreshed_at"], "2026-09-10T12:00:00+00:00")
+        self.assertEqual(payload["refresh_source"], "instagram-login")
+        self.assertNotIn("secret", body)
+
+    def test_instagram_refresh_queues_a_bot_request(self):
+        self.login()
+        status, body = self.request("POST", "/api/instagram/refresh", {}, headers={"X-Panel-Csrf": "1"})
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["queued"])
+        self.assertTrue((self.root / "data" / "content-bot" / "instagram-refresh.request").is_file())
+
+
 class StaticAssetTest(unittest.TestCase):
     def test_console_assets_exist_and_are_wired(self):
         index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn("/static/app.js", index)
         self.assertIn("/static/style.css", index)
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/"):
+        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram"):
             self.assertIn(endpoint, script)
         self.assertIn("X-Panel-Csrf", script)
 

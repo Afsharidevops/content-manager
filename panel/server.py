@@ -33,6 +33,12 @@ from pathlib import Path
 
 from panel import __version__
 from panel.actions import ActionError, ActionRunner
+from panel.drafts import (
+    DraftActionError,
+    queue_action,
+    request_instagram_refresh,
+    results as draft_results,
+)
 from panel.editors import ConfigStore, EditError, EnvStore
 from panel.stack import CommandError, StackView
 
@@ -101,6 +107,36 @@ class PanelApp:
         return default
 
     # ---------------------------------------------------------------- views
+
+    def instagram_view(self) -> dict:
+        """Instagram publishing credential state, without ever returning it."""
+        token = self.env_value("INSTAGRAM_ACCESS_TOKEN")
+        publisher = {
+            "configured": bool(token and self.env_value("INSTAGRAM_BUSINESS_ID")),
+            "token_set": bool(token),
+            "business_id": self.env_value("INSTAGRAM_BUSINESS_ID"),
+            "api_version": self.env_value("INSTAGRAM_API_VERSION", "v26.0") or "v26.0",
+            "public_base_url": self.env_value("INSTAGRAM_MEDIA_PUBLIC_BASE_URL"),
+        }
+        path = self.root / "data" / "content-bot" / "instagram-token.json"
+        stored = {}
+        if path.is_file():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                payload = {}
+            if isinstance(payload, dict):
+                stored = payload
+        publisher.update(
+            {
+                "refreshed_at": str(stored.get("refreshed_at") or ""),
+                "expires_at": str(stored.get("expires_at") or ""),
+                "refresh_source": str(stored.get("source") or ""),
+                "last_error": str(stored.get("last_error") or ""),
+                "token_file": str(path),
+            }
+        )
+        return publisher
 
     def state_view(self) -> dict:
         path = self.root / "data" / "content-bot" / "state.json"
@@ -192,8 +228,8 @@ class PanelApp:
         rows.append(
             {
                 "label": "Smart Router dashboard",
-                "url": f"http://{router_host}:{router_port}/",
-                "note": "Routing policies, telemetry, and control plane.",
+                "url": f"http://{router_host}:{router_port}/dashboard",
+                "note": "Flight deck: routing policies, telemetry, and traces.",
             }
         )
         nine_host = self.env_value("NINEROUTER_BIND_IP", "127.0.0.1")
@@ -363,7 +399,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._api(method, path, query)
         except PermissionError as error:
             self._error(HTTPStatus.FORBIDDEN, str(error))
-        except EditError as error:
+        except (EditError, DraftActionError) as error:
             self._error(HTTPStatus.BAD_REQUEST, str(error))
         except ActionError as error:
             self._error(HTTPStatus.BAD_REQUEST, str(error))
@@ -425,6 +461,11 @@ class PanelHandler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[0] == "config" and parts[2] == "backups" and method == "GET":
             self._send_json(HTTPStatus.OK, {"backups": self.app.config.backups(parts[1])})
             return
+        if len(parts) == 3 and parts[0] == "config" and parts[2] == "seed" and method == "POST":
+            self._require_csrf()
+            self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.config.seed(parts[1]))
+            return
         if len(parts) == 3 and parts[0] == "config" and parts[2] == "restore" and method == "POST":
             self._require_csrf()
             body = self._read_body()
@@ -432,6 +473,26 @@ class PanelHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 self.app.config.restore(parts[1], str(body.get("backup") or "")),
             )
+            return
+        if method == "GET" and parts == ["drafts"]:
+            payload = self.app.state_view()
+            payload["results"] = draft_results(self.app.root)
+            self._send_json(HTTPStatus.OK, payload)
+            return
+        if len(parts) == 3 and parts[0] == "drafts" and parts[2] == "action" and method == "POST":
+            self._require_csrf()
+            body = self._read_body()
+            request = queue_action(self.app.root, parts[1], body.get("action", ""))
+            self._send_json(HTTPStatus.OK, {"queued": True, "request": request})
+            return
+        if method == "GET" and parts == ["instagram"]:
+            self._send_json(HTTPStatus.OK, self.app.instagram_view())
+            return
+        if parts == ["instagram", "refresh"] and method == "POST":
+            self._require_csrf()
+            self._read_body()
+            request_instagram_refresh(self.app.root)
+            self._send_json(HTTPStatus.OK, {"queued": True})
             return
         if method == "GET" and parts == ["env"]:
             self._send_json(HTTPStatus.OK, {"entries": self.app.env.entries()})

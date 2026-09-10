@@ -646,7 +646,7 @@ services:
   # read-only from the editorial working copy.
   content-bot:
     profiles: ["content"]
-    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.2.0}
+    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.3.0}
     container_name: content-bot
     restart: unless-stopped
     user: "${CONTENT_BOT_RUN_AS:-10004:10004}"
@@ -678,6 +678,8 @@ services:
       CONTENT_PLATFORMS_ENABLED: ${CONTENT_PLATFORMS_ENABLED:-false}
       INSTAGRAM_BUSINESS_ID: ${INSTAGRAM_BUSINESS_ID:-}
       INSTAGRAM_ACCESS_TOKEN: ${INSTAGRAM_ACCESS_TOKEN:-}
+      INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+      INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
       INSTAGRAM_MEDIA_PUBLIC_BASE_URL: ${INSTAGRAM_MEDIA_PUBLIC_BASE_URL:-}
       INSTAGRAM_API_BASE: ${INSTAGRAM_API_BASE:-https://graph.facebook.com}
       INSTAGRAM_API_VERSION: ${INSTAGRAM_API_VERSION:-v26.0}
@@ -703,7 +705,7 @@ services:
   # GitHub Actions and published to Docker Hub.
   media-studio:
     profiles: ["media"]
-    image: ${MEDIA_STUDIO_IMAGE_REPOSITORY:-afsharidevops/media-studio}:${MEDIA_STUDIO_IMAGE_TAG:-0.2.0}
+    image: ${MEDIA_STUDIO_IMAGE_REPOSITORY:-afsharidevops/media-studio}:${MEDIA_STUDIO_IMAGE_TAG:-0.3.0}
     container_name: media-studio
     restart: unless-stopped
     user: "${MEDIA_STUDIO_RUN_AS:-10005:10005}"
@@ -718,8 +720,9 @@ services:
       MEDIA_STUDIO_WRITER_API_KEY: ${MEDIA_STUDIO_WRITER_API_KEY:-}
       MEDIA_STUDIO_WRITER_MODEL: ${MEDIA_STUDIO_WRITER_MODEL:-auto}
       MEDIA_STUDIO_IMAGE_SIZE: ${MEDIA_STUDIO_IMAGE_SIZE:-1024x1024}
-      MEDIA_STUDIO_BRAND_LABEL: ${MEDIA_STUDIO_BRAND_LABEL-Locallab}
+      MEDIA_STUDIO_BRAND_LABEL: ${MEDIA_STUDIO_BRAND_LABEL:-Locallab}
       MEDIA_STUDIO_BRAND_POSITION: ${MEDIA_STUDIO_BRAND_POSITION:-bottom-right}
+      MEDIA_STUDIO_BRAND_STYLE: ${MEDIA_STUDIO_BRAND_STYLE:-aurora}
       MEDIA_STUDIO_SESSION_MODE: ${MEDIA_STUDIO_SESSION_MODE:-cdp}
       MEDIA_STUDIO_CDP_URL: ${MEDIA_STUDIO_CDP_URL:-http://host.docker.internal:9222}
       MEDIA_STUDIO_HEADLESS: ${MEDIA_STUDIO_HEADLESS:-true}
@@ -755,7 +758,7 @@ services:
   # mounts exactly like a host invocation.
   panel:
     profiles: ["panel"]
-    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.1.0}
+    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.3.0}
     build:
       context: .
       dockerfile: panel/Dockerfile

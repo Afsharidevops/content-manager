@@ -60,6 +60,52 @@ For a quick local test, serve the directory and expose it with a temporary
 tunnel (for example `cloudflared tunnel --url http://127.0.0.1:8080`); use a
 stable host for permanent operation.
 
+### Quick tunnel versus a stable address
+
+A quick tunnel prints a random hostname such as
+`https://random-words-1234.trycloudflare.com` and **that hostname changes on
+every restart**. Because `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` is copied into
+`.env`, a restart silently leaves the stack pointing at a hostname that no
+longer exists: Meta then cannot download the photo or video and the publish
+fails with a media-processing error, with nothing obviously wrong on the
+Instagram side.
+
+A stable address avoids that class of failure. Either of these works:
+
+- a named Cloudflare tunnel bound to a hostname you own, for example
+  `media.locallab.ir` (the tunnel id and credentials are reusable, so the URL
+  never changes), or
+- the reverse proxy that already fronts the stack (the same Caddy instance is
+  fine): publish only the `data/content-bot/media/` subtree at a fixed path.
+
+Set `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` to that fixed base and the bot keeps
+publishing across restarts.
+
+## Automatic token refresh
+
+Instagram Login long-lived tokens expire after 60 days. The bot extends them on
+its own instead of waiting for a failed publish:
+
+- at startup, and then at most once an hour, it checks the stored token;
+- when the stored copy is older than seven days it calls
+  `GET /refresh_access_token?grant_type=ig_refresh_token` (Instagram Login) or
+  the `fb_exchange_token` grant (Facebook Login, requires
+  `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET`), and a successful extension
+  is valid for another 60 days;
+- the refreshed token and its expiry are stored in
+  `data/content-bot/instagram-token.json` (mode 0600) so a container restart
+  keeps publishing, and the Graph client picks the stored token up
+  automatically;
+- failures never break publishing: the previous token stays in use, the error
+  is recorded, and the operator gets one Telegram notice (repeated identical
+  failures are throttled to one notice every six hours).
+
+Send `/instagram` in Telegram to see the remaining days, the login variant,
+and the last error, and to force a refresh immediately. The operator console
+shows the same information on the Overview tab and offers a **Refresh token
+now** button. `INSTAGRAM_ACCESS_TOKEN` in `.env` is still the seed value: when
+the account owner mints a new token, put it there and restart the bot.
+
 ## Configuration
 
 Add these values to the bot's `.env` and restart the bot:

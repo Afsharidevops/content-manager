@@ -51,6 +51,11 @@ class VideoEditDriver(Driver):
     def run(self, ctx: RunContext) -> list[tuple[str, str]]:
         settings = ctx.settings
         source = resolve_upload(settings, str(ctx.params.get("upload_id") or ""))
+        brand_label = ""
+        if str(getattr(settings, "brand_label", "") or "").strip():
+            raw = str((ctx.params or {}).get("brand", "") or "").strip().lower()
+            if raw not in {"0", "false", "no", "off"}:
+                brand_label = str(getattr(settings, "brand_label")).strip()
         stem = Path(source.name).stem or "clip"
         name = f"edited-{stem}.mp4"
         destination = os.path.join(ctx.work_dir, name)
@@ -69,6 +74,11 @@ class VideoEditDriver(Driver):
                 max_seconds=int(max_seconds or 0),
                 timeout=int(getattr(settings, "video_edit_timeout_seconds", 900) or 900),
                 log=ctx.log,
+                brand_label=brand_label,
+                brand_style=str(getattr(settings, "brand_style", "") or "aurora"),
+                brand_position=str(
+                    getattr(settings, "brand_position", "") or "bottom-right"
+                ),
             )
         except VideoEditError as error:
             raise DriverError(

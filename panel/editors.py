@@ -34,15 +34,18 @@ class ConfigFile:
     path: Path
     kind: str
     description: str
+    source: Path
 
 
 def default_config_files(root: Path) -> list[ConfigFile]:
     config_dir = Path(root) / "data" / "content-manager" / "config"
+    shipped_dir = Path(root) / "content" / "config"
     return [
         ConfigFile(
             name="editorial-policy",
             title="Editorial policy",
             path=config_dir / "editorial-policy.yaml",
+            source=shipped_dir / "editorial-policy.yaml",
             kind="yaml",
             description=(
                 "Pipeline limits, exclusions, scoring, on-demand behavior, the "
@@ -53,6 +56,7 @@ def default_config_files(root: Path) -> list[ConfigFile]:
             name="sources",
             title="Discovery sources",
             path=config_dir / "sources.yaml",
+            source=shipped_dir / "sources.yaml",
             kind="yaml",
             description="RSS/Atom feeds the research step reads on scheduled runs.",
         ),
@@ -60,6 +64,7 @@ def default_config_files(root: Path) -> list[ConfigFile]:
             name="categories",
             title="Categories",
             path=config_dir / "categories.yaml",
+            source=shipped_dir / "categories.yaml",
             kind="yaml",
             description="Category names and keyword rules used while normalizing items.",
         ),
@@ -67,6 +72,7 @@ def default_config_files(root: Path) -> list[ConfigFile]:
             name="tools",
             title="Tool registry",
             path=config_dir / "tools.json",
+            source=shipped_dir / "tools.json",
             kind="json",
             description="Shared MCP/OpenAPI/HTTP tool catalog for bot, router, and n8n.",
         ),
@@ -101,6 +107,7 @@ class ConfigStore:
                     "path": str(item.path),
                     "exists": exists,
                     "bytes": item.path.stat().st_size if exists else 0,
+                    "can_seed": bool(item.source.is_file()) and not exists,
                     "modified_at": (
                         datetime.fromtimestamp(item.path.stat().st_mtime, timezone.utc)
                         .isoformat(timespec="seconds")
@@ -164,6 +171,18 @@ class ConfigStore:
             "backup": backup,
             "modified_at": _now(),
         }
+
+    def seed(self, name: str) -> dict:
+        """Create the working copy from the shipped default in the repository."""
+        item = self._file(name)
+        if item.path.is_file():
+            raise EditError("the working copy already exists; edit or restore it instead")
+        if not item.source.is_file():
+            raise EditError(f"no shipped default was found at {item.source}")
+        text = item.source.read_text(encoding="utf-8")
+        result = self.write(item.name, text)
+        result["seeded_from"] = str(item.source)
+        return result
 
     def backups(self, name: str) -> list[dict]:
         item = self._file(name)

@@ -167,12 +167,13 @@ class JobQueue:
             return artifacts
         label = str(getattr(ctx.settings, "brand_label", "") or "").strip()
         position = str(getattr(ctx.settings, "brand_position", "") or "bottom-right")
+        style = str(getattr(ctx.settings, "brand_style", "") or "aurora")
         for name, kind in artifacts:
             path = os.path.join(ctx.work_dir, os.path.basename(name))
             if kind != "image" or not os.path.isfile(path):
                 continue
             try:
-                if branding_mod.apply_brand_overlay(path, label, position=position):
+                if branding_mod.apply_brand_overlay(path, label, position=position, style=style):
                     ctx.log(f"brand chip applied to {os.path.basename(name)}")
             except Exception as exc:  # noqa: BLE001 - branding must not fail jobs
                 ctx.log(f"brand chip skipped for {name}: {exc}")

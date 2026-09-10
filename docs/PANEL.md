@@ -52,15 +52,19 @@ docker compose --profile panel up -d panel
 ## What the console shows
 
 - **Overview** - containers, health, image tags, published host ports, disk
-  usage under `data/`, the pipeline counters, Media Studio jobs, and warnings
-  when an internal endpoint (n8n/MCP, router dashboards) is published beyond
-  loopback.
+  usage under `data/`, the pipeline counters, the Instagram credential card
+  (token state, last automatic refresh, expiry, last error, and a **Refresh
+  token now** button), Media Studio jobs, and warnings when an internal
+  endpoint (n8n/MCP, router dashboards) is published beyond loopback.
 - **Pipeline state** - `data/content-bot/state.json` counters, the configured
-  routines with their last run, and the most recent drafts.
+  routines with their last run, and the most recent drafts with per-draft
+  console actions (see below).
 - **Configuration** - validated editors for `editorial-policy.yaml`,
   `sources.yaml`, `categories.yaml`, and `tools.json`. Every save validates a
   copy first, keeps a timestamped backup under `data/panel/backups/`, and writes
-  the file atomically. Previous versions can be restored from the same view.
+  the file atomically. Previous versions can be restored from the same view,
+  and a file that has no working copy yet can be created from the shipped
+  default in `content/config/` with **Create from shipped default**.
 - **Environment** - the `.env` keys with secret values masked. Editing a key
   rewrites that line only and asks for **Apply changes** afterwards.
 - **Logs** - `docker compose logs` tails per service with an optional
@@ -70,6 +74,34 @@ docker compose --profile panel up -d panel
   `media-status`, `router-status`, and `doctor`. Free-form commands are never
   accepted; only `Apply changes` asks for confirmation. Set
   `PANEL_ACTIONS_ENABLED=false` in `.env` to keep the console read-only.
+
+## Draft actions
+
+The **Pipeline state** view lists the live drafts from
+`data/content-bot/state.json` and offers the same decisions as the Telegram
+keyboard, without leaving the console:
+
+| Action | Draft status | Effect |
+| --- | --- | --- |
+| `Text only` | `media_ask`, `awaiting_media`, `media_failed` | Answers the media question with no media. |
+| `AI image` | `media_ask`, `media_failed` | Submits the configured image driver to Media Studio. |
+| `Publish` | `text`, `text_only`, `media_ready` | Runs the normal approval path and publishes to Telegram. |
+| `Discard` | any | Drops the draft and deletes its Telegram messages. |
+
+The console never writes `state.json`: the bot keeps the authoritative copy in
+memory and rewrites the whole file, so an external edit would be lost. Instead
+the panel appends a validated request to `data/content-bot/panel-actions.requests.jsonl`
+under a `flock` (`panel-actions.lock`), and the bot drains that queue from its
+main loop — within a second or two, even while Telegram itself is unreachable —
+through the same code path the Telegram buttons use. The outcome is appended to
+`data/content-bot/panel-actions.results.json` and shown under **Console action
+results** in the panel, and the operator also gets a Telegram message. Draft
+ids and action names are validated against a fixed list, so the queue can only
+carry supported actions.
+
+`Publish` is the one action that is not reversible: it uses the same limits as
+Telegram (daily publish cap, media-still-running guard) and the browser asks
+for confirmation first.
 
 ## Security model
 

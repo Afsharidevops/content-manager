@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from content_bot import extract, fetch, state as state_mod, telegram as telegram_mod
 from content_bot import instagram as instagram_mod
 from content_bot import mediastudio as media_mod, rtl as rtl_mod, search as search_mod
+from content_bot import instagram_token as instagram_token_mod
+from content_bot import panel_actions as panel_actions_mod
 from content_bot import platforms as platforms_mod
 from content_bot import workflow, writer as writer_mod
 from content_bot.config import BotSettings
@@ -196,13 +198,32 @@ class ContentBot:
         self.tools = workflow.load_tools(settings.policy_dir)
         self._offset = 0
         self._instagram = None
+        self._instagram_record_cache: dict | None = None
+        self._instagram_checked_at = None
+        self._instagram_notified = False
+
+    def _instagram_token(self) -> str:
+        """The Instagram access token to publish with: refreshed one wins."""
+        stored = self._instagram_record() or {}
+        token = str(stored.get("access_token") or "").strip()
+        if token and not instagram_token_mod.is_expired(stored, now=self.now_fn()):
+            return token
+        return self.settings.instagram_access_token
+
+    def _instagram_record(self) -> dict:
+        """The refresh bookkeeping saved by the token maintenance step."""
+        if self._instagram_record_cache is None:
+            self._instagram_record_cache = instagram_token_mod.load(
+                self.settings.data_dir
+            )
+        return self._instagram_record_cache
 
     def _instagram_publisher(self):
         """Lazy Instagram Graph API publisher bound to the configured account."""
-        if self._instagram is None and self.settings.instagram_enabled:
+        if self._instagram is None and self.settings.instagram_business_id and self._instagram_token():
             self._instagram = instagram_mod.InstagramPublisher(
                 self.settings.instagram_business_id,
-                self.settings.instagram_access_token,
+                self._instagram_token(),
                 media_base_url=self.settings.instagram_media_public_base_url,
                 media_root=self.settings.data_dir,
                 graph_base=self.settings.instagram_api_base,
@@ -211,24 +232,130 @@ class ContentBot:
             )
         return self._instagram
 
+    # ---------------------------------------------------- instagram token
+
+    def _notify_owner(self, text: str) -> None:
+        """Send one operator notice, ignoring Telegram failures."""
+        owner = self._owner_chat_id()
+        if owner is None:
+            log.info("operator notice skipped: %s", text)
+            return
+        try:
+            self.api.send_message(owner, text)
+        except telegram_mod.TelegramError as error:
+            log.warning("operator notice failed: %s", error)
+
+    def instagram_status_text(self) -> str:
+        """Human-readable Instagram credential state for the operator."""
+        if not self.settings.instagram_business_id:
+            return "Instagram is not configured: set INSTAGRAM_BUSINESS_ID."
+        record = self._instagram_record() or {}
+        lines = [instagram_token_mod.expiry_note(record, now=self.now_fn())]
+        if record.get("refreshed_at"):
+            lines.append(f"Last refresh: {record['refreshed_at']}")
+        if record.get("source"):
+            lines.append(f"Login variant: {record['source']}")
+        if record.get("last_error"):
+            lines.append(f"Last error: {record['last_error']}")
+        return "\n".join(lines)
+
+    def maybe_refresh_instagram_token(self, *, force: bool = False) -> bool:
+        """Extend the long-lived Instagram token when it is due.
+
+        The refresh is automatic; the operator only gets a Telegram notice
+        when something needs attention (failure, or a token close to expiry).
+        """
+        if not self.settings.instagram_business_id:
+            return False
+        token = self._instagram_token()
+        if not token:
+            return False
+        now = self.now_fn()
+        if instagram_token_mod.take_request(self.settings.data_dir):
+            force = True
+        record = self._instagram_record() or {}
+        if not force and not instagram_token_mod.refresh_due(record, now=now):
+            return False
+        checked = self._instagram_checked_at
+        if not force and checked is not None and (now - checked) < timedelta(hours=1):
+            return False
+        self._instagram_checked_at = now
+        try:
+            fresh = instagram_token_mod.refresh(self.settings, token, now=now)
+        except instagram_token_mod.InstagramTokenError as error:
+            message = str(error)
+            notify = instagram_token_mod.should_notify(record, message, now=now)
+            record = instagram_token_mod.record_failure(
+                self.settings.data_dir,
+                record,
+                message,
+                now=now,
+            )
+            if notify:
+                record["notified_at"] = now.isoformat(timespec="seconds")
+                record["notified_error"] = message[:300]
+                instagram_token_mod.save(self.settings.data_dir, record)
+            self._instagram_record_cache = record
+            log.warning("instagram token refresh failed: %s", error)
+            if notify:
+                self._notify_owner(
+                    "Instagram token refresh failed: "
+                    f"{error}\n{instagram_token_mod.expiry_note(record, now=now)}"
+                )
+            return False
+        instagram_token_mod.save(self.settings.data_dir, fresh)
+        self._instagram_record_cache = fresh
+        self._instagram = None
+        remaining = instagram_token_mod.days_left(fresh, now=now)
+        log.info("instagram token refreshed; %s day(s) left", remaining)
+        if not self._instagram_notified:
+            self._instagram_notified = True
+            self._notify_owner(
+                f"Instagram token refreshed automatically. {instagram_token_mod.expiry_note(fresh, now=now)}"
+            )
+        elif remaining is not None and remaining <= instagram_token_mod.WARN_DAYS:
+            self._notify_owner(instagram_token_mod.expiry_note(fresh, now=now))
+        return True
+
     # ------------------------------------------------------------------ run
 
     def run(self) -> None:
         self._startup()
         while True:
+            failed = False
             try:
                 self.poll_once()
-                self.maybe_run_daily()
-                self.maybe_run_routines()
-                self.maybe_poll_media_jobs()
             except telegram_mod.TelegramError as error:
                 log.warning("Telegram API error: %s", error)
+                failed = True
             except (ConnectionError, TimeoutError) as error:
                 log.warning("Telegram connection problem, retrying: %s", error)
-                time.sleep(_CONNECTION_RETRY_SECONDS)
+                failed = True
             except Exception:
                 log.exception("unhandled error in the main loop")
-            time.sleep(1)
+                failed = True
+            # Local maintenance runs in its own guarded steps: a Telegram
+            # outage must not stop the console queue, the media jobs, or the
+            # Instagram token refresh.
+            self._maintenance()
+            time.sleep(_CONNECTION_RETRY_SECONDS if failed else 1)
+
+    def _maintenance(self) -> None:
+        """Local work that never depends on the Telegram connection."""
+        steps = (
+            self.maybe_run_daily,
+            self.maybe_run_routines,
+            self.maybe_poll_media_jobs,
+            self.maybe_refresh_instagram_token,
+            lambda: panel_actions_mod.drain(self),
+        )
+        for step in steps:
+            try:
+                step()
+            except telegram_mod.TelegramError as error:
+                log.warning("maintenance step failed: %s", error)
+            except Exception:  # noqa: BLE001 - one step must not stop the rest
+                log.exception("maintenance step failed")
 
     def _startup(self) -> None:
         try:
@@ -265,6 +392,7 @@ class ContentBot:
             log.warning("CONTENT_TELEGRAM_CHANNEL is empty; approvals cannot publish")
         if self.writer is None:
             log.warning("CONTENT_WRITER_BASE_URL is empty; drafts cannot be generated")
+        self.maybe_refresh_instagram_token()
 
     # ---------------------------------------------------------------- polls
 
@@ -338,6 +466,14 @@ class ContentBot:
             return
         if text.split("@", 1)[0] == "/tools":
             self.api.send_message(chat_id, self.tools_text(), parse_mode="HTML")
+            return
+        if text.split("@", 1)[0] == "/instagram":
+            refreshed = self.maybe_refresh_instagram_token(force=True)
+            note = self.instagram_status_text()
+            self.api.send_message(
+                chat_id,
+                f"{note}\n\nRefreshed just now." if refreshed else note,
+            )
             return
         if text.startswith(("/forget-link", "/forget_link")):
             link_match = URL_RE.search(text)
@@ -1125,6 +1261,7 @@ class ContentBot:
             "/start or /help - this message",
             "/status - configuration and counters",
             "/tools - shared tool registry entries",
+            "/instagram - Instagram token expiry and an immediate refresh",
             "/forget_link <url> - allow a published link to be drafted again",
             "Send any http(s) link - draft a post with Approve/Reject buttons",
             "Send a topic without a link - search the web and draft a post",
@@ -1851,6 +1988,16 @@ class ContentBot:
         except TypeError:
             return factory(draft_id)
 
+    def discard_draft(self, record: dict) -> None:
+        """Drop one draft and delete the Telegram messages that belong to it."""
+        draft_id = str(record.get("id") or "")
+        chat_id = record.get("chat_id")
+        if draft_id:
+            self.state.drop_draft(draft_id)
+        self._delete_safe(chat_id, record.get("ask_message_id"))
+        self._delete_safe(chat_id, record.get("preview_message_id"))
+        self._delete_safe(chat_id, record.get("preview_keyboard_message_id"))
+
     def _drop_preview(self, chat_id, record: dict) -> None:
         """Delete the preview message(s) of one draft and forget their ids."""
         if chat_id is not None:
@@ -2215,10 +2362,7 @@ class ContentBot:
                     "Press Reject again to confirm discarding.",
                 )
                 return
-            self.state.drop_draft(draft_id)
-            self._delete_safe(chat_id, record.get("ask_message_id"))
-            self._delete_safe(chat_id, record.get("preview_message_id"))
-            self._delete_safe(chat_id, record.get("preview_keyboard_message_id"))
+            self.discard_draft(record)
             if chat_id is not None and message_id is not None:
                 try:
                     self.api.edit_message_text(chat_id, int(message_id), "Rejected.")
@@ -2411,21 +2555,22 @@ class ContentBot:
         message_id,
         *,
         targets: tuple[str, ...] = ("telegram",),
-    ) -> None:
+    ) -> bool:
+        """Publish one approved draft; False means the draft was refused."""
         channel = self.settings.telegram_channel
         if "telegram" in targets and not channel:
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "No publish channel is configured (CONTENT_TELEGRAM_CHANNEL).",
             )
-            return
+            return False
         if "instagram" in targets and not self.settings.instagram_enabled:
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "Instagram is not configured; set INSTAGRAM_BUSINESS_ID and "
                 "INSTAGRAM_ACCESS_TOKEN.",
             )
-            return
+            return False
         policy = workflow.load_policy(self.settings.policy_dir)
         zone = _policy_zone(policy)
         day = self.now_fn().astimezone(zone).date().isoformat()
@@ -2438,42 +2583,39 @@ class ContentBot:
         if subject_to_limit:
             limit = int((policy.get("pipeline") or {}).get("max_approved_per_day", 3))
             if int(self.state.load().get("published_today", 0)) >= limit:
-                self.api.answer_callback_query(
-                    query_id,
-                    f"Daily publish limit reached ({limit}).",
-                )
-                return
+                self._safe_answer(query_id, f"Daily publish limit reached ({limit}).")
+                return False
         if record.get("status") == "media_running":
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "Media is still being generated; wait or choose Text only first.",
             )
-            return
+            return False
         if record.get("status") == "awaiting_media":
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "Waiting for your media file; send it here or choose Text only first.",
             )
-            return
+            return False
         if (
             "instagram" in targets
             and record.get("status") == "media_ready"
             and not (record.get("media") or {}).get("files")
             and str((record.get("media") or {}).get("kind") or "") not in {"image", "video"}
         ):
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "Instagram publishing needs photos or a video attached to the draft.",
             )
-            return
+            return False
         if "instagram" in targets and (record.get("media") or {}).get("oversized"):
             note = (
                 "Instagram needs the video file itself, but this clip is over "
                 "the 20 MB Telegram bot download limit. Send a copy under "
                 "20 MB and attach it again."
             )
-            self.api.answer_callback_query(query_id, note)
-            return
+            self._safe_answer(query_id, note)
+            return False
         # Acknowledge before the slow publish; the result goes into the
         # draft message so a stale callback id cannot fail the update.
         self._safe_answer(query_id, "Publishing...")
@@ -2483,11 +2625,11 @@ class ContentBot:
             if "telegram" in targets:
                 self._publish_record(record)
         except telegram_mod.TelegramError as error:
-            self.api.answer_callback_query(query_id, f"Publish failed: {error}")
-            return
+            self._safe_answer(query_id, f"Publish failed: {error}")
+            return False
         except instagram_mod.InstagramError as error:
-            self.api.answer_callback_query(query_id, f"Instagram publish failed: {error}")
-            return
+            self._safe_answer(query_id, f"Instagram publish failed: {error}")
+            return False
         self.state.remember_published(
             str(record.get("content_hash") or ""),
             str(record.get("category") or ""),
@@ -2514,6 +2656,7 @@ class ContentBot:
                 )
             except telegram_mod.TelegramError:
                 pass
+        return True
 
     def _publish_to_instagram(self, record: dict) -> dict:
         """Publish one approved draft to Instagram through the Graph API."""

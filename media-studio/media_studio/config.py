@@ -40,6 +40,7 @@ class Settings:
     image_size: str = "1024x1024"
     brand_label: str = "Locallab"
     brand_position: str = "bottom-right"
+    brand_style: str = "aurora"
     ffmpeg_binary: str = ""
     video_edit_max_side: int = 1920
     video_edit_max_seconds: int = 0
@@ -79,6 +80,7 @@ class Settings:
             image_size=_env("MEDIA_STUDIO_IMAGE_SIZE", "1024x1024"),
             brand_label=brand_label,
             brand_position=_env("MEDIA_STUDIO_BRAND_POSITION", "bottom-right"),
+            brand_style=_env("MEDIA_STUDIO_BRAND_STYLE", "aurora"),
             ffmpeg_binary=_env("MEDIA_STUDIO_FFMPEG"),
             video_edit_max_side=_env_int("MEDIA_STUDIO_VIDEO_EDIT_MAX_SIDE", 1920),
             video_edit_max_seconds=_env_int("MEDIA_STUDIO_VIDEO_EDIT_MAX_SECONDS", 0),

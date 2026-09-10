@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.2.0   Media Studio: 0.2.0
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.3.0   Media Studio: 0.3.0   Panel: 0.3.0
 ```
 
 ## What it does
@@ -229,11 +229,13 @@ The full operator guide for the Content Bot is
 
 ## Image publishing
 
-The `content-bot` image is built on GitHub Actions and published to Docker Hub
-whenever Content Bot source is pushed to `main`:
+The component images are built on GitHub Actions and published to Docker Hub
+whenever their source is pushed to `main`:
 
 ```text
-afsharidevops/content-bot:0.2.0
+afsharidevops/content-bot:0.3.0
+afsharidevops/media-studio:0.3.0
+afsharidevops/content-panel:0.3.0
 afsharidevops/content-bot:latest
 ```
 

@@ -167,9 +167,10 @@ async function loadView() {
 
 async function renderOverview() {
   const status = await api("/api/status");
-  const [links, media] = await Promise.all([
+  const [links, media, instagram] = await Promise.all([
     api("/api/links").catch(() => ({ links: [] })),
     api("/api/media/jobs").catch(() => ({ ok: false, error: "", jobs: [] })),
+    api("/api/instagram").catch(() => null),
   ]);
 
   if (status.error) showBanner(status.error, "error");
@@ -223,7 +224,47 @@ async function renderOverview() {
         ),
       ),
     ),
-    h("div", { style: "margin-top:12px" },
+    h("div", { class: "grid cols-2", style: "margin-top:12px" },
+      card("Instagram publishing",
+        instagram
+          ? h("div", { class: "grid" },
+              h("div", { class: "row" },
+                h("span", { class: "chip " + (instagram.configured ? "ok" : "warn"),
+                  text: instagram.configured ? "configured" : "not configured" }),
+                h("span", { class: "chip", text: `API ${instagram.api_version}` }),
+                h("span", { class: "chip " + (instagram.token_set ? "ok" : "warn"),
+                  text: instagram.token_set ? "token stored" : "no token" }),
+              ),
+              h("div", { class: "muted small" },
+                instagram.expires_at
+                  ? `Long-lived token refreshed ${instagram.refreshed_at || "?"} and expires ${instagram.expires_at}.`
+                  : "No automatic refresh recorded yet; the bot refreshes the long-lived token before it expires."),
+              instagram.last_error
+                ? h("div", { class: "error small", text: `Last refresh error: ${instagram.last_error}` })
+                : null,
+              h("div", { class: "muted small" },
+                `Media base URL: ${instagram.public_base_url || "not set (Instagram needs a public HTTPS URL)"}`),
+              h("div", { class: "row actions" },
+                h("button", {
+                  class: "btn small",
+                  type: "button",
+                  text: "Refresh token now",
+                  onclick: async (event) => {
+                    event.currentTarget.disabled = true;
+                    try {
+                      await api("/api/instagram/refresh", { method: "POST" });
+                      notify("Refresh queued; the bot confirms the result in Telegram.");
+                    } catch (error) {
+                      notify(String(error.message), "error");
+                    } finally {
+                      event.currentTarget.disabled = false;
+                    }
+                  },
+                }),
+              ),
+            )
+          : h("div", { class: "muted small", text: "Instagram status unavailable." }),
+      ),
       card("Media jobs",
         media.ok
           ? table(
@@ -243,19 +284,103 @@ async function renderOverview() {
   );
 }
 
+const PUBLISHABLE_STATUSES = ["text", "text_only", "media_ready"];
+const MEDIA_QUESTION_STATUSES = ["media_ask", "awaiting_media"];
+
+function draftActionButton(draft, action, label, confirmFirst) {
+  return h("button", {
+    class: "btn small",
+    type: "button",
+    text: label,
+    onclick: async (event) => {
+      if (confirmFirst && !confirm(`${label}: draft "${draft.title || draft.id}"?`)) return;
+      event.currentTarget.disabled = true;
+      try {
+        await api(`/api/drafts/${encodeURIComponent(draft.id)}/action`, { method: "POST", body: { action } });
+        notify(`Queued: ${label}. The bot applies it within a few seconds.`);
+        loadView();
+      } catch (error) {
+        notify(String(error.message), "error");
+        event.currentTarget.disabled = false;
+      }
+    },
+  });
+}
+
+function draftControls(draft) {
+  const status = String(draft.status || "");
+  const buttons = [];
+  if (MEDIA_QUESTION_STATUSES.includes(status)) {
+    buttons.push(draftActionButton(draft, "text-only", "Text only", false));
+    if (status === "media_ask") buttons.push(draftActionButton(draft, "image", "AI image", false));
+  }
+  if (PUBLISHABLE_STATUSES.includes(status)) {
+    buttons.push(draftActionButton(draft, "publish", "Publish", true));
+  }
+  buttons.push(draftActionButton(draft, "discard", "Discard", true));
+  return h("div", { class: "row actions" }, ...buttons);
+}
+
+function statusChip(status) {
+  const value = String(status || "unknown");
+  const tone = value === "media_ready" || value === "text_only" || value === "text" ? "ok"
+    : value === "media_failed" ? "warn"
+    : value === "media_running" || value === "collecting" ? "warn"
+    : "";
+  return h("span", { class: "chip " + tone, text: value });
+}
+
+function stateSignature(state) {
+  const drafts = (state.drafts || []).map((draft) => `${draft.id}:${draft.status}:${draft.media}`).join("|");
+  const results = (state.results || []).map((row) => `${row.finished_at}:${row.draft_id}:${row.ok}`).join("|");
+  return `${drafts}::${results}`;
+}
+
 async function renderState() {
-  const state = await api("/api/state");
+  const state = await api("/api/drafts");
   const counters = state.counters || {};
   const runs = state.routine_last_run || {};
+  const signature = stateSignature(state);
 
   page.replaceChildren(
     h(
       "div",
       { class: "grid cols-4" },
-      metric("Drafts", counters.drafts_total || 0, state.exists ? "in data/content-bot/state.json" : "state file not created yet"),
+      metric("Drafts", counters.drafts_total || 0, state.exists ? "live queue" : "state file not created yet"),
       metric("Published today", counters.published_today || 0, counters.day || ""),
       metric("Published total", counters.published_total || 0),
       metric("Daily research", counters.daily_last_run || "not yet", "last scheduled run"),
+    ),
+    h("div", { class: "grid cols-2", style: "margin-top:12px" },
+      card("Draft queue",
+        table(
+          ["Draft", "Status", "Title", "Media", "Created", "Console actions"],
+          (state.drafts || []).map((draft) => [
+            h("code", { text: draft.id }),
+            statusChip(draft.status),
+            h("div", null, h("span", { text: draft.title || "-" }),
+              h("div", { class: "muted small", text: `${draft.kind} - ${draft.category || "no category"}` })),
+            draft.media || "-",
+            draft.created_at,
+            draftControls(draft),
+          ]),
+        ),
+        h("div", { class: "muted small", style: "margin-top:10px" },
+          "Console actions are applied by the Content Bot within a few seconds and confirmed by a Telegram message."),
+      ),
+      card("Console action results",
+        (state.results || []).length
+          ? table(
+              ["When", "Action", "Draft", "Result"],
+              (state.results || []).map((row) => [
+                row.finished_at || row.requested_at || "",
+                row.action,
+                h("code", { text: row.draft_id }),
+                h("span", { class: row.ok ? "" : "error", text: row.message || (row.ok ? "ok" : "failed") }),
+              ]),
+            )
+          : h("div", { class: "muted small", text: "No console actions yet." }),
+      ),
     ),
     h("div", { style: "margin-top:12px" },
       card("Scheduled routines",
@@ -275,23 +400,16 @@ async function renderState() {
         ),
       ),
     ),
-    h("div", { style: "margin-top:12px" },
-      card("Recent drafts",
-        table(
-          ["Draft", "Kind", "Status", "Media", "Category", "Title", "Created"],
-          (state.drafts || []).map((draft) => [
-            h("code", { text: draft.id }),
-            draft.kind,
-            draft.status,
-            draft.media,
-            draft.category,
-            draft.title,
-            draft.created_at,
-          ]),
-        ),
-      ),
-    ),
   );
+  clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(() => {
+    if (currentView !== "state") return;
+    api("/api/drafts")
+      .then((fresh) => {
+        if (stateSignature(fresh) !== signature) loadView();
+      })
+      .catch(() => {});
+  }, 10000);
 }
 
 async function renderConfig() {
@@ -317,6 +435,7 @@ async function renderConfig() {
     meta.textContent = "Loading...";
     backupBox.replaceChildren(h("div", { class: "muted small", text: "Loading backups..." }));
     if (!selected) return;
+    seedButton.classList.add("hidden");
     try {
       const data = await api(`/api/config/${encodeURIComponent(selected.name)}`);
       editor.value = data.text;
@@ -324,6 +443,7 @@ async function renderConfig() {
     } catch (error) {
       meta.textContent = "";
       meta.append(h("span", { class: "error", text: String(error.message) }));
+      if (selected.can_seed) seedButton.classList.remove("hidden");
     }
     const backups = await api(`/api/config/${encodeURIComponent(selected.name)}/backups`).catch(() => ({ backups: [] }));
     const rows = backups.backups || [];
@@ -355,6 +475,21 @@ async function renderConfig() {
     );
   }
 
+  const seedButton = h("button", {
+    class: "btn",
+    type: "button",
+    text: "Create from shipped default",
+    onclick: async () => {
+      try {
+        await api(`/api/config/${encodeURIComponent(selected.name)}/seed`, { method: "POST", body: {} });
+        notify("Working copy created from the shipped default.");
+        await renderConfig();
+      } catch (error) {
+        notify(String(error.message), "error");
+      }
+    },
+  });
+
   function paint() {
     const list = h("div", { class: "filelist" }, ...(listing.files || []).map(fileButton));
     editor = h("textarea", { spellcheck: "false" });
@@ -368,6 +503,7 @@ async function renderConfig() {
           meta,
           h("div", { class: "row" },
             h("button", { class: "btn", type: "button", text: "Reload", onclick: loadFile }),
+            seedButton,
             h("button", {
               class: "btn primary",
               type: "button",
@@ -416,12 +552,12 @@ async function renderEnv() {
       autocomplete: "off",
     });
     if (!entry.secret && entry.value !== null && entry.value !== undefined) input.value = entry.value;
-    return h(
-      "tr",
-      null,
-      h("td", null, h("code", { text: entry.key }), h("div", { class: "muted small", text: entry.comment || "" })),
-      h("td", null, entry.secret ? h("span", { class: "chip", text: entry.set ? "secret stored" : "empty" }) : null),
-      input,
+    return [
+      h("td", null,
+        h("code", { text: entry.key }),
+        h("div", { class: "muted small", text: entry.comment || "" })),
+      h("td", null, entry.secret ? h("span", { class: "chip", text: entry.set ? "secret stored" : "empty" }) : h("span", { class: "chip", text: entry.set ? "set" : "empty" })),
+      h("td", null, input),
       h("td", null,
         h("button", {
           class: "btn",
@@ -441,7 +577,7 @@ async function renderEnv() {
           },
         }),
       ),
-    );
+    ];
   }
 
   function paint() {

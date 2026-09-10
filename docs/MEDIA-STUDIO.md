@@ -202,13 +202,35 @@ the shipped default). `Publish as-is` never calls Media Studio.
 
 ### Brand chip
 
-Every raster artifact produced by an image driver gets a small translucent
-brand chip in one corner. Operator-uploaded photos reach the same chip
-through `POST /brand` (the Content Bot calls it automatically). Configure
-with `MEDIA_STUDIO_BRAND_LABEL` (default `Locallab`, blank disables branding)
-and `MEDIA_STUDIO_BRAND_POSITION` (`bottom-right` default; also
-`bottom-left`, `top-right`, `top-left`). Jobs can opt out per request with
-`"params": {"brand": false}`.
+Every raster artifact produced by an image driver gets the configured brand
+mark in one corner. Operator-uploaded photos reach the same mark through
+`POST /brand` (the Content Bot calls it automatically), and the `video-edit`
+driver bakes it into the prepared clip, so images and reels carry the same
+signature. Configure with:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MEDIA_STUDIO_BRAND_LABEL` | `Locallab` | Text in the mark; blank disables branding. |
+| `MEDIA_STUDIO_BRAND_POSITION` | `bottom-right` | Also `bottom-left`, `top-right`, `top-left`. |
+| `MEDIA_STUDIO_BRAND_STYLE` | `aurora` | `aurora` gradient pill, or `chip` for the plain dark rectangle. |
+
+The `aurora` style draws the label into a rounded pill filled with the
+LocalLab gradient (cyan to blue to violet to magenta over dark navy), adds a
+soft halo, a diagonal highlight sweep, a hairline border, a hexagon mark, and
+a shadowed label, so the mark stays readable on light and dark artwork. It is
+rendered with Pillow only — no new dependency, no network call — and the
+gradient is composited over a translucent navy base so the same chip works on
+busy photos.
+
+For videos the mark is rendered as a transparent PNG sized from the output
+resolution (about 5.5% of the short side) and composited by ffmpeg as a second
+input, which keeps it pixel-exact instead of re-encoding text. Jobs can opt out
+per request with `"params": {"brand": false}`; a clip whose dimensions cannot be
+read is still encoded, just without the mark.
+
+Animated formats (GIF/WebP) currently get a static mark. A per-frame fade-in
+would multiply the render and encode cost of every artifact, so it is left out
+until a job actually needs it.
 
 ## Selector calibration
 
