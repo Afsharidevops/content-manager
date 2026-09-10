@@ -7,12 +7,17 @@ extension plus an optional uBlock filter; both live in this repository under
 
 What it does:
 
-1. A browser rule aborts every request to the Flow
-   `/unsupported-country` page (including `flow.google-*.com` variants), so
-   the redirect that replaces the Flow UI never lands.
+1. Browser rules abort every request to the Flow `/unsupported-country` page:
+   the bare path, multi-account paths such as `/u/1/unsupported-country`,
+   `flow.google-*.com` variants, and the `labs.google` tool path. The redirect
+   that replaces the Flow UI therefore never lands.
 2. A small content script stops in-flight network for a short window as soon
    as the project creation button appears, which prevents the background
    region check from swapping the editor for the block page.
+3. The same script watches the address bar. When the web app swaps the route
+   client-side (no network request for the rule set to block), it freezes the
+   page and restarts the app root, at most twice per tab, so a client-side
+   route change cannot strand the tab on the block page.
 
 Requirements:
 
@@ -41,7 +46,9 @@ Requirements:
 
 ```text
 ||flow.google.com/unsupported-country^$document
-||flow.google-*.com/unsupported-country^$document
+||flow.google.com/*unsupported-country$document
+||flow.google-*.com/*unsupported-country$document
+||labs.google/*unsupported-country$document
 ```
 
 The filter file is also stored at
@@ -51,7 +58,10 @@ The filter file is also stored at
 
 1. Open https://flow.google.com in the same Chrome.
 2. Sign in to the Google account that has Flow access if you are not signed
-   in yet.
+   in yet. Multi-account URLs such as `/u/1/` are covered, but Flow access is
+   granted per account: if the block page appears for one signed-in account
+   and not another, the problem is the account, not the browser or the
+   network.
 3. Create a project as usual. The first screen may take a moment; if the page
    freezes briefly when the "New project" button appears, that is the unlock
    working.
@@ -61,6 +71,15 @@ The filter file is also stored at
 - Still see "not available in your country" or a blank redirect? Hard-refresh
   once (`Ctrl+Shift+R`), close and reopen the Flow tab, then check the
   extension is still enabled at `chrome://extensions`.
+- If the block page appears the moment Flow opens, before the project
+  dashboard is ever drawn, the region check ran before the freeze could
+  trigger. Capture the triggering call: open DevTools on the Flow tab,
+  **Network** tab, tick **Preserve log**, reload, reproduce the block page,
+  then filter for `country`, `region`, and `unsupported` and inspect the
+  failing request. Blocking or stubbing that request is the durable fix.
+- Multi-account URLs: after editing `rules.json` or `freeze.js`, press
+  **Reload** on the extension card. Chrome only re-reads the rule files when
+  the extension reloads.
 - Buttons show raw text such as `add` or `videocam` instead of icons? That is
   only the icon font failing to load and is cosmetic; the labels remain
   clickable.

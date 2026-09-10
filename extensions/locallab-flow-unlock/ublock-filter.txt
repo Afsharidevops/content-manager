@@ -1,3 +1,6 @@
 ! Companion static filter for standalone use with uBlock Origin.
+! Covers the bare path and multi-account prefixes such as /u/1/.
 ||flow.google.com/unsupported-country^$document
-||flow.google-*.com/unsupported-country^$document
+||flow.google.com/*unsupported-country$document
+||flow.google-*.com/*unsupported-country$document
+||labs.google/*unsupported-country$document

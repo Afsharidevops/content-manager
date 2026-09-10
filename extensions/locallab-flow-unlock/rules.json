@@ -13,7 +13,25 @@
     "priority": 1,
     "action": { "type": "block" },
     "condition": {
-      "urlFilter": "||flow.google-*.com/unsupported-country",
+      "urlFilter": "||flow.google.com/*unsupported-country",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
+    }
+  },
+  {
+    "id": 3,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "||flow.google-*.com/*unsupported-country",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
+    }
+  },
+  {
+    "id": 4,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "||labs.google/*unsupported-country",
       "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
     }
   }
