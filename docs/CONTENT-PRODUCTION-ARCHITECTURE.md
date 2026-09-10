@@ -208,5 +208,6 @@ INSTAGRAM_ACCESS_TOKEN             long-lived Graph API token for that account
 INSTAGRAM_MEDIA_PUBLIC_BASE_URL    public URL serving data/content-bot/media
 IG_MEDIA_BIND_IP                   media host bind address (default 127.0.0.1)
 IG_MEDIA_PORT                      media host port (default 8099)
+IG_MEDIA_TUNNEL_TOKEN              named Cloudflare tunnel token (blank uses a quick tunnel)
 INSTAGRAM_API_VERSION              Graph API version (default v26.0)
 ```

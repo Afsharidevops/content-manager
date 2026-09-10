@@ -90,18 +90,66 @@ Commands:
 
 ### A permanent address
 
-For long-running production, pin a stable hostname instead of relying on a
-quick tunnel:
+A quick tunnel is fine for testing, but its hostname changes on every restart.
+The stack can keep one permanent HTTPS address instead. Whichever route you
+take, the value that ends up in the bot is the same `<base>` that precedes
+`/media/<file>`.
 
-- a named Cloudflare tunnel bound to a hostname you own, for example
-  `media.locallab.ir`, or
-- the reverse proxy that already fronts the stack (the same Caddy instance is
-  fine): publish only the `data/content-bot/media/` subtree at a fixed path.
+**Route A - named Cloudflare tunnel (no server, no open ports).** Cloudflare
+only serves a hostname it manages DNS for, so either move the zone to
+Cloudflare or delegate just the media subdomain:
 
-Put that base in `.env` as `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, or write it to
-`data/content-bot/media-base-url.txt` when the value is produced by a
-deployment script. Both survive restarts, and the pin file wins over `.env`;
-then run `./manage.sh instagram-media-disable` to retire the quick tunnel.
+1. In ArvanCloud (or wherever `locallab.ir` resolves) add NS records for the
+   subdomain, for example `media` -> the two nameservers Cloudflare assigns
+   when you add `media.locallab.ir` as its own zone. The rest of `locallab.ir`
+   stays where it is.
+2. In the Cloudflare dashboard create a tunnel (Zero Trust -> Networks ->
+   Tunnels), copy its token, and add a public hostname `media.locallab.ir`
+   whose service is `http://ig-media:80`.
+3. In `.env` of this stack set:
+
+```text
+IG_MEDIA_TUNNEL_TOKEN=<token from the dashboard>
+INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir
+```
+
+4. Run `./manage.sh instagram-media-enable`. It enables the
+   `ig-media-named` profile (nginx plus the named tunnel) instead of the quick
+   tunnel, and the hostname never changes again. Check with
+   `./manage.sh instagram-media-status`.
+5. Test: `curl -I https://media.locallab.ir/media/<file>` must answer `200`.
+
+**Route B - your own server in front.** Use this when the stack keeps running
+on a machine without a public address (NAT, home connection) and you already
+have a server that the internet can reach:
+
+1. DNS: point `media.locallab.ir` (A record) at that server's public IP.
+2. On the server, run a reverse proxy for that hostname whose upstream is the
+   **local end of the tunnel**, for example `127.0.0.1:18099` - never the
+   laptop's own address, which is not reachable from outside.
+3. From the stack machine, keep a reverse tunnel to that server, for example:
+
+```bash
+autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -R 127.0.0.1:18099:127.0.0.1:8099 user@server
+```
+
+   The right-hand side is the local media host (`IG_MEDIA_BIND_IP` /
+   `IG_MEDIA_PORT`), the left-hand side is what the server's proxy points at.
+   Keep it running with a systemd unit so a reboot does not break publishing.
+4. In `.env` set `INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir`
+   (or write that line into `data/content-bot/media-base-url.txt`, which wins
+   over `.env`), then run `./manage.sh instagram-media-disable` to retire the
+   quick tunnel - nginx keeps serving on loopback for the reverse tunnel.
+5. Test: `curl -I https://media.locallab.ir/media/<file>` must answer `200`.
+
+**Route C - do nothing.** Keep the bundled quick tunnel. The bot re-reads the
+hostname on every publish, so a restart no longer breaks publishing; the only
+costs are a random hostname and a dependency on Cloudflare's test service.
+
+The reverse proxy in every route only ever needs the media origin
+(`/media/...`). It must not expose the rest of the bot data directory: the
+bundled nginx already answers `404` for `/` and for directory listings.
 
 ## Automatic token refresh
 

@@ -1328,17 +1328,29 @@ ig_media_add_profile() {
   printf 'Enabled the "ig-media" compose profile.\n'
 }
 
+ig_media_add_named_profile() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  [[ ",$profiles," == *,ig-media-named,* ]] && return 0
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "${profiles:+$profiles,}ig-media-named"
+  printf 'Enabled the "ig-media-named" compose profile.\n'
+}
+
 ig_media_remove_profile() {
   local profiles entry filtered=""
   profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
   local entries=()
   IFS=',' read -r -a entries <<< "$profiles"
   for entry in "${entries[@]}"; do
-    [[ -n "$entry" && "$entry" != ig-media ]] || continue
+    [[ -n "$entry" && "$entry" != ig-media && "$entry" != ig-media-named ]] || continue
     filtered="${filtered:+$filtered,}$entry"
   done
   replace_env_value "$ENV_FILE" COMPOSE_PROFILES "$filtered"
-  printf 'Disabled the "ig-media" compose profile.\n'
+  printf 'Disabled the "ig-media" and "ig-media-named" compose profiles.\n'
+}
+
+ig_media_named() {
+  [[ -n "$(env_value "$ENV_FILE" IG_MEDIA_TUNNEL_TOKEN)" ]]
 }
 
 ig_media_status() {
@@ -1346,10 +1358,14 @@ ig_media_status() {
   bind="$(env_value "$ENV_FILE" IG_MEDIA_BIND_IP)"; bind="${bind:-127.0.0.1}"
   port="$(env_value "$ENV_FILE" IG_MEDIA_PORT)"; port="${port:-8099}"
   url="$(ig_media_public_url)"
-  legacy="$(pgrep -f "http.server.*--directory .*ig-media" 2>/dev/null | head -n1 || true)"
+  legacy="$(pgrep -f "http\.server.*--directory .*ig-medi[a]" 2>/dev/null | head -n1 || true)"
   printf 'Instagram media host\n'
   if ig_media_enabled; then
-    printf '  Profile "ig-media": enabled\n'
+    if ig_media_named; then
+      printf '  Profile "ig-media": enabled (named tunnel; profile "ig-media-named")\n'
+    else
+      printf '  Profile "ig-media": enabled (quick tunnel)\n'
+    fi
   else
     printf '  Profile "ig-media": not enabled; run ./manage.sh instagram-media-enable\n'
   fi
@@ -1364,7 +1380,8 @@ ig_media_status() {
     printf '  WARNING: a manually started media host is still running (pid %s); stop it before enabling the profile\n' "$legacy"
   fi
   if ig_media_enabled; then
-    compose --profile ig-media ps ig-media ig-media-tunnel 2>/dev/null || true
+    compose --profile ig-media --profile ig-media-named ps \
+      ig-media ig-media-tunnel ig-media-named-tunnel 2>/dev/null || true
   fi
   printf '  Guide: docs/INSTAGRAM-SETUP.md\n'
 }
@@ -1372,15 +1389,24 @@ ig_media_status() {
 ig_media_enable() {
   local port legacy url waited=0
   port="$(env_value "$ENV_FILE" IG_MEDIA_PORT)"; port="${port:-8099}"
-  legacy="$(pgrep -f "http.server.*--directory .*ig-media" 2>/dev/null | head -n1 || true)"
+  legacy="$(pgrep -f "http\.server.*--directory .*ig-medi[a]" 2>/dev/null | head -n1 || true)"
   if [[ -n "$legacy" ]]; then
     printf 'A manually started media host is running (pid %s).\n' "$legacy"
     printf 'Stop it first, for example: pkill -f "http.server.*--directory .*ig-media"\n'
     printf 'and stop the cloudflared process that points at 127.0.0.1:%s.\n' "$port"
     return 1
   fi
-  ig_media_add_profile
   install -d -m 0755 "$ROOT_DIR/data/content-bot/tunnel"
+  if ig_media_named; then
+    ig_media_add_profile
+    ig_media_add_named_profile
+    compose --profile ig-media --profile ig-media-named up -d ig-media ig-media-named-tunnel
+    printf '\nNamed tunnel started; it keeps the hostname configured in Cloudflare.\n'
+    printf 'Point INSTAGRAM_MEDIA_PUBLIC_BASE_URL or data/content-bot/media-base-url.txt at it\n'
+    printf 'if that is not done yet, then check ./manage.sh instagram-media-status.\n'
+    return 0
+  fi
+  ig_media_add_profile
   # Trust only a hostname written after this start.
   if [[ -s "$IG_MEDIA_LOG" ]]; then
     mv "$IG_MEDIA_LOG" "$IG_MEDIA_LOG.previous"
@@ -1404,7 +1430,8 @@ ig_media_enable() {
 }
 
 ig_media_disable() {
-  compose --profile ig-media stop ig-media-tunnel ig-media >/dev/null 2>&1 || true
+  compose --profile ig-media --profile ig-media-named stop \
+    ig-media-tunnel ig-media-named-tunnel ig-media >/dev/null 2>&1 || true
   ig_media_remove_profile
   printf 'Public media host stopped. data/content-bot/media is untouched.\n'
 }

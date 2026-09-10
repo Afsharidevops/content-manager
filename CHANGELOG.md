@@ -45,7 +45,9 @@ platform; this section tracks the fork additions.
   `-status`, and `-disable` manage it, and the bot resolves the public base URL
   from a pinned `media-base-url.txt`, a non-quick-tunnel
   `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, or the live tunnel log, rebuilding the
-  Graph client when the hostname changes.
+  Graph client when the hostname changes. Setting `IG_MEDIA_TUNNEL_TOKEN`
+  switches the same profile set to a named Cloudflare tunnel, which keeps one
+  permanent hostname on a domain you own instead of a random quick tunnel.
 - Documented quick-tunnel versus stable media URLs, since a tunnel hostname
   that changes on restart breaks Instagram publishing with a confusing
   media-processing error.

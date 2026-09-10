@@ -842,6 +842,41 @@ services:
       - no-new-privileges:true
     networks: [agent-net]
 
+  # Named Cloudflare tunnel for a stable public hostname (profile
+  # "ig-media-named"). Enable it instead of the quick tunnel once
+  # IG_MEDIA_TUNNEL_TOKEN holds a tunnel token from the Cloudflare dashboard;
+  # cloudflared then keeps its public hostname, which the bot reads from
+  # INSTAGRAM_MEDIA_PUBLIC_BASE_URL or data/content-bot/media-base-url.txt.
+  # The tunnel's public hostname in the dashboard must point at http://ig-media:80.
+  ig-media-named-tunnel:
+    profiles: ["ig-media-named"]
+    image: cloudflare/cloudflared:latest
+    container_name: ig-media-named-tunnel
+    restart: unless-stopped
+    depends_on: [ig-media]
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --logfile
+      - /data/trycloudflared.log
+      - --loglevel
+      - info
+      - run
+      - --token
+      - ${IG_MEDIA_TUNNEL_TOKEN:-}
+    environment:
+      HOME: /tmp
+      TMPDIR: /tmp
+    user: "${IG_TUNNEL_RUN_AS:-1000:1000}"
+    volumes:
+      - ./data/content-bot/tunnel:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
 networks:
   agent-net:
     name: hermes-9router-net
