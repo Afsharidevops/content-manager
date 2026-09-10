@@ -102,9 +102,11 @@ Operator panel:
 
 Instagram media host (public address the Meta Graph API downloads media from):
   instagram-media-status      Show the public media URL and profile state
-  instagram-media-enable      Serve data/content-bot/media publicly (profile "ig-media")
+  instagram-media-enable [--nginx-only|--named|--quick]
+                              Serve data/content-bot/media publicly (profile "ig-media")
   instagram-media-disable     Stop the public media host and disable its profile
   instagram-media-tunnel-off  Stop only the public tunnel (keep nginx for a proxy)
+  instagram-media-verify      Check that the media URL is downloadable, including by Meta
 
 Media Studio automation:
   media-status                Media Studio configuration summary (no secrets)
@@ -1409,8 +1411,16 @@ ig_media_status() {
 }
 
 ig_media_enable() {
-  local port legacy url waited=0
+  local mode="auto" port legacy url waited=0 bind
+  case "${1:-}" in
+    --nginx-only) mode="nginx" ;;
+    --named) mode="named" ;;
+    --quick) mode="quick" ;;
+    "") ;;
+    *) printf 'Usage: ./manage.sh instagram-media-enable [--nginx-only|--named|--quick]\n' >&2; return 2 ;;
+  esac
   port="$(env_value "$ENV_FILE" IG_MEDIA_PORT)"; port="${port:-8099}"
+  bind="$(env_value "$ENV_FILE" IG_MEDIA_BIND_IP)"; bind="${bind:-127.0.0.1}"
   legacy="$(pgrep -f "http\.server.*--directory .*ig-medi[a]" 2>/dev/null | head -n1 || true)"
   if [[ -n "$legacy" ]]; then
     printf 'A manually started media host is running (pid %s).\n' "$legacy"
@@ -1419,7 +1429,19 @@ ig_media_enable() {
     return 1
   fi
   install -d -m 0755 "$ROOT_DIR/data/content-bot/tunnel"
-  if ig_media_named; then
+  if [[ "$mode" == nginx ]]; then
+    ig_media_add_profile
+    compose --profile ig-media up -d ig-media
+    printf '\nMedia host started without a tunnel; it serves data/content-bot/media on %s:%s.\n' "$bind" "$port"
+    printf 'Point the reverse proxy at http://%s:%s and set INSTAGRAM_MEDIA_PUBLIC_BASE_URL\n' "$bind" "$port"
+    printf '(or data/content-bot/media-base-url.txt) to the public base it answers on.\n'
+    return 0
+  fi
+  if [[ "$mode" == named ]] && ! ig_media_named; then
+    printf 'IG_MEDIA_TUNNEL_TOKEN is empty; add the named tunnel token first or use --quick.\n' >&2
+    return 1
+  fi
+  if ig_media_named && [[ "$mode" != quick ]]; then
     ig_media_add_profile
     ig_media_add_named_profile
     compose --profile ig-media --profile ig-media-named up -d ig-media ig-media-named-tunnel
@@ -1453,6 +1475,89 @@ ig_media_enable() {
   done
   printf '\nThe tunnel did not report a hostname yet; check ./manage.sh logs ig-media-tunnel\n' >&2
   return 1
+}
+
+ig_media_verify() {
+  local url file code
+  url="$(ig_media_public_url)"
+  [[ -n "$url" ]] || { printf 'No public media base URL is configured yet.\n' >&2; return 1; }
+  file="$(find "$ROOT_DIR/data/content-bot/media" -maxdepth 1 -type f \
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) \
+    -printf '%f\n' 2>/dev/null | head -n1)"
+  [[ -n "$file" ]] || { printf 'No image under data/content-bot/media to test with.\n' >&2; return 1; }
+  printf 'Public media URL under test: %s/media/%s\n' "$url" "$file"
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url/media/$file" || true)"
+  printf '  download from this host: %s\n' "${code:-no response}"
+  [[ "$code" == 200 ]] || printf '  WARNING: the media URL did not answer 200 from here.\n'
+  printf 'Asking the Instagram Graph API to download the same file (no publish):\n'
+  python3 - "$ROOT_DIR" "$url/media/$file" <<'VERIFY'
+import json, sys, time, urllib.error, urllib.parse, urllib.request
+from pathlib import Path
+
+root = Path(sys.argv[1])
+media_url = sys.argv[2]
+env = {}
+for line in (root / ".env").read_text(encoding="utf-8").splitlines():
+    if "=" in line and not line.strip().startswith("#"):
+        key, value = line.split("=", 1)
+        env[key.strip()] = value.strip().strip('"').strip("'")
+stored = {}
+path = root / "data/content-bot/instagram-token.json"
+if path.is_file():
+    stored = json.loads(path.read_text(encoding="utf-8"))
+
+token = stored.get("access_token") or env.get("INSTAGRAM_ACCESS_TOKEN", "")
+account = env.get("INSTAGRAM_BUSINESS_ID", "")
+api = env.get("INSTAGRAM_API_BASE", "https://graph.facebook.com").rstrip("/")
+version = env.get("INSTAGRAM_API_VERSION", "v26.0")
+if not token or not account:
+    print("  skipped: INSTAGRAM_BUSINESS_ID and an access token are required")
+    raise SystemExit(1)
+
+
+def call(url, payload=None):
+    data = urllib.parse.urlencode(payload).encode() if payload else None
+    request = urllib.request.Request(url, data=data)
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            return json.loads(response.read().decode())
+    except urllib.error.HTTPError as error:
+        try:
+            return json.loads(error.read().decode())
+        except ValueError:
+            return {"error": {"message": f"HTTP {error.code}"}}
+    except Exception as error:  # noqa: BLE001 - surfaced to the operator
+        return {"error": {"message": str(error)}}
+
+
+created = call(
+    f"{api}/{version}/{account}/media",
+    {
+        "image_url": media_url,
+        "caption": "media connectivity check",
+        "access_token": token,
+    },
+)
+container = created.get("id")
+if not container:
+    message = (created.get("error") or {}).get("message", json.dumps(created)[:200])
+    print(f"  the Graph API refused the media URL: {message}")
+    raise SystemExit(1)
+
+status = "IN_PROGRESS"
+for _ in range(12):
+    result = call(
+        f"{api}/{version}/{container}"
+        f"?fields=status_code&access_token={urllib.parse.quote(token)}"
+    )
+    status = result.get("status_code", status)
+    if status != "IN_PROGRESS":
+        break
+    time.sleep(5)
+print(f"  Instagram downloaded the file: {status}")
+print("  the container is discarded and was never published")
+raise SystemExit(0 if status == "FINISHED" else 1)
+VERIFY
 }
 
 ig_media_tunnel_off() {
@@ -2404,9 +2509,10 @@ case "$command" in
   content-status) content_status ;;
   content-connect-instagram) content_connect_instagram ;;
   instagram-media-status) ig_media_status ;;
-  instagram-media-enable) ig_media_enable ;;
+  instagram-media-enable) shift; ig_media_enable "${1:-}" ;;
   instagram-media-disable) ig_media_disable ;;
   instagram-media-tunnel-off) ig_media_tunnel_off ;;
+  instagram-media-verify) ig_media_verify ;;
   content-configure) content_configure ;;
   media-status) media_status ;;
   media-guide) media_guide ;;

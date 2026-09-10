@@ -83,9 +83,14 @@ the URL currently in effect.
 Commands:
 
 ```bash
-./manage.sh instagram-media-enable    # enable the profile and start the host
-./manage.sh instagram-media-status    # show profile state and public URL
-./manage.sh instagram-media-disable   # stop the host and disable the profile
+./manage.sh instagram-media-enable              # nginx plus the public tunnel
+./manage.sh instagram-media-enable --quick      # force the quick tunnel
+./manage.sh instagram-media-enable --named      # force the named tunnel (needs a token)
+./manage.sh instagram-media-enable --nginx-only # nginx only, for an external proxy
+./manage.sh instagram-media-status              # show profile state and public URL
+./manage.sh instagram-media-tunnel-off          # stop only the tunnel, keep nginx
+./manage.sh instagram-media-disable             # stop the host and disable the profile
+./manage.sh instagram-media-verify              # can Meta download the file?
 ```
 
 ### A permanent address
@@ -119,15 +124,53 @@ INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir
    `./manage.sh instagram-media-status`.
 5. Test: `curl -I https://media.locallab.ir/media/<file>` must answer `200`.
 
-**Route B - your own server in front.** Use this when the stack keeps running
-on a machine without a public address (NAT, home connection) and you already
-have a server that the internet can reach:
+**Route B - reverse proxy that can reach the stack over the LAN.** This is
+the normal shape when the stack runs on a machine in your own network and the
+public address lives on the router (a router with a static IP and its own
+proxy container). Nothing tunnels and no port is opened on the stack host:
 
-1. DNS: point `media.locallab.ir` (A record) at that server's public IP.
-2. On the server, run a reverse proxy for that hostname whose upstream is the
-   **local end of the tunnel**, for example `127.0.0.1:18099` - never the
-   laptop's own address, which is not reachable from outside.
-3. From the stack machine, keep a reverse tunnel to that server, for example:
+1. DNS: point `media.locallab.ir` (A record) at the router's public IP. With
+   ArvanCloud, start with the proxy toggle **off** so the router's proxy can
+   obtain its own certificate; turn the CDN on only if you want ArvanCloud to
+   terminate TLS instead.
+2. On the stack machine, bind the media host to the LAN address and start it
+   without a tunnel:
+
+```text
+IG_MEDIA_BIND_IP=192.168.4.11   # this host's LAN address
+IG_MEDIA_PORT=8099
+```
+
+```bash
+./manage.sh instagram-media-enable --nginx-only
+```
+
+3. On the router, add the site to the proxy configuration and point it at the
+   stack machine:
+
+```caddyfile
+media.locallab.ir {
+	encode zstd gzip
+	reverse_proxy 192.168.4.11:8099
+}
+```
+
+   Only `/media/...` is served; nginx answers `404` for `/` and for directory
+   listings, so the rest of the bot data directory stays private. If you bind
+   beyond loopback, allow only the router (or your proxy host) on that port.
+4. In `.env` set `INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir`
+   (or write that line into `data/content-bot/media-base-url.txt`, which wins
+   over `.env`).
+5. Test from outside the network: `curl -I https://media.locallab.ir/media/<file>`
+   must answer `200`, then run `./manage.sh instagram-media-verify`, which asks
+   the Graph API to download a real file from the media directory without
+   publishing anything. That single command is the decisive check.
+
+**Route B2 - reverse proxy on a remote server (no LAN path).** Same idea, but
+the proxy cannot reach the stack directly, so the stack dials out:
+
+1. DNS: point the hostname at that server's public IP.
+2. From the stack machine keep a reverse tunnel to it:
 
 ```bash
 autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
@@ -135,12 +178,12 @@ autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
 ```
 
    The right-hand side is the local media host (`IG_MEDIA_BIND_IP` /
-   `IG_MEDIA_PORT`), the left-hand side is what the server's proxy points at.
-   Keep it running with a systemd unit so a reboot does not break publishing.
-4. In `.env` set `INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir`
-   (or write that line into `data/content-bot/media-base-url.txt`, which wins
-   over `.env`), then run `./manage.sh instagram-media-disable` to retire the
-   quick tunnel - nginx keeps serving on loopback for the reverse tunnel.
+   `IG_MEDIA_PORT`); the left-hand side is what the server's proxy points at -
+   never the stack machine's own address, which is not reachable from outside.
+   Run it under systemd so a reboot does not break publishing.
+3. On the server, proxy the hostname to `127.0.0.1:18099`.
+4. `./manage.sh instagram-media-tunnel-off` retires the quick tunnel while
+   nginx keeps serving for the reverse tunnel.
 5. Test: `curl -I https://media.locallab.ir/media/<file>` must answer `200`.
 
 **Route C - do nothing.** Keep the bundled quick tunnel. The bot re-reads the

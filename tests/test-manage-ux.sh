@@ -47,4 +47,16 @@ profiles_out="$(sed -n 's/^COMPOSE_PROFILES=//p' "$tmp/.env")"
 grep -q 'ig-media' <<<"$profiles_out"
 [[ ",$profiles_out," != *,ig-media-quick,* ]]
 
+# nginx-only mode must not pull in a tunnel profile.
+PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-enable --nginx-only >/dev/null
+profiles_out="$(sed -n 's/^COMPOSE_PROFILES=//p' "$tmp/.env")"
+grep -q 'ig-media' <<<"$profiles_out"
+[[ ",$profiles_out," != *,ig-media-quick,* ]]
+
+# --named without a token is refused, and --quick ignores the token branch.
+if PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-enable --named >/dev/null 2>&1; then
+  printf 'instagram-media-enable --named must fail without IG_MEDIA_TUNNEL_TOKEN\n' >&2
+  exit 1
+fi
+
 printf 'manage UX tests passed.\n'
