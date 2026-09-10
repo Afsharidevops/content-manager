@@ -75,23 +75,22 @@
     return true;
   }
 
+  // Kept to the original matcher on purpose: broader selectors fired the
+  // freeze during the app bootstrap, which can abort the data the dashboard
+  // needs before the region check is even reached.
   function looksLikeCreateButton(element) {
     const text = (element.textContent || '').toLowerCase();
     const aria = (element.getAttribute('aria-label') || '').toLowerCase();
-    const title = (element.getAttribute('title') || '').toLowerCase();
     return (
       text.includes('new project') ||
-      text.includes('create') ||
       aria.includes('new project') ||
-      aria.includes('create') ||
-      title.includes('new project') ||
-      title.includes('create')
+      text.includes('create') ||
+      aria.includes('create')
     );
   }
 
   function findCreateButton() {
-    const nodes = document.querySelectorAll('button, [role="button"], a[href*="project"]');
-    return Array.from(nodes).find(looksLikeCreateButton);
+    return Array.from(document.querySelectorAll('button, [role="button"]')).find(looksLikeCreateButton);
   }
 
   if (bounceOffBlockRoute()) return;

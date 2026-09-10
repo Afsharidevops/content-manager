@@ -94,6 +94,9 @@ platform; this section tracks the fork additions.
 - Recovery navigations keep the `/u/<n>/` account prefix. Restarting the app
   on the bare root silently fell back to the first signed-in Google account,
   which looked like the browser switching accounts on its own.
+- The create-button matcher used by the freeze step is back to its original
+  form: the wider selectors added earlier could fire the freeze during the app
+  bootstrap and abort data the dashboard needs.
 - The Content Bot polling loop survives transient network failures: Telegram
   long polls that time out through a slow route are logged as a warning and
   retried after a short backoff instead of dumping a full traceback into the
