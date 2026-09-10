@@ -38,6 +38,20 @@ platform; this section tracks the fork additions.
 - Component images advance to `0.2.0`: `afsharidevops/content-bot:0.2.0` and
   `afsharidevops/media-studio:0.2.0` (plus `:latest`).
 
+### Improvements — friendlier copy and RTL-safe captions (2026-09-10)
+
+- The writer prompt now asks for a warm, conversational, second-person voice
+  with short everyday sentences and explicitly rules out formal, official, and
+  news-desk phrasing, so drafts read like a note from a friend.
+- Instagram captions start with an invisible right-to-left mark and mark every
+  Latin-led paragraph. Instagram renders the account name inline before the
+  caption, and without the mark a Latin account name flips the first paragraph
+  to LTR and scrambles the Persian title. Telegram and Instagram now share the
+  same bidi helpers in `content_bot/rtl.py`.
+- Writer titles keep the English product name inside the sentence; the prompt
+  already required a Persian opening word and now enforces it together with the
+  friendlier voice.
+
 ### Fixes — Instagram approval flow and Media Studio reachability (2026-09-10)
 
 - Media previews now carry the Instagram approval buttons: photo and video

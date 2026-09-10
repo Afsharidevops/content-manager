@@ -69,6 +69,22 @@ class CaptionTests(unittest.TestCase):
         self.assertEqual(caption.count("https://example.com/post"), 1)
         self.assertTrue(caption.endswith("https://example.com/post"))
 
+    def test_persian_caption_starts_with_rtl_mark(self):
+        caption = build_caption(
+            "ساخت اپلیکیشن کسب\u200cوکار با Hercules",
+            "Hercules یک ابزار ساخت اپلیکیشن است.",
+            "https://hercules.app",
+        )
+        self.assertTrue(caption.startswith("\u200f"))
+        self.assertIn("ساخت اپلیکیشن کسب\u200cوکار با Hercules", caption)
+        self.assertIn("\n\n\u200fHercules یک ابزار", caption)
+        self.assertTrue(caption.endswith("https://hercules.app"))
+
+    def test_english_caption_stays_without_rtl_marks(self):
+        caption = build_caption("Plain English title", "Plain body.", "")
+        self.assertFalse(caption.startswith("\u200f"))
+        self.assertNotIn("\u200f", caption)
+
     def test_caption_does_not_duplicate_source_already_in_body(self):
         caption = build_caption(
             "Title",

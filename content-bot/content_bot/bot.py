@@ -7,14 +7,13 @@ import logging
 import re
 import secrets
 import time
-import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from content_bot import extract, fetch, state as state_mod, telegram as telegram_mod
 from content_bot import instagram as instagram_mod
-from content_bot import mediastudio as media_mod, search as search_mod
+from content_bot import mediastudio as media_mod, rtl as rtl_mod, search as search_mod
 from content_bot import workflow, writer as writer_mod
 from content_bot.config import BotSettings
 from content_pipeline.normalize import canonicalize_url, content_hash as canonical_content_hash
@@ -42,34 +41,6 @@ def _html_title(title: str) -> str:
     )
 
 
-# Invisible right-to-left mark: forces a Telegram line to keep an RTL base
-# direction even when the first visible character is Latin (product names,
-# numbers, punctuation), which otherwise scrambles Persian word order.
-_RTL_LINE_PREFIX = "‏"
-_RTL_BIDI_TYPES = {"R", "AL"}
-_LTR_BIDI_TYPES = {"L"}
-
-
-def _first_strong_direction(line: str) -> str:
-    """Return "R" or "L" for the first strong bidi character, or ""."""
-    for char in str(line or ""):
-        bidi = unicodedata.bidirectional(char)
-        if bidi in _RTL_BIDI_TYPES:
-            return "R"
-        if bidi in _LTR_BIDI_TYPES:
-            return "L"
-    return ""
-
-
-def _needs_rtl_prefix(line: str) -> bool:
-    """True when a line mixes Persian with a Latin start and would render LTR."""
-    text = str(line or "")
-    if not text:
-        return False
-    has_rtl = any(unicodedata.bidirectional(char) in _RTL_BIDI_TYPES for char in text)
-    return has_rtl and _first_strong_direction(text) == "L"
-
-
 def _rtl_body_html(body: str) -> str:
     """Escape post body for Telegram HTML with per-line RTL direction marks."""
     lines: list[str] = []
@@ -78,8 +49,8 @@ def _rtl_body_html(body: str) -> str:
             lines.append("")
             continue
         escaped = _html_escape(raw)
-        if _needs_rtl_prefix(raw):
-            escaped = f"{_RTL_LINE_PREFIX}{escaped}"
+        if rtl_mod.needs_rtl_mark(raw):
+            escaped = f"{rtl_mod.RTL_MARK}{escaped}"
         lines.append(escaped)
     return "\n".join(lines)
 

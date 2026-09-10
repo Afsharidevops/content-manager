@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlencode
 
+from content_bot import rtl as rtl_mod
 from content_bot.http import request_bytes
 
 GRAPH_BASE = "https://graph.facebook.com"
@@ -36,10 +37,14 @@ def build_caption(title: str, body: str, source_url: str = "") -> str:
     The title is the first line, body paragraphs follow, and the source link
     appears once at the very end when it is not already part of the copy.
     """
-    title = _strip_markup(title).strip()
+    title = rtl_mod.mark_caption_head(_strip_markup(title).strip())
     body = _strip_markup(body).strip()
     source_url = str(source_url or "").strip()
-    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", body) if part.strip()]
+    paragraphs = [
+        rtl_mod.mark_lines(part.strip())
+        for part in re.split(r"\n\s*\n", body)
+        if part.strip()
+    ]
 
     def assemble(parts: list[str]) -> str:
         caption = title

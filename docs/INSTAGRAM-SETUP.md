@@ -20,7 +20,10 @@ Graph API:
 - a single attached photo publishes as a photo,
 - several attached photos publish as a **carousel** (2-10 photos),
 - an attached MP4/MOV video publishes as a feed video,
-- text-only posts cannot be published to Instagram.
+- text-only posts cannot be published to Instagram,
+- captions stay readable in Persian: the caption head carries an
+  invisible right-to-left mark so the inline account name cannot flip
+  the first paragraph to LTR.
 
 The Telegram approval flow offers two extra buttons whenever the draft has
 media and Instagram is enabled:
