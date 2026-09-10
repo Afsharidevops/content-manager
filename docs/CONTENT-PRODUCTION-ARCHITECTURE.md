@@ -206,6 +206,7 @@ CONTENT_PLATFORMS_ENABLED          manual upload packages on previews (default f
 INSTAGRAM_BUSINESS_ID              Instagram professional account id (blank disables)
 INSTAGRAM_ACCESS_TOKEN             long-lived Graph API token for that account
 INSTAGRAM_MEDIA_PUBLIC_BASE_URL    public URL serving data/content-bot/media
+                                   (set by the wizard when Caddy owns the media domain)
 IG_MEDIA_BIND_IP                   media host bind address (default 127.0.0.1)
 IG_MEDIA_PORT                      media host port (default 8099)
 IG_MEDIA_TUNNEL_TOKEN              named Cloudflare tunnel token (blank uses a quick tunnel)

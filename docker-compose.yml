@@ -814,8 +814,12 @@ services:
       - no-new-privileges:true
     networks: [agent-net]
 
+  # Quick tunnel (profile "ig-media-quick"): gives the nginx media host a
+  # throwaway public hostname for testing. Enable it together with "ig-media"
+  # through ./manage.sh instagram-media-enable; keep "ig-media" alone when a
+  # reverse proxy or a named tunnel provides the public address.
   ig-media-tunnel:
-    profiles: ["ig-media"]
+    profiles: ["ig-media-quick"]
     image: cloudflare/cloudflared:latest
     container_name: ig-media-tunnel
     restart: unless-stopped

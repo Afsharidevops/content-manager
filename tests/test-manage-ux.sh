@@ -40,4 +40,11 @@ printf 'https://media.locallab.ir/media\n' > "$tmp/data/content-bot/media-base-u
 status_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-status)"
 grep -q 'https://media.locallab.ir/media' <<<"$status_out"
 
+# Stopping only the tunnel must keep nginx's profile enabled.
+printf 'COMPOSE_PROFILES=9router,ig-media,ig-media-quick\n' >> "$tmp/.env"
+PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-tunnel-off >/dev/null
+profiles_out="$(sed -n 's/^COMPOSE_PROFILES=//p' "$tmp/.env")"
+grep -q 'ig-media' <<<"$profiles_out"
+[[ ",$profiles_out," != *,ig-media-quick,* ]]
+
 printf 'manage UX tests passed.\n'

@@ -104,6 +104,7 @@ Instagram media host (public address the Meta Graph API downloads media from):
   instagram-media-status      Show the public media URL and profile state
   instagram-media-enable      Serve data/content-bot/media publicly (profile "ig-media")
   instagram-media-disable     Stop the public media host and disable its profile
+  instagram-media-tunnel-off  Stop only the public tunnel (keep nginx for a proxy)
 
 Media Studio automation:
   media-status                Media Studio configuration summary (no secrets)
@@ -1328,6 +1329,14 @@ ig_media_add_profile() {
   printf 'Enabled the "ig-media" compose profile.\n'
 }
 
+ig_media_add_quick_profile() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  [[ ",$profiles," == *,ig-media-quick,* ]] && return 0
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "${profiles:+$profiles,}ig-media-quick"
+  printf 'Enabled the "ig-media-quick" compose profile.\n'
+}
+
 ig_media_add_named_profile() {
   local profiles
   profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
@@ -1342,11 +1351,24 @@ ig_media_remove_profile() {
   local entries=()
   IFS=',' read -r -a entries <<< "$profiles"
   for entry in "${entries[@]}"; do
-    [[ -n "$entry" && "$entry" != ig-media && "$entry" != ig-media-named ]] || continue
+    [[ -n "$entry" && "$entry" != ig-media && "$entry" != ig-media-named \
+      && "$entry" != ig-media-quick ]] || continue
     filtered="${filtered:+$filtered,}$entry"
   done
   replace_env_value "$ENV_FILE" COMPOSE_PROFILES "$filtered"
-  printf 'Disabled the "ig-media" and "ig-media-named" compose profiles.\n'
+  printf 'Disabled the "ig-media", "ig-media-quick", and "ig-media-named" compose profiles.\n'
+}
+
+ig_media_remove_tunnel_profiles() {
+  local profiles entry filtered=""
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  local entries=()
+  IFS=',' read -r -a entries <<< "$profiles"
+  for entry in "${entries[@]}"; do
+    [[ -n "$entry" && "$entry" != ig-media-named && "$entry" != ig-media-quick ]] || continue
+    filtered="${filtered:+$filtered,}$entry"
+  done
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "$filtered"
 }
 
 ig_media_named() {
@@ -1380,7 +1402,7 @@ ig_media_status() {
     printf '  WARNING: a manually started media host is still running (pid %s); stop it before enabling the profile\n' "$legacy"
   fi
   if ig_media_enabled; then
-    compose --profile ig-media --profile ig-media-named ps \
+    compose --profile ig-media --profile ig-media-quick --profile ig-media-named ps \
       ig-media ig-media-tunnel ig-media-named-tunnel 2>/dev/null || true
   fi
   printf '  Guide: docs/INSTAGRAM-SETUP.md\n'
@@ -1407,11 +1429,15 @@ ig_media_enable() {
     return 0
   fi
   ig_media_add_profile
-  # Trust only a hostname written after this start.
+  ig_media_add_quick_profile
+  compose --profile ig-media up -d ig-media
+  # A quick tunnel hostname is only trustworthy when it was written after this
+  # start, so the log is rotated AND the tunnel is recreated: a running
+  # cloudflared keeps appending to the file it already has open.
   if [[ -s "$IG_MEDIA_LOG" ]]; then
     mv "$IG_MEDIA_LOG" "$IG_MEDIA_LOG.previous"
   fi
-  compose --profile ig-media up -d ig-media ig-media-tunnel
+  compose --profile ig-media --profile ig-media-quick up -d --force-recreate ig-media-tunnel
   printf '\nWaiting for the quick tunnel hostname'
   while (( waited < 60 )); do
     url="$(ig_media_tunnel_url)"
@@ -1429,8 +1455,18 @@ ig_media_enable() {
   return 1
 }
 
+ig_media_tunnel_off() {
+  compose --profile ig-media-quick --profile ig-media-named stop \
+    ig-media-tunnel ig-media-named-tunnel >/dev/null 2>&1 || true
+  ig_media_remove_tunnel_profiles
+  printf 'Tunnel stopped. nginx keeps serving data/content-bot/media on %s:%s for a\n' \
+    "$(env_value "$ENV_FILE" IG_MEDIA_BIND_IP | sed 's/^$/127.0.0.1/')" \
+    "$(env_value "$ENV_FILE" IG_MEDIA_PORT | sed 's/^$/8099/')"
+  printf 'reverse proxy or a named tunnel; run ./manage.sh instagram-media-enable to bring it back.\n'
+}
+
 ig_media_disable() {
-  compose --profile ig-media --profile ig-media-named stop \
+  compose --profile ig-media --profile ig-media-quick --profile ig-media-named stop \
     ig-media-tunnel ig-media-named-tunnel ig-media >/dev/null 2>&1 || true
   ig_media_remove_profile
   printf 'Public media host stopped. data/content-bot/media is untouched.\n'
@@ -2370,6 +2406,7 @@ case "$command" in
   instagram-media-status) ig_media_status ;;
   instagram-media-enable) ig_media_enable ;;
   instagram-media-disable) ig_media_disable ;;
+  instagram-media-tunnel-off) ig_media_tunnel_off ;;
   content-configure) content_configure ;;
   media-status) media_status ;;
   media-guide) media_guide ;;

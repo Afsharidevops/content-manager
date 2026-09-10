@@ -47,7 +47,11 @@ platform; this section tracks the fork additions.
   `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, or the live tunnel log, rebuilding the
   Graph client when the hostname changes. Setting `IG_MEDIA_TUNNEL_TOKEN`
   switches the same profile set to a named Cloudflare tunnel, which keeps one
-  permanent hostname on a domain you own instead of a random quick tunnel.
+  permanent hostname on a domain you own instead of a random quick tunnel, and
+  the quick tunnel now lives in its own `ig-media-quick` profile so nginx can
+  stay up behind a reverse proxy (`./manage.sh instagram-media-tunnel-off`).
+  Installing the content stack on a server can publish the media directory on
+  a Caddy domain straight from the wizard, which needs no tunnel at all.
 - Documented quick-tunnel versus stable media URLs, since a tunnel hostname
   that changes on restart breaks Instagram publishing with a confusing
   media-processing error.

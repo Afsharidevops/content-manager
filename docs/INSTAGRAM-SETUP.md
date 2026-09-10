@@ -147,6 +147,31 @@ autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
 hostname on every publish, so a restart no longer breaks publishing; the only
 costs are a random hostname and a dependency on Cloudflare's test service.
 
+**Route D - stack on a server that has a public address.** Nothing tunnels:
+the reverse proxy runs next to the origin. Use the built-in Caddy profile:
+
+- during installation, answer yes to *"Publish the Instagram media directory
+  with a domain"* - the wizard writes the Caddy site, enables the `ig-media`
+  profile and sets `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` for you;
+- by hand, add this block to `data/caddy/Caddyfile` and enable the `caddy`
+  profile plus `ig-media` in `COMPOSE_PROFILES`:
+
+```caddyfile
+media.locallab.ir {
+	encode zstd gzip
+	reverse_proxy ig-media:80
+}
+```
+
+Point an `A` record for that hostname at the server, open inbound TCP 80/443
+(and UDP 443) so Caddy can issue its certificate, then
+`./manage.sh instagram-media-status` shows the URL. No tunnel container is
+needed: `./manage.sh instagram-media-tunnel-off` stops the quick tunnel while
+leaving nginx running for the proxy.
+
+Whatever the route, only the media subtree is published and the rest of the
+bot data directory stays private.
+
 The reverse proxy in every route only ever needs the media origin
 (`/media/...`). It must not expose the rest of the bot data directory: the
 bundled nginx already answers `404` for `/` and for directory listings.

@@ -302,7 +302,7 @@ routines:
 | Platform | State |
 | --- | --- |
 | Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
-| Instagram | Official Meta Graph API: photos, carousels, and video; the long-lived token refreshes itself, `/instagram` reports the expiry, and the `ig-media` profile publishes the media directory at a public URL (`./manage.sh instagram-media-status`); see `docs/INSTAGRAM-SETUP.md` |
+| Instagram | Official Meta Graph API: photos, carousels, and video; the long-lived token refreshes itself, `/instagram` reports the expiry, and the `ig-media` profile publishes the media directory at a public URL (`./manage.sh instagram-media-status`, a domain through Caddy, or a named tunnel); see `docs/INSTAGRAM-SETUP.md` |
 | YouTube / Aparat | Optional copy-ready upload package (off by default); see "Manual upload platforms" |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
 

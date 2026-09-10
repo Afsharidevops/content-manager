@@ -1400,9 +1400,11 @@ caddy_webui_domain=""
 caddy_hermes_dashboard_domain=""
 caddy_hermes_api_domain=""
 caddy_n8n_domain=""
+caddy_media_domain=""
 
 if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_omniroute" == true || "$install_webui" == true \
-  || "$install_n8n" == true || "$hermes_dashboard" == 1 || "$api_enabled" == true ) ]]; then
+  || "$install_n8n" == true || "$hermes_dashboard" == 1 || "$api_enabled" == true \
+  || "$install_content" == true ) ]]; then
   if [[ "$install_caddy" == true ]]; then
     confirm "Reconfigure existing Caddy domains?" n && configure_caddy=true
   elif confirm "Add optional Caddy domains with automatic HTTPS?" n; then
@@ -1457,6 +1459,15 @@ if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_o
       n8n_protocol="https"
       n8n_secure_cookie="true"
       n8n_proxy_hops="1"
+    fi
+
+    if [[ "$install_content" == true ]] \
+      && confirm "Publish the Instagram media directory with a domain (stable media URL)?" n; then
+      caddy_media_domain="$(prompt_domain "Instagram media domain")"
+      [[ -z "${selected_domains[$caddy_media_domain]+x}" ]] || die "Each service needs a unique domain."
+      selected_domains["$caddy_media_domain"]=1
+      # nginx serves the media directory; the domain fronts it, so no tunnel.
+      [[ ",$profiles," == *,ig-media,* ]] || profiles="${profiles:+$profiles,}ig-media"
     fi
 
     if ((${#selected_domains[@]} == 0)); then
@@ -1714,6 +1725,9 @@ fi
 chmod 600 "$tmp_env"
 # Preserve every v0.5.x setting and update only values owned by this wizard.
 replace_env_value "$tmp_env" COMPOSE_PROFILES "$profiles"
+if [[ -n "$caddy_media_domain" ]]; then
+  replace_env_value "$tmp_env" INSTAGRAM_MEDIA_PUBLIC_BASE_URL "https://$caddy_media_domain"
+fi
 replace_env_value "$tmp_env" NINEROUTER_BIND_IP "$nine_bind"
 replace_env_value "$tmp_env" NINEROUTER_PORT "$nine_port"
 replace_env_value "$tmp_env" NINEROUTER_INITIAL_PASSWORD "$(dotenv_quote "$nine_password")"
@@ -2115,6 +2129,12 @@ if [[ "$configure_caddy" == true && "$install_caddy" == true ]]; then
     if [[ -n "$caddy_hermes_api_domain" ]]; then
       printf '%s {\n\tencode zstd gzip\n\treverse_proxy hermes:8642\n}\n\n' "$caddy_hermes_api_domain"
     fi
+    if [[ -n "$caddy_media_domain" ]]; then
+      # Only the media subtree is published; nginx answers 404 for
+      # everything else, including directory listings.
+      printf '%s {\n\tencode zstd gzip\n\treverse_proxy ig-media:80\n}\n\n' "$caddy_media_domain"
+    fi
+
     if [[ -n "$caddy_n8n_domain" ]]; then
       # MCP needs unbuffered streaming, so /mcp* is proxied without compression.
       printf '%s {\n' "$caddy_n8n_domain"
@@ -2515,7 +2535,11 @@ if [[ "$install_content" == true ]]; then
   printf '%s\n' 'Content Bot: send a link to the bot in Telegram to draft an approved post'
   printf '%s\n' 'Content Bot guide: docs/CONTENT-PRODUCTION-GUIDE.md'
   printf '%s\n' 'Instagram/Meta setup (optional, pending): docs/INSTAGRAM-SETUP.md'
+  if [[ -n "$caddy_media_domain" ]]; then
+    printf '%s\n' "Instagram media URL: https://$caddy_media_domain/media/<file>"
+  else
   printf '%s\n' 'Instagram media host (optional): ./manage.sh instagram-media-enable'
+  fi
   printf '%s\n' 'Content Bot status: ./manage.sh content-status'
 fi
 if [[ "$install_media" == true ]]; then
