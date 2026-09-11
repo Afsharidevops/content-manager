@@ -110,7 +110,7 @@ RustFS, and stack backups that can be taken in full or per section.
   content layer and Content Bot suites, the Smart Router suite, image builds,
   Compose execution-boundary checks, SSH-profile broker tests, and the
   interactive installer smoke test.
-- Panel suite: 68 tests. Object storage: 17 shell tests. Stack operations
+- Panel suite: 68 tests. Object storage: 18 shell tests. Stack operations
   (backups, restores, relocation): 15 shell tests. Helm chart: 21 tests.
 - Both router-backend Compose profile combinations render cleanly
   (`docker compose config --quiet`).
@@ -127,3 +127,29 @@ RustFS, and stack backups that can be taken in full or per section.
 - Waiver: the repository-wide `sha256sum -c MANIFEST.sha256` recorded at the
   upstream import is regenerated with this release so it covers the fork's
   files; the check is not enforced by CI.
+
+## Post-release fixes (2026-09-11)
+
+Three follow-up commits landed on `main` after the first cut of the tag; the
+container images stay at `0.3.0` because none of them changes application
+code.
+
+- **Installer base domain.** `install.sh` asks once for the zone the published
+  services live in and stores it as `STACK_BASE_DOMAIN`, then names the panel,
+  the Instagram media host, the S3 API, and the RustFS console as
+  `<service>.<zone>`. `./manage.sh s3-guide` prints the same host names,
+  preferring the public origins already recorded in `.env`.
+- **RustFS console sign-in behind a reverse proxy.** The console signs in with
+  a signed `POST /` (`Action=AssumeRole`) against the host that serves it. A
+  route that redirected `/` to `/rustfs/console/` for every method answered
+  that request with a 302, and sign-in failed without a useful message. The
+  installer and `docs/S3-STORAGE.md` now print a route that either leaves `/`
+  untouched or restricts the redirect to `GET`, and the wizard derives
+  `S3_PUBLIC_CONSOLE_URL` from the host name it receives.
+- **Media Studio image tag and channel id hints.** The installer follows
+  `MEDIA_STUDIO_IMAGE_TAG` instead of a hardcoded value, and warns when a bare
+  numeric Telegram channel id is entered instead of the `-100...` form.
+- **Placeholder zone.** Documentation, fixtures, installer defaults, and the
+  Firefox extension id use `example.com` in place of the operator's own domain,
+  so a public checkout never names the real zone. The deployment keeps its real
+  host names in the untracked `.env`.
