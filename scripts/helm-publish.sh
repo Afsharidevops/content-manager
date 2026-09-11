@@ -58,6 +58,17 @@ done
 [[ -n "$registry" || -n "$chartmuseum" || "$dry_run" == true ]] \
   || die "choose --registry or --chartmuseum (see --help)"
 [[ -n "$registry" && -n "$chartmuseum" ]] && die "choose one destination at a time"
+
+# The OCI distribution spec requires a lowercase repository path, so
+# "oci://ghcr.io/Owner/charts" is rejected with `invalid repository`.
+if [[ -n "$registry" ]]; then
+  lowercase_registry="$(printf '%s' "$registry" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$lowercase_registry" != "$registry" ]]; then
+    log "OCI references are lowercase; using $lowercase_registry"
+    registry="$lowercase_registry"
+  fi
+fi
+
 command -v helm >/dev/null 2>&1 || die "helm is required"
 [[ -f "$CHART_DIR/Chart.yaml" ]] || die "chart not found at $CHART_DIR"
 

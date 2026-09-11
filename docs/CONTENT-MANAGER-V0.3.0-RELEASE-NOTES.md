@@ -111,12 +111,19 @@ RustFS, and stack backups that can be taken in full or per section.
   Compose execution-boundary checks, SSH-profile broker tests, and the
   interactive installer smoke test.
 - Panel suite: 68 tests. Object storage: 17 shell tests. Stack operations
-  (backups, restores, relocation): 15 shell tests. Helm chart: 19 tests.
+  (backups, restores, relocation): 15 shell tests. Helm chart: 21 tests.
 - Both router-backend Compose profile combinations render cleanly
   (`docker compose config --quiet`).
 - Live checks on the reference deployment: a full panel backup, a section
   backup, and `s3-verify` against the bundled RustFS were all exercised through
   the console.
+- Post-release fix: the `Publish Helm Chart` workflow built its GHCR
+  destination from `github.repository_owner` (`Afsharidevops`), and ghcr.io
+  rejects an uppercase repository path with `invalid_reference: invalid
+  repository`. The workflow and `scripts/helm-publish.sh` now lowercase the
+  owner before pushing, and `tests/test-helm-chart.sh` asserts it. The workflow
+  also attaches the packaged chart to the GitHub release for the tag, so the
+  release carries both the chart and the workflow artifact.
 - Waiver: the repository-wide `sha256sum -c MANIFEST.sha256` recorded at the
   upstream import is regenerated with this release so it covers the fork's
   files; the check is not enforced by CI.

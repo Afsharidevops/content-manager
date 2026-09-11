@@ -224,6 +224,11 @@ helm install content-manager oci://ghcr.io/afsharidevops/charts/hermes-linux-sta
 `content-manager-v*` and `hermes-linux-stack-v*` tags using `GITHUB_TOKEN`, and
 also uploads the packaged chart to the GitHub release.
 
+OCI references are lowercase and a GitHub owner name may not be, so the
+workflow and `scripts/helm-publish.sh` both lowercase the owner before they
+build the destination: `oci://ghcr.io/Afsharidevops/charts` is rejected by the
+registry with `invalid repository`.
+
 ### Option B: classic Helm repository on GitHub Pages (free)
 
 1. Create a `gh-pages` branch (or a `charts` directory on `main`).

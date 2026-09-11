@@ -159,6 +159,16 @@ platform; this section tracks the fork additions.
   image against a seeded demo stack (`docs-site/assets/content-console-*-v0.3.0.png`):
   stack status, pipeline state, object storage, backups, and the action
   whitelist.
+- Release pipeline fix: the Helm publish workflow built its GHCR destination
+  from `github.repository_owner` (`Afsharidevops`), and the OCI distribution
+  spec requires a lowercase repository path, so the release tag failed with
+  `invalid_reference: invalid repository`. The workflow now lowercases the
+  owner before `helm push` and refuses an uppercase reference outright, and
+  `scripts/helm-publish.sh` lowercases `--registry` the same way.
+  `tests/test-helm-chart.sh` covers both paths. The workflow also attaches the
+  packaged chart to the GitHub release for the tag, which is what
+  `docs/HELM.md` already described, and skips the attachment when the tag has
+  no release.
 
 ### Fork release — Content Manager v0.2.0 (2026-09-09)
 

@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -32,15 +32,33 @@ jobs:
           tests/test-helm-chart.sh
       - name: Push the chart to GHCR
         env:
-          REGISTRY: oci://ghcr.io/${{ github.repository_owner }}/charts
+          GHCR_OWNER: ${{ github.repository_owner }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          helm registry login ghcr.io \
-            --username "${{ github.actor }}" \
-            --password "${{ secrets.GITHUB_TOKEN }}"
+          # OCI references must be lowercase and a GitHub owner name may not
+          # be, which makes ghcr.io answer "invalid repository".
+          registry="oci://ghcr.io/$(printf '%s' "$GHCR_OWNER" | tr '[:upper:]' '[:lower:]')/charts"
+          case "$registry" in
+            *[A-Z]*) printf 'refusing to push an uppercase OCI reference: %s\n' "$registry" >&2; exit 1 ;;
+          esac
+          printf '%s' "$GHCR_TOKEN" \
+            | helm registry login ghcr.io --username "$GHCR_USER" --password-stdin
           helm package deploy/helm/hermes-linux-stack --destination dist
-          helm push dist/hermes-linux-stack-*.tgz "$REGISTRY"
+          helm push dist/hermes-linux-stack-*.tgz "$registry"
       - name: Upload the packaged chart
         uses: actions/upload-artifact@v4
         with:
           name: helm-chart
           path: dist/*.tgz
+      - name: Attach the chart to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/*.tgz --clobber
+          else
+            printf 'No GitHub release for %s yet; the chart stays a workflow artifact.\n' "$RELEASE_TAG"
+          fi

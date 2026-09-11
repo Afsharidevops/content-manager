@@ -130,5 +130,25 @@ else
   not_ok "Chart.yaml carries a semver chart version"
 fi
 
+# ghcr.io rejects an uppercase repository path with "invalid repository", and
+# a GitHub owner name may contain uppercase letters, so both publishing paths
+# must lowercase the reference before they build it.
+workflow="$ROOT/.github/workflows/publish-helm-chart.yml"
+if ! grep -q 'oci://ghcr.io/${{ github.repository_owner }}' "$workflow" \
+   && grep -q "tr '\[:upper:\]' '\[:lower:\]'" "$workflow"; then
+  ok "the release workflow lowercases the GHCR owner"
+else
+  not_ok "the release workflow lowercases the GHCR owner"
+fi
+
+if publish_dry_run="$("$ROOT/scripts/helm-publish.sh" --dry-run \
+      --registry oci://ghcr.io/Afsharidevops/charts --package-dir "$TMP/dist" 2>&1)" \
+   && grep -q 'would push: helm push .* oci://ghcr.io/afsharidevops/charts' <<<"$publish_dry_run" \
+   && ! grep -q 'Afsharidevops' <<<"$publish_dry_run"; then
+  ok "helm-publish.sh lowercases the OCI registry reference"
+else
+  not_ok "helm-publish.sh lowercases the OCI registry reference"
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 (( fail == 0 ))
