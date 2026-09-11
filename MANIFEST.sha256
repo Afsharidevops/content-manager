@@ -1,4 +1,4 @@
-4c6b5410419429b3d1a8ee19a27439e2b4457b7507b9820b053648c111d78461  ./.env.example
+5074cf82e3cc20d00b407034fa5558a87533eec31ddae32382347d3e31319076  ./.env.example
 8ed5a6b036e51998d5729c0cd495bfef86acc4373b2c999b41dd9e828b3725eb  ./.github/workflows/platform-v0.5.6.yml
 5910cc997d369c252d987d720ad7dff4159fb08182e2b8188baf8f9a62d93a8f  ./.github/workflows/platform-v0.5.7.yml
 a7a6b25ceb9a098d816ce4f35662e2bb5204af2eaaf09da566eeeb825b41f893  ./.github/workflows/platform-v0.5.9.yml
@@ -11,7 +11,7 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 6502bb5def3d7527e476588fa8a0e67701c3364afb9050a55b7bffe46d449fb3  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-522e36f1e11ffafa5420669d9deef391c601e8d9726818e5f9af520647a0b556  ./CHANGELOG.md
+740222b33799f5be85597a6d309526f068ba0b99a1270928d7f09afc04d10dba  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
 e4ef08dbadbb1fcaa8b818f8a97851e371044d97a8bcc9d0d5c51b0ec649311b  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
@@ -73,8 +73,8 @@ a3f25da07bbd442da7699f8de1a01d3cbd7b2742f855c64cf6e5f7b21f1f21f5  ./execution-br
 8712b285c9d4a75b7f24f0f31bcc7f241e7da3e84a7b470a56d2015c60224ed3  ./execution-broker/src/broker/ssh.py
 6b7ea776e22ebe10e6c40491d1aac4cda271f6c19afe4617cad978e9d8fc8724  ./execution-broker/src/broker/store.py
 66211081a60ab4390bf2073b09461e0798f924f3552383dff7bcd06cf45e7575  ./execution-broker/ssh-askpass.py
-820f3eb4f76fed35884182da5ff528bc90a9aab4b5c122155643a2033e3131f5  ./install.sh
-3c4ba8aa0593aac86942cc0a9f9f3912c480a1ad6a3a97f51b0b2ab7ab0d4221  ./manage.sh
+647e72d003e6959bc15e2ea52ce6200384602e4ba1cd8f52d6026a7ac022a703  ./install.sh
+73e879890b10d3fe74a55ba11ab016091871ea715cbce5b2b9bb381b8e06305e  ./manage.sh
 37a4106e8e076d9a4d6bd677861a66e64f79bba3bff41554d3825ae5a86bf04d  ./plugins/stack-execution-policy/__init__.py
 5544b17cc4cc7190d2c20ab35f5ec5336df7ab5211a5bdcfa61997236afed473  ./plugins/stack-execution-policy/plugin.yaml
 12a26259dfa56408d072f7b65f32a1bac0f4545fc3d4e0808321017bcb4ebd38  ./plugins/stack-package-policy/__init__.py
@@ -203,7 +203,7 @@ bc2eb29aff1e4b058e48d824365a0eda826a56505ae21a919efb1916875cf06a  ./smart-router
 0edbcf7a74465f0206487501f79548478e37b530dec72b603c86a2c083d0d767  ./tests/smoke.sh
 0d9cf7bd26abc5978066da72d084f5120798a3c34d06d49d875323ead9ad61e3  ./tests/test-bootstrap-n8n.mjs
 75216df5a22558a70a26a258871a165087d09458fd5a17e55d3ee6e0bac17e77  ./tests/test-manage-n8n.sh
-110172b8e8ae89f1958e90a9d3cb9363e63cc96c16a8dce2f77e32bac52341a4  ./tests/test-manage-ux.sh
+0b20166e3c84f250e7ae2437f0d45df56f9d0489513efb50e58115bf20fcd86f  ./tests/test-manage-ux.sh
 799f04ff73e1a2647fa8566310f518a148addec919678de84d1511777181d10c  ./tests/test-ssh-profiles.sh
 a962c10c4a45cc4ae524ba41213db22129b737dd13a83164879a90fc5e12e4e0  ./tests/test-stack-ops.sh
 3aa99a5bdf4bb71afc2a568eb544698fe41486f8886c3f9845434d39632c21bf  ./tests/test-verify-n8n.mjs
