@@ -5,6 +5,14 @@ for reading stack status, editing the validated configuration files, tailing
 service logs, and running a fixed whitelist of stack actions. It is an optional
 Compose profile (`panel`) and nothing else in the stack depends on it.
 
+Screens from a running console (demonstration data) are published with the
+README: `docs-site/assets/content-console-overview-v0.3.0.png`,
+`content-console-pipeline-state-v0.3.0.png`,
+`content-console-storage-v0.3.0.png`, `content-console-backups-v0.3.0.png`, and
+`content-console-actions-v0.3.0.png` in the same directory. They are captured
+from the panel Docker image against a seeded demo stack directory, so nothing
+in them comes from a real deployment.
+
 ## Why a separate container
 
 The panel ships as its own service (`content-panel`) instead of living inside

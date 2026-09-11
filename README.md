@@ -17,6 +17,28 @@ English-only.
 Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.3.0   Media Studio: 0.3.0   Panel: 0.3.0
 ```
 
+## Screenshots
+
+Every screenshot below comes from the optional operator console
+(`./manage.sh panel-enable`, documented in `docs/PANEL.md`) running against a
+stack: the same views the operator uses to watch the pipeline, decide on drafts,
+check object storage, and take backups. The captures use demonstration data.
+
+| Stack status | Pipeline state |
+| --- | --- |
+| [![Operator console: stack status](docs-site/assets/content-console-overview-v0.3.0.png)](docs-site/assets/content-console-overview-v0.3.0.png) | [![Operator console: pipeline state](docs-site/assets/content-console-pipeline-state-v0.3.0.png)](docs-site/assets/content-console-pipeline-state-v0.3.0.png) |
+| Containers, image tags, published ports, disk usage, Instagram credentials, and Media Studio jobs. | The live draft queue with the same decisions as Telegram, plus the scheduled routines. |
+
+| Object storage | Backups |
+| --- | --- |
+| [![Operator console: object storage](docs-site/assets/content-console-storage-v0.3.0.png)](docs-site/assets/content-console-storage-v0.3.0.png) | [![Operator console: backups](docs-site/assets/content-console-backups-v0.3.0.png)](docs-site/assets/content-console-backups-v0.3.0.png) |
+| The shared S3 block, the per-service storage matrix, and the bundled RustFS state. | Full and section backups, each with size, stack version, and what it contains. |
+
+| Stack actions |
+| --- |
+| [![Operator console: stack actions](docs-site/assets/content-console-actions-v0.3.0.png)](docs-site/assets/content-console-actions-v0.3.0.png) |
+| The fixed action whitelist: compose and `manage.sh` operations, nothing else. Every unconfirmed run is a single button; `Apply changes` and the two backup actions ask first. |
+
 ## What it does
 
 - **On-demand drafts** - send any `http(s)` link to the Content Bot. It fetches
