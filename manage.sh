@@ -1693,6 +1693,8 @@ panel_enable() {
   panel_add_profile
   panel_token >/dev/null
   install -d -m 0700 "$PANEL_DIR/backups"
+  # The panel mounts the backup directory to list and create archives.
+  [[ -d "$ROOT_DIR-backups" ]] || install -d -m 0700 "$ROOT_DIR-backups"
   compose up -d panel
   printf '\nOperator panel: %s\n' "$(panel_url)"
   printf 'Sign in with the token printed by ./manage.sh panel-token\n'
@@ -1794,7 +1796,10 @@ s3_bind_port() {
 # resolves from the host, so the operator-facing checks need this value.
 s3_host_endpoint() {
   local override endpoint bind port
-  override="$(env_value "$ENV_FILE" S3_HOST_ENDPOINT_URL)"
+  # The caller's environment wins so a tool that runs inside the stack network
+  # (for example the operator panel) can point the check at the in-network
+  # endpoint without editing .env.
+  override="${S3_HOST_ENDPOINT_URL:-$(env_value "$ENV_FILE" S3_HOST_ENDPOINT_URL)}"
   if [[ -n "$override" ]]; then
     printf '%s' "${override%/}"
     return 0

@@ -6,6 +6,8 @@ const VIEWS = [
   { id: "state", label: "Pipeline state", title: "Pipeline state", hint: "Draft counters, scheduled routines and the most recent drafts." },
   { id: "config", label: "Configuration", title: "Configuration files", hint: "Validated YAML/JSON editors with automatic backups before every save." },
   { id: "env", label: "Environment", title: "Environment (.env)", hint: "Secret values stay masked; edited keys apply after Apply changes." },
+  { id: "storage", label: "Storage", title: "Object storage (S3)", hint: "Shared S3 block, RustFS state and the per-service storage matrix." },
+  { id: "backups", label: "Backups", title: "Backups", hint: "Stack archives with their sections, sizes and creation times." },
   { id: "logs", label: "Logs", title: "Service logs", hint: "Tail docker compose logs without leaving the console." },
   { id: "actions", label: "Actions", title: "Stack actions", hint: "A fixed whitelist of compose and manage.sh actions. Nothing else runs." },
 ];
@@ -155,6 +157,8 @@ async function loadView() {
     else if (currentView === "state") await renderState();
     else if (currentView === "config") await renderConfig();
     else if (currentView === "env") await renderEnv();
+    else if (currentView === "storage") await renderStorage();
+    else if (currentView === "backups") await renderBackups();
     else if (currentView === "logs") await renderLogs();
     else if (currentView === "actions") await renderActions();
   } catch (error) {
@@ -683,6 +687,170 @@ async function renderActions() {
       : h("div", { class: "banner", text: "Actions are disabled (PANEL_ACTIONS_ENABLED=false). Read-only views stay available." }),
     h("div", { style: "margin-top:12px" }, card("Output", output)),
   );
+}
+
+async function runActionInto(output, name, label, confirmFirst, params) {
+  if (confirmFirst && !confirm(`${label}: continue?`)) return;
+  output.classList.remove("hidden");
+  output.textContent = `Running ${label}...`;
+  try {
+    const result = await api(`/api/actions/${encodeURIComponent(name)}`, { method: "POST", body: params || {} });
+    output.textContent = [
+      `${result.label}: ${result.ok ? "ok" : "failed"} (exit ${result.returncode}, ${result.duration_seconds}s)`,
+      result.output || "",
+    ].join("\n\n");
+    notify(`${result.label}: ${result.ok ? "ok" : "failed"}`, result.ok ? "" : "error");
+  } catch (error) {
+    output.textContent = String(error.message);
+    notify(String(error.message), "error");
+  }
+  return output;
+}
+
+async function renderStorage() {
+  const storage = await api("/api/storage");
+  const output = h("pre", { class: "hidden" });
+  if ((storage.warnings || []).length) showBanner(storage.warnings.join(" "), "warn");
+
+  const rustfs = storage.rustfs;
+  const rustfsState = rustfs && rustfs.service
+    ? `${rustfs.service.state || "unknown"}${rustfs.service.health ? ` (${rustfs.service.health})` : ""}`
+    : "not running";
+
+  page.replaceChildren(
+    h("div", { class: "grid cols-4" },
+      metric("Backend", storage.backend, "S3_STORAGE_BACKEND"),
+      metric("Bucket", storage.bucket || "none", storage.region || "no region"),
+      metric("Stack endpoint", storage.endpoint || "not set", "how containers reach the bucket"),
+      metric("Public origin", storage.public_base_url || "-", "S3_PUBLIC_BASE_URL"),
+    ),
+    h("div", { class: "grid cols-2", style: "margin-top:12px" },
+      card("Configuration",
+        table(["Key", "Value"], [
+          ["Host endpoint", storage.host_endpoint || "-"],
+          ["Key prefix", storage.key_prefix || "-"],
+          ["Path-style addressing", storage.force_path_style ? "true" : "false"],
+          ["Console origin", storage.public_console_url || "-"],
+          ["Open WebUI storage", storage.openwebui_storage_provider],
+        ]),
+        h("div", { class: "muted small", style: "margin-top:10px", text: `Guide: ${storage.guide}` }),
+      ),
+      card("Bundled RustFS",
+        rustfs
+          ? h("div", { class: "grid" },
+              h("div", { class: "row" },
+                h("span", { class: "chip " + (rustfs.service && String(rustfs.service.state).toLowerCase() === "running" ? "ok" : "warn"), text: rustfsState }),
+                h("span", { class: "chip", text: `API ${rustfs.api_url}` }),
+              ),
+              h("div", { class: "muted small", text: `Console bind ${rustfs.console_bind}; keep it on loopback unless a proxy publishes it.` }),
+              h("div", { class: "row" },
+                h("a", { href: rustfs.console_url, target: "_blank", rel: "noreferrer", text: "Open the console" }),
+              ),
+            )
+          : h("div", { class: "muted", text: "RustFS is not part of this configuration; the stack points at an external provider or no object storage." }),
+        h("div", { class: "row actions", style: "margin-top:10px" },
+          h("button", { class: "btn primary", type: "button", text: "Run status", onclick: () => runActionInto(output, "s3-status", "Object storage status") }),
+          h("button", { class: "btn", type: "button", text: "Verify endpoint", onclick: () => runActionInto(output, "s3-verify", "Verify object storage") }),
+        ),
+      ),
+    ),
+    h("div", { style: "margin-top:12px" },
+      card("Consumers",
+        table(["Service", "Storage", "Notes"],
+          (storage.consumers || []).map((row) => [
+            h("strong", { text: row.service }),
+            h("span", { class: "chip " + (row.mode === "s3" ? "ok" : ""), text: row.mode }),
+            row.note,
+          ])),
+      ),
+    ),
+    h("div", { style: "margin-top:12px" }, card("Output", output)),
+  );
+}
+
+/* Archives record UTC timestamps; trimming the fraction keeps the card narrow. */
+function shortStamp(value) {
+  const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return match ? `${match[1]} ${match[2]} UTC` : String(value || "");
+}
+
+async function renderBackups() {
+  const payload = await api("/api/backups");
+  const output = h("pre", { class: "hidden" });
+  if (payload.error) showBanner(payload.error, "warn");
+  else if (!payload.exists) showBanner(`No backups yet: ${payload.directory} does not exist. Create one with the action below or ./manage.sh backup.`, "warn");
+  const entries = payload.entries || [];
+  const newest = entries[0];
+  const sections = payload.sections || [];
+  const chosen = new Set();
+
+  page.replaceChildren(
+    h("div", { class: "grid cols-3" },
+      metric("Archives", entries.length, payload.directory || "backup directory"),
+      metric("Newest", newest ? shortStamp(newest.created_at || newest.modified) : "none", newest ? (newest.full ? "full stack archive" : "partial archive") : "run a backup to create one"),
+      metric("Contents", newest ? (newest.full ? "full stack" : (newest.sections.join(", ") || "partial")) : "-", newest ? newest.size : ""),
+    ),
+    h("div", { style: "margin-top:12px" },
+      card("Archives",
+        table(["Created", "Name", "Contents", "Size", "Version"],
+          entries.map((row) => [
+            shortStamp(row.created_at || row.modified),
+            h("code", { text: row.name }),
+            (row.full ? "full stack" : (row.sections.join(", ") || "partial")) + (row.encrypted ? " (encrypted)" : ""),
+            row.size,
+            row.stack_version,
+          ])),
+        h("div", { class: "row actions", style: "margin-top:10px" },
+          h("button", { class: "btn danger", type: "button", text: "Create backup", onclick: runBackup }),
+          h("button", { class: "btn ghost", type: "button", text: "Reload list", onclick: () => loadView() }),
+        ),
+        h("div", { class: "muted small", style: "margin-top:10px" },
+          "The panel creates live backups without pausing containers (it runs inside the stack). " +
+          "Run ./manage.sh backup on the host for a paused snapshot, and treat the backup directory as sensitive: archives contain .env secrets."),
+      ),
+    ),
+    h("div", { style: "margin-top:12px" },
+      card("Partial backup",
+        h("div", { class: "muted small", text: sections.length
+          ? "Archive only the selected parts of the stack (manage.sh backup --only). A restore of a partial archive merges; it does not replace the rest of the stack."
+          : "The section list is unavailable: manage.sh backup-sections did not answer." }),
+        sections.length
+          ? h("div", { class: "row", style: "margin-top:10px" },
+              sections.map((row) =>
+                h("button", {
+                  class: "chip selectable",
+                  type: "button",
+                  title: row.paths,
+                  text: row.name,
+                  onclick: (event) => {
+                    if (chosen.has(row.name)) chosen.delete(row.name);
+                    else chosen.add(row.name);
+                    event.currentTarget.classList.toggle("ok", chosen.has(row.name));
+                  },
+                })))
+          : null,
+        sections.length
+          ? h("div", { class: "row actions", style: "margin-top:10px" },
+              h("button", { class: "btn", type: "button", text: "Back up selected sections", onclick: runSectionBackup }))
+          : null),
+    ),
+    h("div", { style: "margin-top:12px" }, card("Output", output)),
+  );
+
+  async function runBackup() {
+    await runActionInto(output, "backup", "Create stack backup", true);
+    loadView();
+  }
+
+  async function runSectionBackup() {
+    const list = sections.filter((row) => chosen.has(row.name)).map((row) => row.name);
+    if (!list.length) {
+      notify("Select at least one section.", "error");
+      return;
+    }
+    await runActionInto(output, "backup-section", `Back up ${list.join(", ")}`, true, { sections: list.join(",") });
+    loadView();
+  }
 }
 
 /* ------------------------------------------------------------------ login */

@@ -86,6 +86,33 @@ platform; this section tracks the fork additions.
   `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` from the answer, re-runs that keep an
   existing bind address repeat the route reminder, and the final summary
   lists the DNS records to create for every selected hostname.
+- The operator panel gained **Object storage** and **Backups** views, so the
+  two features that only existed on the command line are now visible where the
+  rest of the stack is managed. Object storage reports the shared `S3_*` block,
+  the per-service consumer matrix, and the bundled RustFS state, with **Run
+  status** and **Verify endpoint** buttons for `s3-status` and `s3-verify`
+  (the verify runs against the in-network endpoint the containers use, not the
+  host loopback value). Backups lists the archives with their `.meta.json`
+  metadata - creation time, full or partial, section list, stack version - and
+  **Create backup** runs `manage.sh backup --label panel --no-pause` after a
+  confirmation, and a **Partial backup** picker whose section names come from
+  `./manage.sh backup-sections`, so `backup --only SECTION[,...]` is available
+  from the console as well (the action takes the section list as a validated
+  parameter, and the panel builds a command only for names the CLI publishes).
+  Because the panel runs as the operator uid and cannot read
+  every data directory, that action starts a throwaway container from the
+  panel image with the Docker socket, checkout, and backup directory mounted,
+  runs the same `manage.sh backup` inside it, and hands the `hermes-stack-*`
+  files back to the backup directory owner (stack-ops writes them as `0600`
+  because they carry `.env` secrets). `panel-enable` now also creates the
+  `<checkout>-backups` directory and mounts it, the panel image installs GNU
+  `tar` for the archive step, `manage.sh s3-verify` accepts an endpoint
+  override so a caller inside the stack network can test the in-network
+  endpoint, and `docs/PANEL.md` documents both views.
+- The panel's **Media jobs** card now dials the Compose service address
+  (`media-studio:<MEDIA_STUDIO_PORT>`) instead of the published host bind, which
+  a process inside the stack network cannot reach; `MEDIA_STUDIO_INTERNAL_URL`
+  overrides the derived address.
 
 ### Fork release — Content Manager v0.3.0 (2026-09-10)
 

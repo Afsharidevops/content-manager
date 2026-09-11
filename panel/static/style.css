@@ -127,6 +127,8 @@ textarea{min-height:420px;font-family:ui-monospace,SFMono-Regular,Menlo,monospac
   font-size:11px;color:var(--muted);background:rgba(12,20,36,.6)}
 .chip.ok{border-color:rgba(61,220,151,.42);color:var(--ok)}
 .chip.warn{border-color:rgba(240,182,74,.42);color:var(--warn)}
+.chip.selectable{cursor:pointer;transition:border-color .15s,color .15s}
+.chip.selectable:hover{border-color:var(--line-strong)}
 .banner{border:1px solid rgba(240,182,74,.32);background:rgba(240,182,74,.09);color:var(--warn);
   border-radius:12px;padding:11px 14px;margin-bottom:14px;font-size:13px}
 .banner.error{border-color:rgba(255,107,138,.34);background:rgba(255,107,138,.09);color:#ffb3c4}

@@ -134,6 +134,15 @@ else
   not_ok "s3-verify reports the endpoint it tried"
 fi
 
+# The caller's environment wins over the recorded host endpoint, so a tool
+# inside the stack network (the operator panel) can verify the in-network URL.
+override_out="$(S3_HOST_ENDPOINT_URL="http://panel-check.invalid:9000" manage s3-verify 2>&1 || true)"
+if grep -q 'Endpoint: http://panel-check.invalid:9000' <<<"$override_out"; then
+  ok "S3_HOST_ENDPOINT_URL from the environment overrides the recorded endpoint"
+else
+  not_ok "S3_HOST_ENDPOINT_URL from the environment overrides the recorded endpoint"
+fi
+
 guide_out="$(manage s3-guide)"
 if grep -q 'docs/S3-STORAGE.md' <<<"$guide_out" \
    && grep -q 'reverse_proxy' <<<"$guide_out"; then

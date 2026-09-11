@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_TIMEOUT = 30.0
@@ -41,12 +42,15 @@ class CommandRunner:
         if env:
             self.env.update(env)
 
-    def run(self, command, *, timeout: float = DEFAULT_TIMEOUT) -> CommandResult:
+    def run(self, command, *, timeout: float = DEFAULT_TIMEOUT, env: dict | None = None) -> CommandResult:
+        run_env = dict(self.env)
+        if env:
+            run_env.update({str(key): str(value) for key, value in env.items()})
         try:
             completed = subprocess.run(
                 [str(part) for part in command],
                 cwd=str(self.root),
-                env=self.env,
+                env=run_env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -100,6 +104,37 @@ def _human_size(value: int) -> str:
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TiB"
+
+
+def _parse_section_rows(output: str) -> list[dict]:
+    """Parse the table printed by ``./manage.sh backup-sections``."""
+    rows = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("./", "SECTION", "Examples:")) or ":" in stripped.split(" ")[0]:
+            continue
+        name, _, paths = stripped.partition(" ")
+        # Section names are lower-case and may carry a digit (n8n, s3).
+        if not (name.isalnum() and name.islower() and not name[0].isdigit()):
+            continue
+        if any(row["name"] == name for row in rows):
+            continue
+        rows.append({"name": name, "paths": paths.strip()})
+    return rows
+
+
+def backup_sections(runner: "CommandRunner", root: Path) -> list[dict]:
+    """Section names and paths accepted by ``manage.sh backup --only``.
+
+    ``scripts/stack-ops.sh`` owns the section table and prints it without
+    touching the running stack, so the panel reads it instead of keeping a
+    second copy that could drift.
+    """
+    try:
+        result = runner.run([str(Path(root) / "manage.sh"), "backup-sections"], timeout=60.0)
+    except (CommandError, OSError):
+        return []
+    return _parse_section_rows(result.output)
 
 
 class StackView:
@@ -283,6 +318,169 @@ class StackView:
                     "be reachable too."
                 )
         return {"rows": rows, "warnings": warnings}
+
+    # -------------------------------------------------------------- storage
+
+    def _service_state(self, name: str) -> dict | None:
+        """Compose state for one service, or None when it is not defined."""
+        try:
+            services = self.services()
+        except (CommandError, ValueError):
+            return None
+        for service in services:
+            if service.get("service") == name or service.get("name") == name:
+                return {
+                    "state": str(service.get("state") or ""),
+                    "status": str(service.get("status") or ""),
+                    "health": str(service.get("health") or ""),
+                }
+        return None
+
+    def _rustfs_view(self, env: dict) -> dict:
+        host = env.get("RUSTFS_BIND_IP") or "127.0.0.1"
+        port = env.get("RUSTFS_PORT") or "9000"
+        console_host = env.get("RUSTFS_CONSOLE_BIND_IP") or "127.0.0.1"
+        console_port = env.get("RUSTFS_CONSOLE_PORT") or "9001"
+        return {
+            "api_url": f"http://{host}:{port}",
+            "console_url": f"http://{console_host}:{console_port}/rustfs/console/",
+            "bind": host,
+            "console_bind": console_host,
+            "service": self._service_state("rustfs"),
+        }
+
+    def storage(self) -> dict:
+        """Shared S3 configuration, consumers, and the bundled RustFS state."""
+        env = self._env_map()
+        backend = (env.get("S3_STORAGE_BACKEND") or "off").strip().lower()
+        if backend not in {"rustfs", "external"}:
+            backend = "off"
+        webui_mode = (env.get("OPENWEBUI_STORAGE_PROVIDER") or "local").strip().lower()
+        warnings = []
+        if webui_mode == "s3" and backend == "off":
+            warnings.append(
+                "Open WebUI is set to store files in the bucket, but the shared "
+                "object storage is off. Run ./manage.sh s3-enable (or fix "
+                "OPENWEBUI_STORAGE_PROVIDER) before uploading anything."
+            )
+        if backend == "external" and not env.get("S3_ENDPOINT_URL"):
+            warnings.append(
+                "The external backend is selected without S3_ENDPOINT_URL; "
+                "services cannot reach the provider until it is set."
+            )
+        consumers = [
+            {
+                "service": "open-webui",
+                "mode": "s3" if webui_mode == "s3" else "local",
+                "note": (
+                    "Uploads and generated files go to the bucket."
+                    if webui_mode == "s3"
+                    else "Local volumes; set OPENWEBUI_STORAGE_PROVIDER=s3 to use the bucket."
+                ),
+            },
+            {
+                "service": "content-bot",
+                "mode": "local",
+                "note": "Drafts, media, and Instagram state stay in data/content-bot.",
+            },
+            {
+                "service": "media-studio",
+                "mode": "local",
+                "note": "Jobs and generated media stay in data/media-studio.",
+            },
+            {
+                "service": "n8n",
+                "mode": "local",
+                "note": "External binary storage requires n8n Enterprise.",
+            },
+            {
+                "service": "hermes-agent",
+                "mode": "none",
+                "note": "No object-storage integration.",
+            },
+        ]
+        rustfs = self._rustfs_view(env) if backend == "rustfs" or env.get("RUSTFS_BIND_IP") else None
+        return {
+            "backend": backend,
+            "endpoint": env.get("S3_ENDPOINT_URL", ""),
+            "host_endpoint": env.get("S3_HOST_ENDPOINT_URL", ""),
+            "bucket": env.get("S3_BUCKET", ""),
+            "region": env.get("S3_REGION", ""),
+            "key_prefix": env.get("S3_KEY_PREFIX", ""),
+            "force_path_style": (env.get("S3_FORCE_PATH_STYLE", "") or "").lower() == "true",
+            "public_base_url": env.get("S3_PUBLIC_BASE_URL", ""),
+            "public_console_url": env.get("S3_PUBLIC_CONSOLE_URL", ""),
+            "openwebui_storage_provider": webui_mode,
+            "rustfs": rustfs,
+            "consumers": consumers,
+            "warnings": warnings,
+            "guide": "docs/S3-STORAGE.md",
+        }
+
+    def backups(self) -> dict:
+        """Backup archives in the stack backup directory.
+
+        Listing happens here instead of shelling out to ``manage.sh
+        backup-list``: the panel image is BusyBox-based and that command needs
+        GNU ``find -printf``. Archives are never opened, only stat-ed, and the
+        ``.meta.json`` sidecar supplies the section list.
+        """
+        directory = Path(
+            self._env_map().get("CONTENT_MANAGER_BACKUP_DIR")
+            or (self.root.parent / f"{self.root.name}-backups")
+        )
+        payload = {
+            "ok": True,
+            "error": "",
+            "directory": str(directory),
+            "exists": directory.is_dir(),
+            "entries": [],
+        }
+        if not payload["exists"]:
+            return payload
+        try:
+            candidates = list(directory.glob("hermes-stack-*.tar.gz")) + list(
+                directory.glob("hermes-stack-*.tar.gz.age")
+            )
+        except OSError as error:
+            payload.update(ok=False, error=str(error))
+            return payload
+        entries = []
+        for path in candidates:
+            try:
+                info = path.stat()
+            except OSError:
+                continue
+            entry = {
+                "name": path.name,
+                "path": str(path),
+                "size": _human_size(info.st_size),
+                "size_bytes": int(info.st_size),
+                "modified": datetime.fromtimestamp(
+                    info.st_mtime, timezone.utc
+                ).isoformat(timespec="seconds"),
+                "created_at": "",
+                "full": True,
+                "sections": [],
+                "stack_version": "",
+                "encrypted": path.name.endswith(".age"),
+            }
+            try:
+                meta = json.loads(Path(f"{path}.meta.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                meta = {}
+            if isinstance(meta, dict):
+                entry["created_at"] = str(meta.get("created_at") or "")
+                entry["full"] = bool(meta.get("full", True))
+                entry["sections"] = [str(value) for value in (meta.get("sections") or [])]
+                entry["stack_version"] = str(meta.get("stack_version") or "")
+            entries.append(entry)
+        entries.sort(key=lambda row: (row["modified"], row["name"]), reverse=True)
+        payload["entries"] = entries
+        # The Backups view offers a partial backup, so it needs the section
+        # names the CLI accepts.
+        payload["sections"] = backup_sections(self.runner, self.root)
+        return payload
 
     def snapshot(self) -> dict:
         """One payload with everything the overview page needs."""

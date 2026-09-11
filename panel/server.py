@@ -257,16 +257,32 @@ class PanelApp:
                 "note": "Job API description (JSON).",
             }
         )
+        rustfs_bind = self.env_value("RUSTFS_BIND_IP")
+        if rustfs_bind:
+            rustfs_host = "127.0.0.1" if rustfs_bind in {"0.0.0.0", "::"} else rustfs_bind
+            rustfs_console_port = self.env_value("RUSTFS_CONSOLE_PORT", "9001")
+            rows.append(
+                {
+                    "label": "RustFS console",
+                    "url": f"http://{rustfs_host}:{rustfs_console_port}/rustfs/console/",
+                    "note": "Object-storage console; the S3 API listens on port 9000.",
+                }
+            )
         return rows
 
     def media_jobs(self) -> dict:
-        host = self.env_value("MEDIA_STUDIO_BIND_IP", "127.0.0.1")
+        # The panel shares the stack network, so the request has to use the
+        # service name and the container port: the published host bind in
+        # MEDIA_STUDIO_BIND_IP is what the operator's browser reaches, not what
+        # this process can dial. MEDIA_STUDIO_INTERNAL_URL overrides the guess
+        # for deployments where the service is named or addressed differently.
         port = self.env_value("MEDIA_STUDIO_PORT", "8850")
-        if host in {"0.0.0.0", "::"}:
-            host = "127.0.0.1"
+        base = (
+            self.env_value("MEDIA_STUDIO_INTERNAL_URL") or f"http://media-studio:{port}"
+        ).rstrip("/")
         token = self.env_value("MEDIA_STUDIO_API_TOKEN", "")
         request = urllib.request.Request(
-            f"http://{host}:{port}/jobs",
+            f"{base}/jobs",
             headers={"Authorization": f"Bearer {token}"} if token else {},
         )
         try:
@@ -440,6 +456,12 @@ class PanelHandler(BaseHTTPRequestHandler):
         if method == "GET" and parts == ["media", "jobs"]:
             self._send_json(HTTPStatus.OK, self.app.media_jobs())
             return
+        if method == "GET" and parts == ["storage"]:
+            self._send_json(HTTPStatus.OK, self.app.stack.storage())
+            return
+        if method == "GET" and parts == ["backups"]:
+            self._send_json(HTTPStatus.OK, self.app.stack.backups())
+            return
         if method == "GET" and parts == ["actions"]:
             self._send_json(
                 HTTPStatus.OK,
@@ -523,8 +545,8 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
         if len(parts) == 2 and parts[0] == "actions" and method == "POST":
             self._require_csrf()
-            self._read_body()
-            self._send_json(HTTPStatus.OK, self.app.actions.run(parts[1]))
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.actions.run_with(parts[1], body))
             return
         self._error(HTTPStatus.NOT_FOUND, "unknown endpoint")
 

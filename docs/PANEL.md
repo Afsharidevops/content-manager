@@ -69,11 +69,54 @@ docker compose --profile panel up -d panel
   rewrites that line only and asks for **Apply changes** afterwards.
 - **Logs** - `docker compose logs` tails per service with an optional
   auto-refresh.
+- **Object storage** - the shared S3 block every consumer reads:
+  `S3_STORAGE_BACKEND`, the in-network and host endpoints, the bucket and key
+  prefix, path-style addressing, the public base URL, the Open WebUI storage
+  provider, and a per-service table showing which component stores where. The
+  bundled RustFS card reports the live container state and links its console
+  when `RUSTFS_BIND_IP` publishes one. **Run status** and **Verify endpoint**
+  run the same `manage.sh s3-status` / `s3-verify` checks the CLI offers, and
+  the view warns when Open WebUI points at storage that is not running or an
+  external backend has no endpoint.
+- **Backups** - the archives in the backup directory (`hermes-stack-*.tar.gz`,
+  plus `.age` when encryption is on) with creation time from the `.meta.json`
+  sidecar, size, stack version, and whether each archive is a full or partial
+  backup. **Create backup** runs `manage.sh backup --label panel --no-pause`
+  after a confirmation, and **Reload list** re-reads the directory. The panel
+  never opens an archive and never parses it beyond the sidecar metadata.
+  **Partial backup** lists the section names from `./manage.sh backup-sections`
+  as toggles: pick any combination and **Back up selected sections** runs
+  `manage.sh backup --only SECTION[,...] --label panel-section --no-pause`. The
+  section list comes from `scripts/stack-ops.sh` at request time, so it cannot
+  drift from the CLI, and a name the CLI would reject never reaches the command.
 - **Actions** - a fixed whitelist: apply changes, restart Content Bot / Media
   Studio / Smart Router, pull published images, `content-status`,
-  `media-status`, `router-status`, and `doctor`. Free-form commands are never
-  accepted; only `Apply changes` asks for confirmation. Set
+  `media-status`, `router-status`, `doctor`, `s3-status`, `s3-verify`, and
+  create backup / section backup. Free-form commands are never accepted; the
+  backup, section backup, and `Apply changes` entries ask for confirmation
+  first. Only the section names the CLI publishes are accepted as action
+  input, and the panel rejects anything else before a command is built. Set
   `PANEL_ACTIONS_ENABLED=false` in `.env` to keep the console read-only.
+
+### Backups created from the panel
+
+The panel runs as the operator uid, which cannot read every data directory
+(`data/smart-router` is root-owned, for example), so **Create backup** starts a
+throwaway container from the panel image instead: it mounts the Docker socket,
+the checkout, and the backup directory, runs the very same `manage.sh backup`,
+and exits. Two consequences are worth knowing:
+
+- The run is a live backup (`--no-pause`), because the other containers keep
+  serving while a container the panel did not start is running. Run
+  `./manage.sh backup` on the host when you want a paused, consistent snapshot;
+  every action of the host command is available there.
+- `scripts/stack-ops.sh` writes archives as `0600` - they contain `.env`
+  secrets - so the wrapper hands the `hermes-stack-*` files back to the owner of
+  the backup directory. Without that step the operator could read the listing
+  but not the archive, and the sidecar metadata could not be parsed.
+
+`./manage.sh restore` and `./manage.sh backup-list` work on those archives
+exactly like on host-created ones.
 
 ## Draft actions
 
@@ -152,7 +195,7 @@ Keep the token out of proxy logs; the console never puts it in a URL.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PANEL_IMAGE_REPOSITORY` | `afsharidevops/content-panel` | Image repository |
-| `PANEL_IMAGE_TAG` | `0.1.0` | Image tag; the Compose service also builds locally when the image is missing |
+| `PANEL_IMAGE_TAG` | `0.3.0` | Image tag; the Compose service also builds locally when the image is missing |
 | `PANEL_BIND_IP` | `127.0.0.1` | Host address the console binds to |
 | `PANEL_PORT` | `8899` | Host port |
 | `PANEL_ACTIONS_ENABLED` | `true` | `false` serves read-only views |
@@ -170,6 +213,11 @@ Keep the token out of proxy logs; the console never puts it in a URL.
 - `data/panel/` holds the token and the configuration backups; both survive
   `panel-disable` and image upgrades. `./manage.sh uninstall --purge` removes
   them with the rest of the runtime data.
+- `./manage.sh panel-enable` creates the backup directory next to the checkout
+  (`<checkout>-backups`, mode 0700) and mounts it at the identical host path, so
+  the Backups view and the wrapper container write to the same place the host
+  commands use. Set `CONTENT_MANAGER_BACKUP_DIR` in `.env` to move it; the panel
+  mounts and passes that directory too.
 - The image is published by `.github/workflows/publish-panel.yml`
   (`afsharidevops/content-panel:<version>`), and can always be built locally
   with `./manage.sh panel-build`.

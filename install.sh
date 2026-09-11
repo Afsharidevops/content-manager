@@ -2520,6 +2520,11 @@ fi
 # the repository tree and the panel stays on loopback until published.
 if [[ "$DRY_RUN" != true && "$install_panel" == true ]]; then
   install -d -m 0700 "$ROOT_DIR/data/panel" "$ROOT_DIR/data/panel/backups"
+  # The panel mounts the stack backup directory so its Backups view can list
+  # and create archives; create it as the stack owner before Docker does.
+  if [[ ! -d "$ROOT_DIR-backups" ]]; then
+    install -d -m 0700 -o "$execution_owner_uid" -g "$execution_owner_gid" "$ROOT_DIR-backups"
+  fi
   if [[ ! -s "$ROOT_DIR/data/panel/token" ]]; then
     ( umask 077; random_hex 32 > "$ROOT_DIR/data/panel/token" )
     info "Operator panel: generated data/panel/token (print it with ./manage.sh panel-token)"

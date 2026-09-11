@@ -6,12 +6,12 @@
 FROM python:3.13-alpine
 
 # docker-cli/docker-cli-compose let the panel drive the mounted Docker socket.
-# PyYAML is installed with pip so the wheel always matches the image's
-# Python version (the Alpine py3-yaml package can target a different one).
-# bash runs manage.sh, and curl/openssl are used by its status and secret
-# helpers. PyYAML is installed with pip so the wheel always matches the
-# image's Python version (the Alpine py3-yaml package can target another).
-RUN apk add --no-cache docker-cli docker-cli-compose bash curl openssl \
+# bash runs manage.sh, curl/openssl are used by its status and secret helpers,
+# and GNU tar (the BusyBox tar cannot mix two -C options) lets the Backups
+# action archive the stack exactly like the host command does. PyYAML is
+# installed with pip so the wheel always matches the image's Python version
+# (the Alpine py3-yaml package can target another).
+RUN apk add --no-cache docker-cli docker-cli-compose bash curl openssl tar \
  && pip install --no-cache-dir pyyaml
 
 WORKDIR /app

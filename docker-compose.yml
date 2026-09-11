@@ -795,6 +795,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - "${PANEL_STACK_PATH:-${PWD}}:${PANEL_STACK_PATH:-${PWD}}"
+      # Backups live next to the checkout (../<stack>-backups); mount the same
+      # path into the panel so its Backups view can list and create archives.
+      - "${PANEL_STACK_PATH:-${PWD}}-backups:${PANEL_STACK_PATH:-${PWD}}-backups"
       - ./data/panel:/run/panel
     group_add:
       - "${PANEL_DOCKER_GID:-984}"

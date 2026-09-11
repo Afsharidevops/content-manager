@@ -7,8 +7,10 @@ import stat
 import tempfile
 import threading
 import unittest
-from http.server import ThreadingHTTPServer
+import urllib.error
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 from panel import __version__
 from panel.actions import ActionError, ActionRunner
@@ -306,6 +308,111 @@ class StackExposureTest(unittest.TestCase):
         self.assertIn("RUSTFS_CONSOLE_BIND_IP", payload["warnings"][0])
 
 
+class StorageAndBackupViewTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+
+    def test_storage_reports_the_shared_block_and_consumers(self):
+        (self.root / ".env").write_text(
+            "S3_STORAGE_BACKEND=rustfs\n"
+            "S3_ENDPOINT_URL=http://rustfs:9000\n"
+            "S3_BUCKET=locallab\n"
+            "S3_REGION=us-east-1\n"
+            "S3_PUBLIC_BASE_URL=https://s3.stack.locallab.ir\n"
+            "S3_FORCE_PATH_STYLE=true\n"
+            "OPENWEBUI_STORAGE_PROVIDER=s3\n"
+            "RUSTFS_BIND_IP=192.168.4.11\n"
+            "RUSTFS_PORT=9000\n"
+            "RUSTFS_CONSOLE_BIND_IP=192.168.4.11\n",
+            encoding="utf-8",
+        )
+        payload = StackView(self.root).storage()
+        self.assertEqual(payload["backend"], "rustfs")
+        self.assertEqual(payload["endpoint"], "http://rustfs:9000")
+        self.assertEqual(payload["bucket"], "locallab")
+        self.assertTrue(payload["force_path_style"])
+        self.assertEqual(payload["public_base_url"], "https://s3.stack.locallab.ir")
+        self.assertEqual(payload["warnings"], [])
+        modes = {row["service"]: row["mode"] for row in payload["consumers"]}
+        self.assertEqual(modes["open-webui"], "s3")
+        self.assertEqual(modes["content-bot"], "local")
+        self.assertEqual(modes["n8n"], "local")
+        self.assertEqual(payload["rustfs"]["api_url"], "http://192.168.4.11:9000")
+        self.assertEqual(payload["rustfs"]["service"], None)
+
+    def test_storage_warns_when_openwebui_points_at_a_stopped_backend(self):
+        (self.root / ".env").write_text(
+            "S3_STORAGE_BACKEND=off\nOPENWEBUI_STORAGE_PROVIDER=s3\n", encoding="utf-8"
+        )
+        payload = StackView(self.root).storage()
+        self.assertEqual(payload["backend"], "off")
+        self.assertEqual(len(payload["warnings"]), 1)
+        self.assertIn("object storage is off", payload["warnings"][0])
+
+    def test_storage_warns_when_external_endpoint_is_missing(self):
+        (self.root / ".env").write_text("S3_STORAGE_BACKEND=external\n", encoding="utf-8")
+        payload = StackView(self.root).storage()
+        self.assertEqual(payload["backend"], "external")
+        self.assertIn("S3_ENDPOINT_URL", payload["warnings"][0])
+        self.assertIsNone(payload["rustfs"])
+
+    def test_backups_list_archives_with_metadata(self):
+        archive = self.root.parent / f"{self.root.name}-backups"
+        archive.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(archive, ignore_errors=True))
+        target = archive / "hermes-stack-20260911T120000Z-panel.tar.gz"
+        target.write_bytes(b"x" * 2048)
+        (archive / f"{target.name}.meta.json").write_text(
+            json.dumps(
+                {
+                    "created_at": "2026-09-11T12:00:00+00:00",
+                    "full": True,
+                    "sections": [],
+                    "stack_version": "v0.5.9",
+                }
+            ),
+            encoding="utf-8",
+        )
+        encrypted = archive / "hermes-stack-20260910T120000Z-panel.tar.gz.age"
+        encrypted.write_bytes(b"y" * 1024)
+
+        payload = StackView(self.root).backups()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["exists"])
+        self.assertEqual(payload["directory"], str(archive))
+        self.assertEqual(len(payload["entries"]), 2)
+        by_name = {entry["name"]: entry for entry in payload["entries"]}
+        entry = by_name[target.name]
+        self.assertEqual(entry["size_bytes"], 2048)
+        self.assertTrue(entry["full"])
+        self.assertFalse(entry["encrypted"])
+        self.assertEqual(entry["stack_version"], "v0.5.9")
+        self.assertEqual(entry["created_at"], "2026-09-11T12:00:00+00:00")
+        self.assertTrue(by_name[encrypted.name]["encrypted"])
+        self.assertEqual(by_name[encrypted.name]["sections"], [])
+        self.assertEqual(payload["entries"][0]["name"], target.name)
+
+    def test_backups_report_partial_sections_and_a_missing_directory(self):
+        archive = self.root.parent / f"{self.root.name}-backups"
+        archive.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(archive, ignore_errors=True))
+        target = archive / "hermes-stack-20260911T130000Z-env.tar.gz"
+        target.write_bytes(b"z")
+        (archive / f"{target.name}.meta.json").write_text(
+            json.dumps({"full": False, "sections": ["env", "panel"]}), encoding="utf-8"
+        )
+        payload = StackView(self.root).backups()
+        entry = payload["entries"][0]
+        self.assertFalse(entry["full"])
+        self.assertEqual(entry["sections"], ["env", "panel"])
+
+        empty = StackView(self.root.parent / "missing-checkout").backups()
+        self.assertTrue(empty["ok"])
+        self.assertFalse(empty["exists"])
+        self.assertEqual(empty["entries"], [])
+
+
 class ActionWhitelistTest(unittest.TestCase):
     def setUp(self):
         self.root = make_root()
@@ -319,7 +426,7 @@ class ActionWhitelistTest(unittest.TestCase):
 
     def test_only_stack_up_requires_confirmation(self):
         confirming = {row["name"] for row in ActionRunner(self.root).listing() if row["confirm"]}
-        self.assertEqual(confirming, {"stack-up"})
+        self.assertEqual(confirming, {"stack-up", "backup", "backup-section"})
 
     def test_compose_commands_use_the_stack_project(self):
         runner = ActionRunner(self.root)
@@ -330,6 +437,101 @@ class ActionWhitelistTest(unittest.TestCase):
         self.assertEqual(command[:2], ["docker", "compose"])
         self.assertIn(str(self.root / "docker-compose.yml"), command)
         self.assertEqual(command[-2:], ["restart", "content-bot"])
+
+    def test_s3_verify_uses_the_in_network_endpoint(self):
+        (self.root / ".env").write_text(
+            "S3_STORAGE_BACKEND=rustfs\n"
+            "S3_ENDPOINT_URL=http://rustfs:9000\n"
+            "S3_HOST_ENDPOINT_URL=http://127.0.0.1:9000\n",
+            encoding="utf-8",
+        )
+        runner = ActionRunner(self.root)
+        action = next(item for item in __import__("panel.actions", fromlist=["ACTIONS"]).ACTIONS if item.name == "s3-verify")
+        self.assertEqual(runner._env_overrides(action), {"S3_HOST_ENDPOINT_URL": "http://rustfs:9000"})
+        other = next(item for item in __import__("panel.actions", fromlist=["ACTIONS"]).ACTIONS if item.name == "s3-status")
+        self.assertEqual(runner._env_overrides(other), {})
+
+    def test_backup_runs_as_a_one_off_container_from_the_panel_image(self):
+        (self.root / ".env").write_text(
+            "PANEL_IMAGE_REPOSITORY=afsharidevops/content-panel\n"
+            "PANEL_IMAGE_TAG=0.3.0\n",
+            encoding="utf-8",
+        )
+        runner = ActionRunner(self.root)
+        action = next(item for item in __import__("panel.actions", fromlist=["ACTIONS"]).ACTIONS if item.name == "backup")
+        command = runner.command_for(action)
+        self.assertEqual(command[:2], ["docker", "run"])
+        self.assertIn("--rm", command)
+        self.assertIn("/var/run/docker.sock:/var/run/docker.sock", command)
+        self.assertIn(f"{self.root}:{self.root}", command)
+        backups = self.root.parent / f"{self.root.name}-backups"
+        self.assertIn(f"{backups}:{backups}", command)
+        self.assertEqual(command[command.index("--entrypoint") + 1], "bash")
+        wrapper = command[command.index("-c") + 1]
+        self.assertIn(str(self.root / "manage.sh"), wrapper)
+        self.assertIn(f'chown "$owner" "{backups}"/hermes-stack-*', wrapper)
+        self.assertNotIn("--label", wrapper)
+        self.assertEqual(command[command.index("-c") + 2], "panel-action")
+        self.assertEqual(command[-4:], ["backup", "--label", "panel", "--no-pause"])
+        self.assertEqual(command[-8], "afsharidevops/content-panel:0.3.0")
+        self.assertEqual(runner._env_overrides(action), {})
+
+    def test_backup_container_mounts_a_custom_backup_directory(self):
+        custom = Path(tempfile.mkdtemp(prefix="panel-backups-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(custom, ignore_errors=True))
+        (self.root / ".env").write_text(
+            f"CONTENT_MANAGER_BACKUP_DIR={custom}\n", encoding="utf-8"
+        )
+        runner = ActionRunner(self.root)
+        action = next(item for item in __import__("panel.actions", fromlist=["ACTIONS"]).ACTIONS if item.name == "backup")
+        command = runner.command_for(action)
+        self.assertIn(f"{custom}:{custom}", command)
+        self.assertIn(f"CONTENT_MANAGER_BACKUP_DIR={custom}", command)
+
+    def write_manage_stub(self, sections=("env", "content", "panel")):
+        table = "".join(
+            f"{name:<12} data/{name}\n" for name in sections
+        )
+        script = self.root / "manage.sh"
+        script.write_text(
+            "#!/bin/sh\n"
+            "printf 'SECTION      PATHS (relative to the stack root)\\n'\n"
+            f"printf '%s' \"{table}\"\n"
+            "printf '\\nExamples:\\n  ./manage.sh backup --only env --destination DIR\\n'\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+
+    def test_backup_section_fills_the_validated_section_list(self):
+        self.write_manage_stub(("env", "n8n", "s3", "panel"))
+        runner = ActionRunner(self.root)
+        action = next(item for item in __import__("panel.actions", fromlist=["ACTIONS"]).ACTIONS if item.name == "backup-section")
+        self.assertEqual(action.params, ("sections",))
+        command = runner.command_for(action, {"sections": " panel , env,env "})
+        self.assertEqual(
+            command[-6:],
+            ["backup", "--only", "panel,env", "--label", "panel-section", "--no-pause"],
+        )
+        self.assertEqual(command[command.index("-c") + 2], "panel-action")
+        listing = {row["name"]: row for row in runner.listing()}
+        self.assertEqual(listing["backup-section"]["params"], ["sections"])
+
+    def test_backup_section_rejects_unknown_or_missing_sections(self):
+        self.write_manage_stub(("env", "panel"))
+        runner = ActionRunner(self.root)
+        action = next(item for item in __import__("panel.actions", fromlist=["ACTIONS"]).ACTIONS if item.name == "backup-section")
+        with self.assertRaisesRegex(ActionError, "unknown backup section: router"):
+            runner.command_for(action, {"sections": "env,router"})
+        with self.assertRaisesRegex(ActionError, "select at least one"):
+            runner.command_for(action, {"sections": " , "})
+        with self.assertRaisesRegex(ActionError, "select at least one"):
+            runner.command_for(action, {})
+
+    def test_backup_section_reports_a_broken_section_list(self):
+        runner = ActionRunner(self.root)
+        action = next(item for item in __import__("panel.actions", fromlist=["ACTIONS"]).ACTIONS if item.name == "backup-section")
+        with self.assertRaisesRegex(ActionError, "could not read the section list"):
+            runner.command_for(action, {"sections": "env"})
 
     def test_unknown_action_and_disabled_actions_are_rejected(self):
         with self.assertRaisesRegex(ActionError, "unknown action"):
@@ -496,6 +698,79 @@ class PanelHttpTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("unknown action", body)
 
+    def test_backup_section_rejects_an_unknown_section_before_running(self):
+        (self.root / "manage.sh").write_text(
+            "#!/bin/sh\nprintf 'env          .env\\npanel        data/panel\\n'\n",
+            encoding="utf-8",
+        )
+        (self.root / "manage.sh").chmod(0o755)
+        self.login()
+        status, body = self.request(
+            "POST",
+            "/api/actions/backup-section",
+            {"sections": "env,secrets"},
+            headers={"X-Panel-Csrf": "1"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("unknown backup section: secrets", body)
+
+
+class PanelStorageApiTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        (self.root / ".env").write_text(
+            "S3_STORAGE_BACKEND=rustfs\nS3_BUCKET=locallab\nS3_ENDPOINT_URL=http://rustfs:9000\n",
+            encoding="utf-8",
+        )
+        self.app = PanelApp(self.root, "token-value")
+        PanelHandler.app = self.app
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), PanelHandler)
+        self.server.app = self.app
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.server.server_close)
+        self.port = self.server.server_address[1]
+        self.cookie = ""
+
+    def request(self, method, path, payload=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        body = json.dumps(payload) if payload is not None else None
+        headers = {"Content-Type": "application/json"} if body is not None else {}
+        if self.cookie:
+            headers["Cookie"] = self.cookie
+        connection.request(method, path, body=body, headers=headers)
+        response = connection.getresponse()
+        raw = response.read().decode("utf-8")
+        set_cookie = response.getheader("Set-Cookie") or ""
+        connection.close()
+        if set_cookie.startswith("panel_session="):
+            self.cookie = set_cookie.split(";", 1)[0]
+        return response.status, raw
+
+    def test_storage_and_backup_endpoints_need_authentication(self):
+        for path in ("/api/storage", "/api/backups"):
+            status, _ = self.request("GET", path)
+            self.assertEqual(status, 401)
+
+    def test_storage_endpoint_returns_the_shared_block(self):
+        self.request("POST", "/api/login", {"token": "token-value"})
+        status, body = self.request("GET", "/api/storage")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertEqual(payload["backend"], "rustfs")
+        self.assertEqual(payload["bucket"], "locallab")
+
+    def test_backups_endpoint_lists_the_backup_directory(self):
+        self.request("POST", "/api/login", {"token": "token-value"})
+        status, body = self.request("GET", "/api/backups")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["entries"], [])
+        self.assertFalse(payload["exists"])
+        self.assertIn(str(self.root.parent / f"{self.root.name}-backups"), payload["directory"])
+
 
 class PanelDraftApiTest(unittest.TestCase):
     def setUp(self):
@@ -638,13 +913,65 @@ class PanelDraftApiTest(unittest.TestCase):
         self.assertTrue((self.root / "data" / "content-bot" / "instagram-refresh.request").is_file())
 
 
+class MediaJobsViewTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+
+    def test_media_jobs_default_to_the_compose_service_address(self):
+        (self.root / ".env").write_text("MEDIA_STUDIO_PORT=8860\n", encoding="utf-8")
+        captured = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["url"] = request.full_url
+            raise urllib.error.URLError("offline")
+
+        with mock.patch("panel.server.urllib.request.urlopen", fake_urlopen):
+            result = PanelApp(self.root, "token-value").media_jobs()
+        self.assertFalse(result["ok"])
+        self.assertEqual(captured["url"], "http://media-studio:8860/jobs")
+
+    def test_media_jobs_use_the_configured_internal_url(self):
+        body = json.dumps({"jobs": [{"id": "job-1", "status": "done"}]}).encode("utf-8")
+        seen = {}
+
+        class JobsHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen["path"] = self.path
+                seen["auth"] = self.headers.get("Authorization")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), JobsHandler)
+        self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        (self.root / ".env").write_text(
+            "MEDIA_STUDIO_BIND_IP=192.168.4.11\n"
+            "MEDIA_STUDIO_PORT=8850\n"
+            "MEDIA_STUDIO_API_TOKEN=super-secret\n"
+            f"MEDIA_STUDIO_INTERNAL_URL=http://127.0.0.1:{server.server_address[1]}\n",
+            encoding="utf-8",
+        )
+        result = PanelApp(self.root, "token-value").media_jobs()
+        self.assertTrue(result["ok"], result.get("error"))
+        self.assertEqual(seen["path"], "/jobs")
+        self.assertEqual(seen["auth"], "Bearer super-secret")
+        self.assertEqual(result["jobs"][0]["id"], "job-1")
+
+
 class StaticAssetTest(unittest.TestCase):
     def test_console_assets_exist_and_are_wired(self):
         index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn("/static/app.js", index)
         self.assertIn("/static/style.css", index)
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram"):
+        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram", "/api/storage", "/api/backups"):
             self.assertIn(endpoint, script)
         self.assertIn("X-Panel-Csrf", script)
 
@@ -661,6 +988,7 @@ class ComposeWiringTest(unittest.TestCase):
     def test_panel_mounts_the_repository_at_its_host_path(self):
         self.assertIn("${PANEL_STACK_PATH:-${PWD}}:${PANEL_STACK_PATH:-${PWD}}", self.compose)
         self.assertIn("/var/run/docker.sock:/var/run/docker.sock", self.compose)
+        self.assertIn("${PANEL_STACK_PATH:-${PWD}}-backups:${PANEL_STACK_PATH:-${PWD}}-backups", self.compose)
 
     def test_manage_script_exposes_the_panel_commands(self):
         script = (REPO_ROOT / "manage.sh").read_text(encoding="utf-8")
