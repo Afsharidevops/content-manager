@@ -1,0 +1,107 @@
+{{- if .Values.upstreamServer.enabled }}
+{{- $name := include "hermes.component" (dict "root" . "name" "upstream") }}
+{{- $labels := include "hermes.componentLabels" (dict "root" . "name" "upstream") }}
+{{- $omni := eq .Values.upstreamServer.backend "omniroute" }}
+{{- $nine := .Values.upstreamServer.nineRouter }}
+{{- $omniRoute := .Values.upstreamServer.omniRoute }}
+{{- $image := ternary (printf "%s:%s" $omniRoute.image.repository $omniRoute.image.tag) (printf "%s:%s" $nine.image.repository $nine.image.tag) $omni }}
+{{- $pullPolicy := ternary $omniRoute.image.pullPolicy $nine.image.pullPolicy $omni }}
+{{- $existingSecret := ternary $omniRoute.existingSecret $nine.existingSecret $omni }}
+{{- $persistence := ternary $omniRoute.persistence $nine.persistence $omni }}
+{{- $resources := ternary $omniRoute.resources $nine.resources $omni }}
+{{- $port := ternary $omniRoute.dashboardPort $nine.port $omni }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/component: upstream
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - {name: http, port: {{ $port }}, targetPort: http}
+    {{- if $omni }}
+    - {name: api, port: {{ $omniRoute.apiPort }}, targetPort: api}
+    {{- end }}
+{{- if $persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: {{ $persistence.size }}}}
+  {{- with $persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: upstream
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      {{- include "hermes.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: upstream
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy }}
+          ports:
+            - {name: http, containerPort: {{ $port }}}
+            {{- if $omni }}
+            - {name: api, containerPort: {{ $omniRoute.apiPort }}}
+            {{- end }}
+          env:
+            - {name: DATA_DIR, value: /app/data}
+            - {name: PORT, value: {{ $port | quote }}}
+            - {name: HOSTNAME, value: "0.0.0.0"}
+            - {name: NODE_ENV, value: production}
+            - {name: BASE_URL, value: {{ printf "http://%s:%v" $name $port | quote }}}
+            {{- if $omni }}
+            - {name: DASHBOARD_PORT, value: {{ $omniRoute.dashboardPort | quote }}}
+            - {name: API_PORT, value: {{ $omniRoute.apiPort | quote }}}
+            - {name: API_HOST, value: "0.0.0.0"}
+            {{- end }}
+          {{- with $existingSecret }}
+          envFrom:
+            - secretRef: {name: {{ . }}}
+          {{- end }}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            {{- toYaml $resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /app/data}
+      volumes:
+        - name: data
+          {{- if $persistence.enabled }}
+          persistentVolumeClaim: {claimName: {{ $name }}}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

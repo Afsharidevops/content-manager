@@ -1,0 +1,158 @@
+{{- if .Values.components.mediaStudio.enabled }}
+{{- $media := .Values.components.mediaStudio }}
+{{- $name := include "hermes.component" (dict "root" . "name" "media-studio") }}
+{{- $labels := include "hermes.componentLabels" (dict "root" . "name" "media-studio") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: {{ $media.storage.size }}}}
+  {{- with $media.storage.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: media-studio
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      {{- include "hermes.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: media-studio
+          image: "{{ $media.image.repository }}:{{ $media.image.tag }}"
+          imagePullPolicy: {{ $media.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 8850}
+          env:
+            - {name: MEDIA_STUDIO_DATA_DIR, value: /data}
+            - {name: MEDIA_STUDIO_BIND_IP, value: "0.0.0.0"}
+            {{- range $key, $value := $media.env }}
+            - {name: {{ $key }}, value: {{ $value | quote }}}
+            {{- end }}
+          {{- with $media.existingSecret }}
+          envFrom:
+            - secretRef: {name: {{ . }}}
+          {{- end }}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+            runAsUser: 10005
+            runAsGroup: 10005
+          resources:
+            {{- toYaml $media.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: {{ $name }}}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  type: {{ $media.service.type }}
+  selector:
+    app.kubernetes.io/component: media-studio
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - {name: http, port: {{ $media.service.port }}, targetPort: http}
+{{- end }}
+{{- if .Values.components.mediaFiles.enabled }}
+{{- $files := .Values.components.mediaFiles }}
+{{- $name := include "hermes.component" (dict "root" . "name" "media-files") }}
+{{- $labels := include "hermes.componentLabels" (dict "root" . "name" "media-files") }}
+{{- $claim := $files.existingClaim | default (include "hermes.component" (dict "root" . "name" "content-bot")) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: media-files
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      {{- include "hermes.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: media-files
+          image: "{{ $files.image.repository }}:{{ $files.image.tag }}"
+          imagePullPolicy: {{ $files.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 80}
+          readinessProbe:
+            httpGet: {path: /media/, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsUser: 101
+            runAsGroup: 101
+          resources:
+            {{- toYaml $files.resources | nindent 12 }}
+          volumeMounts:
+            - {name: media, mountPath: /usr/share/nginx/html/media, subPath: media, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: media
+          persistentVolumeClaim: {claimName: {{ $claim }}}
+        - name: tmp
+          emptyDir: {sizeLimit: 32Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  type: {{ $files.service.type }}
+  selector:
+    app.kubernetes.io/component: media-files
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - {name: http, port: {{ $files.service.port }}, targetPort: http}
+{{- end }}

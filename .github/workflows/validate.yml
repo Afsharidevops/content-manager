@@ -13,7 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Check shell syntax
-        run: bash -n install.sh manage.sh
+        run: |
+          bash -n install.sh manage.sh
+          bash -n scripts/stack-ops.sh scripts/helm-publish.sh
+          bash -n tests/test-stack-ops.sh tests/test-helm-chart.sh
       - name: Check provisioning script syntax
         run: |
           node --check scripts/bootstrap-openwebui.mjs
@@ -35,8 +38,15 @@ jobs:
           node --test tests/test-verify-n8n.mjs
           node --test tests/test-flow-unlock-patch.mjs
           tests/test-manage-n8n.sh
+          tests/test-stack-ops.sh
           tests/test-flow-unlock-rules.sh
           tests/test-flow-unlock-package.sh
+      - name: Validate the Helm chart
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Lint and render the Helm chart
+        run: tests/test-helm-chart.sh
       - name: Test operator panel
         run: |
           python3 -m venv /tmp/panel-venv

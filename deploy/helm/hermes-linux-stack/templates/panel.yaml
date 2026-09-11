@@ -1,0 +1,97 @@
+{{- if .Values.components.panel.enabled }}
+{{- $panel := .Values.components.panel }}
+{{- $name := include "hermes.component" (dict "root" . "name" "panel") }}
+{{- $labels := include "hermes.componentLabels" (dict "root" . "name" "panel") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: {{ $panel.storage.size }}}}
+  {{- with $panel.storage.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: panel
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      {{- include "hermes.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: panel
+          image: "{{ $panel.image.repository }}:{{ $panel.image.tag }}"
+          imagePullPolicy: {{ $panel.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 8899}
+          env:
+            - {name: PANEL_BIND_IP, value: "0.0.0.0"}
+            - {name: PANEL_PORT, value: "8899"}
+            - {name: PANEL_TOKEN_FILE, value: /run/panel/token}
+            - {name: PANEL_ACTIONS_ENABLED, value: {{ $panel.dockerSocket.enabled | quote }}}
+            {{- range $key, $value := $panel.env }}
+            - {name: {{ $key }}, value: {{ $value | quote }}}
+            {{- end }}
+          {{- with $panel.existingSecret }}
+          envFrom:
+            - secretRef: {name: {{ . }}}
+          {{- end }}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            {{- toYaml $panel.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /run/panel}
+            - {name: tmp, mountPath: /tmp}
+            {{- if $panel.dockerSocket.enabled }}
+            - {name: docker-socket, mountPath: /var/run/docker.sock}
+            {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: {{ $name }}}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        {{- if $panel.dockerSocket.enabled }}
+        - name: docker-socket
+          hostPath: {path: {{ $panel.dockerSocket.path }}, type: Socket}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  type: {{ $panel.service.type }}
+  selector:
+    app.kubernetes.io/component: panel
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - {name: http, port: {{ $panel.service.port }}, targetPort: http}
+{{- end }}

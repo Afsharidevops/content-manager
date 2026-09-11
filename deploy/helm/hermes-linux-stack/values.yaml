@@ -1,3 +1,4 @@
+# Smart Router HA core (Deployment, Service, PDB, optional HPA).
 replicaCount: 2
 
 image:
@@ -5,13 +6,191 @@ image:
   tag: "0.5.9"
   pullPolicy: IfNotPresent
 
+imagePullSecrets: []
+
+# Override the generated names when the release name is not enough. The router
+# resource name stays "hermes-smart-router" unless nameOverride/fullnameOverride
+# are set; component names are always "<name>-<component>".
+nameOverride: ""
+fullnameOverride: ""
+
 service:
   type: ClusterIP
   port: 8080
 
 upstream:
-  baseUrl: http://nine-router:20128/v1
-  healthUrl: http://nine-router:20128/api/health
+  # Leave both empty to let the chart point the router at the optional
+  # in-cluster upstream (9router or OmniRoute). Set them explicitly for an
+  # external gateway.
+  baseUrl: ""
+  healthUrl: ""
+
+# Optional in-cluster model gateway. When enabled together with
+# upstreamServer.backend, the chart deploys 9router or OmniRoute and points the
+# Smart Router at it. Disable it and set upstream.baseUrl/healthUrl for an
+# external gateway.
+upstreamServer:
+  enabled: false
+  backend: 9router  # 9router | omniroute
+  nineRouter:
+    image:
+      repository: decolua/9router
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 20128
+    # The gateway needs JWT_SECRET, INITIAL_PASSWORD, API_KEY_SECRET, and
+    # MACHINE_ID_SALT (plus REQUIRE_API_KEY/AUTH_COOKIE_SECURE when used).
+    # Point existingSecret at a Secret whose keys are exactly those env names.
+    existingSecret: ""
+    persistence:
+      enabled: true
+      size: 2Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  omniRoute:
+    image:
+      repository: diegosouzapw/omniroute
+      tag: latest
+      pullPolicy: IfNotPresent
+    dashboardPort: 20128
+    apiPort: 20129
+    # OmniRoute also needs OMNIROUTE_API_KEY, STORAGE_ENCRYPTION_KEY,
+    # MACHINE_ID_SALT, and OMNIROUTE_WS_BRIDGE_SECRET.
+    existingSecret: ""
+    persistence:
+      enabled: true
+      size: 2Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+
+# Content Manager components. They are optional and disabled by default so the
+# chart keeps behaving as the router-only foundation unless the overlay enables
+# them. See examples/helm/content-stack-values.yaml and docs/HELM.md.
+components:
+  contentBot:
+    enabled: false
+    image:
+      repository: afsharidevops/content-bot
+      tag: "0.3.0"
+      pullPolicy: IfNotPresent
+    # Secret with the bot credentials (CONTENT_BOT_TOKEN, CONTENT_WRITER_API_KEY,
+    # CONTENT_MEDIA_STUDIO_TOKEN, INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_APP_SECRET,
+    # ...). Keys must be valid environment variable names.
+    existingSecret: ""
+    # ConfigMap holding editorial-policy.yaml, tools.json, and sources.yaml.
+    policyConfigMap: ""
+    storage:
+      size: 5Gi
+      storageClass: ""
+    env:
+      TZ: Asia/Tehran
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        cpu: "1"
+        memory: 768Mi
+  panel:
+    enabled: false
+    image:
+      repository: afsharidevops/content-panel
+      tag: "0.3.0"
+      pullPolicy: IfNotPresent
+    existingSecret: ""
+    storage:
+      size: 1Gi
+      storageClass: ""
+    service:
+      type: ClusterIP
+      port: 8899
+    # The panel drives `docker compose` on the host through the Docker socket.
+    # That is not available inside a cluster, so compose actions stay disabled
+    # unless dockerSocket.enabled is set on a single-node cluster.
+    dockerSocket:
+      enabled: false
+      path: /var/run/docker.sock
+    env:
+      TZ: Asia/Tehran
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+  mediaStudio:
+    enabled: false
+    image:
+      repository: afsharidevops/media-studio
+      tag: "0.3.0"
+      pullPolicy: IfNotPresent
+    existingSecret: ""
+    storage:
+      size: 10Gi
+      storageClass: ""
+    service:
+      type: ClusterIP
+      port: 8850
+    env:
+      TZ: Asia/Tehran
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+  # nginx serving the Content Bot media directory read-only. Required for
+  # Instagram publishing, which downloads every file from a public URL.
+  mediaFiles:
+    enabled: false
+    image:
+      repository: nginx
+      tag: alpine
+      pullPolicy: IfNotPresent
+    # Reuse the Content Bot media volume; only the "media" subPath is served.
+    existingClaim: ""
+    service:
+      type: ClusterIP
+      port: 80
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 250m
+        memory: 128Mi
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # TLS modes:
+  #   [] or false  -> no TLS at the ingress. Use this when an external reverse
+  #                   proxy (router, Caddy, ArvanCloud, ...) terminates HTTPS
+  #                   and forwards plain HTTP; add the controller annotations
+  #                   that disable its HTTPS redirect (see docs/HELM.md).
+  #   - hosts: [name.example.com]                  # controller default cert
+  #   - hosts: [name.example.com]
+  #     secretName: name-tls                       # TLS with your own cert
+  # Setting the value to false is valid and renders no "tls:" block.
+  tls: []
+  # Hosts list; each path references a chart component name:
+  # router | upstream | content-bot | panel | media-studio | media-files
+  hosts: []
 
 router:
   mode: observe

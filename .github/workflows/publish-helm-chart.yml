@@ -1,0 +1,46 @@
+name: Publish Helm Chart
+
+on:
+  push:
+    tags:
+      - 'content-manager-v*'
+      - 'hermes-linux-stack-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: helm-chart-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Lint and render the chart
+        run: |
+          helm lint deploy/helm/hermes-linux-stack
+          helm lint deploy/helm/hermes-linux-stack -f examples/helm/content-stack-values.yaml
+          helm template content-manager deploy/helm/hermes-linux-stack \
+            -f examples/helm/content-stack-values.yaml --namespace content-manager >/dev/null
+          tests/test-helm-chart.sh
+      - name: Push the chart to GHCR
+        env:
+          REGISTRY: oci://ghcr.io/${{ github.repository_owner }}/charts
+        run: |
+          helm registry login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password "${{ secrets.GITHUB_TOKEN }}"
+          helm package deploy/helm/hermes-linux-stack --destination dist
+          helm push dist/hermes-linux-stack-*.tgz "$REGISTRY"
+      - name: Upload the packaged chart
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: dist/*.tgz

@@ -1,0 +1,63 @@
+# Content Manager overlay for the hermes-linux-stack chart.
+#
+#   helm install content-manager ./deploy/helm/hermes-linux-stack \
+#     --namespace content-manager --create-namespace \
+#     -f examples/helm/content-stack-values.yaml
+#
+# Every referenced Secret must exist in the release namespace; see docs/HELM.md
+# for the key names and the kubectl commands that create them.
+
+upstreamServer:
+  enabled: true
+  backend: 9router
+  nineRouter:
+    existingSecret: nine-router-secrets
+
+components:
+  contentBot:
+    enabled: true
+    existingSecret: content-bot-secrets
+    # Create it with:
+    #   kubectl create configmap content-policy \
+    #     --from-file=content/config/editorial-policy.yaml \
+    #     --from-file=content/config/tools.json \
+    #     --from-file=content/config/sources.yaml
+    policyConfigMap: content-policy
+    env:
+      TZ: Asia/Tehran
+      CONTENT_WRITER_BASE_URL: http://hermes-smart-router:8080/v1
+      CONTENT_MEDIA_STUDIO_URL: http://hermes-smart-router-media-studio:8850
+  mediaStudio:
+    enabled: true
+    existingSecret: media-studio-secrets
+    env:
+      TZ: Asia/Tehran
+      MEDIA_STUDIO_WRITER_BASE_URL: http://hermes-smart-router:8080/v1
+  panel:
+    enabled: true
+    existingSecret: content-panel-secrets
+    env:
+      TZ: Asia/Tehran
+      PANEL_COOKIE_SECURE: "true"
+  mediaFiles:
+    enabled: true
+
+ingress:
+  enabled: true
+  className: nginx
+  # TLS is terminated by the ingress controller in this example. When an
+  # external reverse proxy terminates TLS instead, delete this block (or set
+  # `tls: false`) and add the annotations that disable the controller HTTPS
+  # redirect; docs/HELM.md has the nginx and Traefik snippets.
+  tls:
+    - hosts: [panel.example.com]
+      secretName: panel-tls
+    - hosts: [media.example.com]
+      secretName: media-tls
+  hosts:
+    - host: panel.example.com
+      paths:
+        - {path: /, service: panel, port: 8899}
+    - host: media.example.com
+      paths:
+        - {path: /media, service: media-files, port: 80}

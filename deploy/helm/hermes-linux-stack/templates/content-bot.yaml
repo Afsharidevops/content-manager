@@ -1,0 +1,77 @@
+{{- if .Values.components.contentBot.enabled }}
+{{- $bot := .Values.components.contentBot }}
+{{- $name := include "hermes.component" (dict "root" . "name" "content-bot") }}
+{{- $labels := include "hermes.componentLabels" (dict "root" . "name" "content-bot") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: {{ $bot.storage.size }}}}
+  {{- with $bot.storage.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: content-bot
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      {{- include "hermes.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: content-bot
+          image: "{{ $bot.image.repository }}:{{ $bot.image.tag }}"
+          imagePullPolicy: {{ $bot.image.pullPolicy }}
+          env:
+            - {name: CONTENT_DATA_DIR, value: /data}
+            - {name: CONTENT_POLICY_DIR, value: /policy}
+            {{- range $key, $value := $bot.env }}
+            - {name: {{ $key }}, value: {{ $value | quote }}}
+            {{- end }}
+          {{- with $bot.existingSecret }}
+          envFrom:
+            - secretRef: {name: {{ . }}}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+            runAsUser: 10004
+            runAsGroup: 10004
+          resources:
+            {{- toYaml $bot.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            {{- with $bot.policyConfigMap }}
+            - {name: policy, mountPath: /policy, readOnly: true}
+            {{- end }}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: {{ $name }}}
+        {{- with $bot.policyConfigMap }}
+        - name: policy
+          configMap: {name: {{ . }}}
+        {{- end }}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+{{- end }}

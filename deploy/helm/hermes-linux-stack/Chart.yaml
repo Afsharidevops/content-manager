@@ -1,6 +1,25 @@
 apiVersion: v2
 name: hermes-linux-stack
-version: 0.5.9
+version: 0.6.0
 appVersion: "0.5.9"
-description: Hermes Smart Router v0.5.9 HA foundation chart (router + PostgreSQL + Redis)
+description: Content Manager on the Hermes Linux Stack v0.5.9 platform - Smart Router HA core with PostgreSQL and Redis, an optional in-cluster 9router or OmniRoute gateway, and optional Content Manager components
 type: application
+keywords:
+  - hermes
+  - smart-router
+  - content-manager
+  - telegram
+  - instagram
+home: https://github.com/Afsharidevops/content-manager
+sources:
+  - https://github.com/Afsharidevops/content-manager
+maintainers:
+  - name: Afshari
+    url: https://github.com/Afsharidevops
+annotations:
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/changes: |
+    - Optional in-cluster 9router/OmniRoute upstream
+    - Optional Content Bot, panel, Media Studio, and media file server
+    - Generic ingress template for the whole stack
+    - Fixed the router PostgreSQL and Redis URLs so the chart renders

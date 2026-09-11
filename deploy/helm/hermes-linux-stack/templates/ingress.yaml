@@ -1,0 +1,49 @@
+{{- if .Values.ingress.enabled }}
+{{- $root := . }}
+{{- $services := dict
+      "router" (include "hermes.name" .)
+      "upstream" (include "hermes.component" (dict "root" . "name" "upstream"))
+      "content-bot" (include "hermes.component" (dict "root" . "name" "content-bot"))
+      "panel" (include "hermes.component" (dict "root" . "name" "panel"))
+      "media-studio" (include "hermes.component" (dict "root" . "name" "media-studio"))
+      "media-files" (include "hermes.component" (dict "root" . "name" "media-files"))
+}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hermes.name" . }}
+  labels:
+    {{- include "hermes.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- /* An empty list or `false` means an external reverse proxy terminates TLS. */}}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          {{- $service := index $services .service }}
+          {{- if not $service }}
+          {{- fail (printf "ingress path references unknown component %q" .service) }}
+          {{- end }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ $service }}
+                port:
+                  number: {{ .port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

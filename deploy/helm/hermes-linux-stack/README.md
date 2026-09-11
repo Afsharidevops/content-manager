@@ -1,11 +1,49 @@
-# Hermes Linux Stack Helm — v0.5.9 foundation
+# Content Manager Helm chart
 
-This chart deploys the **Smart Router HA core** with PostgreSQL and Redis, two router replicas, probes, a PDB, security contexts, topology spread, and a baseline NetworkPolicy. It deliberately does **not** claim the full v0.5.9 Helm release gate yet: Hermes, 9router/OmniRoute, Open WebUI, n8n, execution brokers, ingress/TLS and production External Secrets still require full-stack templates and cluster validation.
+Deploys the Content Manager stack on the Hermes Linux Stack v0.5.9 platform:
 
-Create a Kubernetes Secret named `hermes-smart-router-secrets` with keys `hmac-secret`, `admin-api-key`, `client-api-key`, `bootstrap-admin-password`, `postgres-password`, and `redis-password`, then install:
+- **Smart Router HA core** — `replicaCount` router replicas with probes, a
+  PodDisruptionBudget, a NetworkPolicy, an optional HPA, and in-cluster
+  PostgreSQL and Redis for sticky routing.
+- **Optional in-cluster upstream** — 9router or OmniRoute, with a PVC for its
+  accounts and configuration.
+- **Optional Content Manager components** — Content Bot, operator panel,
+  Media Studio, and an nginx file server for the Instagram media directory.
+- **Optional ingress** for the panel and the public media hostname.
+
+Components are disabled by default, so a plain `helm install` behaves like the
+router-only foundation chart. `examples/helm/content-stack-values.yaml` enables
+the whole stack as an overlay.
+
+## Quick start
 
 ```bash
-helm install hermes ./deploy/helm/hermes-linux-stack --namespace hermes --create-namespace
+# 1. Router secrets (keys are fixed)
+kubectl create namespace content-manager
+kubectl -n content-manager create secret generic hermes-smart-router-secrets \
+  --from-literal=hmac-secret="$(openssl rand -hex 32)" \
+  --from-literal=admin-api-key="$(openssl rand -hex 32)" \
+  --from-literal=client-api-key="$(openssl rand -hex 32)" \
+  --from-literal=bootstrap-admin-password="$(openssl rand -base64 18)" \
+  --from-literal=postgres-password="$(openssl rand -hex 16)" \
+  --from-literal=redis-password="$(openssl rand -hex 16)"
+
+# 2. Install the router core
+helm install content-manager ./deploy/helm/hermes-linux-stack \
+  --namespace content-manager
+
+# 3. Or enable the whole Content Manager stack
+helm install content-manager ./deploy/helm/hermes-linux-stack \
+  --namespace content-manager -f examples/helm/content-stack-values.yaml
 ```
 
-For the OmniRoute branch, `values.yaml` already points at the OmniRoute service. For external gateways, override `upstream.baseUrl` and `upstream.healthUrl`.
+`docs/HELM.md` documents every value, the component secrets, publishing the
+chart to an OCI registry or a Helm repository, and the free registry options.
+
+## Validate locally
+
+```bash
+helm lint deploy/helm/hermes-linux-stack -f examples/helm/content-stack-values.yaml
+helm template t deploy/helm/hermes-linux-stack -f examples/helm/content-stack-values.yaml >/dev/null
+tests/test-helm-chart.sh
+```
