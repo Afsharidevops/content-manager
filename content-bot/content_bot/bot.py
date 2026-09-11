@@ -76,6 +76,12 @@ _TEXT_MESSAGE_MAX = 4096
 # Backoff after a transient network failure in the polling loop.
 _CONNECTION_RETRY_SECONDS = 5
 
+# The first Telegram call happens while the container starts, which can race
+# the resolver or the outbound route right after a stack restart. Retry with a
+# growing delay so a transient failure does not end as a crashed process.
+_STARTUP_ATTEMPTS = 5
+_STARTUP_BACKOFF_SECONDS = 3
+
 
 def _media_caption(record: dict) -> str:
     """Best-effort single caption (max 1024 chars) for one media post."""
@@ -441,12 +447,8 @@ class ContentBot:
                 log.exception("maintenance step failed")
 
     def _startup(self) -> None:
-        try:
-            me = self.api.get_me()
-            log.info("Content Bot started as @%s", me.get("username", "?"))
-        except telegram_mod.TelegramError as error:
-            log.error("Bot token rejected: %s", error)
-            raise
+        me = self._startup_identity()
+        log.info("Content Bot started as @%s", me.get("username", "?"))
         try:
             self.api.delete_webhook()
         except telegram_mod.TelegramError:
@@ -476,6 +478,39 @@ class ContentBot:
         if self.writer is None:
             log.warning("CONTENT_WRITER_BASE_URL is empty; drafts cannot be generated")
         self.maybe_refresh_instagram_token()
+
+    def _startup_identity(self) -> dict:
+        """Return getMe, retrying the transient failures seen at boot.
+
+        A rejected token is reported immediately: retrying it would only delay
+        the failure. Connection errors, including a resolver that is not ready
+        yet, are retried with a growing delay.
+        """
+        delay = _STARTUP_BACKOFF_SECONDS
+        for attempt in range(1, _STARTUP_ATTEMPTS + 1):
+            try:
+                return self.api.get_me()
+            except telegram_mod.TelegramError as error:
+                log.error("Bot token rejected: %s", error)
+                raise
+            except (ConnectionError, TimeoutError, OSError) as error:
+                if attempt >= _STARTUP_ATTEMPTS:
+                    log.error(
+                        "Telegram unreachable at startup after %s attempts: %s",
+                        attempt,
+                        error,
+                    )
+                    raise
+                log.warning(
+                    "Telegram unreachable at startup (attempt %s/%s): %s; retrying in %ss",
+                    attempt,
+                    _STARTUP_ATTEMPTS,
+                    error,
+                    delay,
+                )
+                time.sleep(delay)
+                delay *= 2
+        raise telegram_mod.TelegramError("getMe did not return a result")
 
     # ---------------------------------------------------------------- polls
 

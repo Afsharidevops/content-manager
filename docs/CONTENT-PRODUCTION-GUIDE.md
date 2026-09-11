@@ -422,6 +422,16 @@ The `media-studio` image is published the same way as
   content-bot container (the Smart Router service name is `smart-router`) and
   that the model/alias exists in the configured backend (a 9router `combo-*`
   or an OmniRoute `auto/best-*` alias).
+- **`Telegram unreachable at startup` / `Temporary failure in name
+  resolution`**: the first `getMe` call happens while the container starts and
+  can race the resolver or the outbound route right after a stack restart. The
+  bot now retries five times with a growing delay before it gives up, and a
+  rejected token is still reported immediately. During normal operation the
+  same class of failure shows up as `Telegram connection problem, retrying:
+  ... The read operation timed out`; the long poll then restarts, so no update
+  is lost. If it repeats, check the outbound path of the host (a proxied or
+  tunneled route) and give the host more than one nameserver in
+  `/etc/resolv.conf`.
 - **Garbled Persian draft**: some writer endpoints occasionally return Persian
   text decoded as a legacy charset (words that look like `Ø§Ú¯Ø±`). The bot
   detects and repairs that pattern, and refuses to publish copy it cannot

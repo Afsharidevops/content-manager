@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from unittest import mock
 from pathlib import Path
 
-from content_bot.bot import ContentBot
+from content_bot.bot import ContentBot, _STARTUP_ATTEMPTS, _STARTUP_BACKOFF_SECONDS
 from content_bot.config import BotSettings
 from content_bot.telegram import TelegramApi, TelegramError
 from content_pipeline.normalize import canonicalize_url, content_hash as url_content_hash
@@ -604,6 +604,70 @@ class BotTestCase(unittest.TestCase):
         self.assertIn("forget_link", names)
         self.assertIn("status", names)
         self.assertIn("tools", names)
+
+    def test_startup_retries_a_transient_network_failure(self):
+        class FlakyApi(FakeApi):
+            def __init__(self):
+                super().__init__()
+                self.get_me_attempts = 0
+
+            def _transport(self, url, payload, *, timeout=35):
+                if url.rsplit("/", 1)[-1] == "getMe":
+                    self.get_me_attempts += 1
+                    if self.get_me_attempts < 3:
+                        raise ConnectionError(
+                            "[Errno -3] Temporary failure in name resolution"
+                        )
+                return super()._transport(url, payload, timeout=timeout)
+
+        api = FlakyApi()
+        self.bot.api = api
+        with mock.patch("content_bot.bot.time.sleep") as sleeper:
+            self.bot._startup()
+        self.assertEqual(api.get_me_attempts, 3)
+        delays = [call.args[0] for call in sleeper.call_args_list]
+        self.assertEqual(delays, [_STARTUP_BACKOFF_SECONDS, _STARTUP_BACKOFF_SECONDS * 2])
+        registrations = [payload for method, payload in api.calls if method == "setMyCommands"]
+        self.assertEqual(len(registrations), 2)
+
+    def test_startup_gives_up_after_repeated_network_failures(self):
+        class DeadApi(FakeApi):
+            def __init__(self):
+                super().__init__()
+                self.get_me_attempts = 0
+
+            def _transport(self, url, payload, *, timeout=35):
+                if url.rsplit("/", 1)[-1] == "getMe":
+                    self.get_me_attempts += 1
+                    raise ConnectionError("connection error: The read operation timed out")
+                return super()._transport(url, payload, timeout=timeout)
+
+        api = DeadApi()
+        self.bot.api = api
+        with mock.patch("content_bot.bot.time.sleep"):
+            with self.assertRaises(ConnectionError):
+                self.bot._startup()
+        self.assertEqual(api.get_me_attempts, _STARTUP_ATTEMPTS)
+
+    def test_startup_reports_a_rejected_token_without_retrying(self):
+        class RejectedApi(FakeApi):
+            def __init__(self):
+                super().__init__()
+                self.get_me_attempts = 0
+
+            def _transport(self, url, payload, *, timeout=35):
+                if url.rsplit("/", 1)[-1] == "getMe":
+                    self.get_me_attempts += 1
+                    raise TelegramError("Telegram getMe HTTP 401: Unauthorized")
+                return super()._transport(url, payload, timeout=timeout)
+
+        api = RejectedApi()
+        self.bot.api = api
+        with mock.patch("content_bot.bot.time.sleep") as sleeper:
+            with self.assertRaises(TelegramError):
+                self.bot._startup()
+        self.assertEqual(api.get_me_attempts, 1)
+        self.assertEqual(sleeper.call_args_list, [])
 
     def test_tools_command_lists_the_shared_registry(self):
         self.bot.handle_message({"chat": {"id": 11}, "from": {"id": 11}, "text": "/tools"})

@@ -27,6 +27,24 @@ The current runtime release is **v0.5.9**.
   `example.com` placeholder zone instead of the operator's own domain, so a
   public checkout never names the real zone.
 
+### Fixes — Content Bot startup resilience (2026-09-11)
+
+- The first Telegram call of the Content Bot runs while the container starts,
+  which can race a resolver or an outbound route that is not ready yet. A
+  single `Temporary failure in name resolution` there used to end the process,
+  leaving the recovery to the container restart policy and printing a full
+  traceback. Startup now retries five times with a growing delay and logs one
+  warning per attempt, while a rejected bot token still fails immediately.
+
+  ```text
+  WARNING content_bot: Telegram unreachable at startup (attempt 1/5): [Errno -3]
+  Temporary failure in name resolution; retrying in 3s
+  ```
+
+- `docs/CONTENT-PRODUCTION-GUIDE.md` documents both the startup retries and the
+  `Telegram connection problem, retrying` warning, including the host resolver
+  check to run when the message repeats.
+
 ## Content Manager — fork of Hermes Linux Stack v0.5.9 (2026-09-07)
 
 This repository is **Content Manager**: a fork of the Hermes Linux Stack v0.5.9
