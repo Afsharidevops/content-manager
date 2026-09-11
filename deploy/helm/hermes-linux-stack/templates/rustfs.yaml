@@ -1,0 +1,107 @@
+{{- if .Values.components.rustfs.enabled }}
+{{- $rustfs := .Values.components.rustfs }}
+{{- $name := include "hermes.component" (dict "root" . "name" "rustfs") }}
+{{- $labels := include "hermes.componentLabels" (dict "root" . "name" "rustfs") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: {{ $rustfs.storage.size }}}}
+  {{- with $rustfs.storage.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: rustfs
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      {{- include "hermes.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        # The image runs as the unprivileged rustfs user; fsGroup makes the
+        # mounted volume writable for it without a root init container.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: rustfs
+          image: "{{ $rustfs.image.repository }}:{{ $rustfs.image.tag }}"
+          imagePullPolicy: {{ $rustfs.image.pullPolicy }}
+          ports:
+            - {name: s3, containerPort: 9000}
+            - {name: console, containerPort: 9001}
+          env:
+            - {name: RUSTFS_VOLUMES, value: /data}
+            - {name: RUSTFS_ADDRESS, value: "0.0.0.0:9000"}
+            - {name: RUSTFS_CONSOLE_ADDRESS, value: "0.0.0.0:9001"}
+            - {name: RUSTFS_CONSOLE_ENABLE, value: "true"}
+            - {name: RUSTFS_CONSOLE_PREFIX, value: "/rustfs/console"}
+            - {name: RUSTFS_REGION, value: {{ $rustfs.region | quote }}}
+            - {name: RUSTFS_OBS_LOG_DIRECTORY, value: /logs}
+            {{- range $key, $value := $rustfs.env }}
+            - {name: {{ $key }}, value: {{ $value | quote }}}
+            {{- end }}
+          {{- with $rustfs.existingSecret }}
+          envFrom:
+            - secretRef: {name: {{ . }}}
+          {{- end }}
+          readinessProbe:
+            httpGet: {path: /health, port: s3}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: {path: /health, port: s3}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            {{- toYaml $rustfs.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: logs, mountPath: /logs}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: {{ $name }}}
+        - name: logs
+          emptyDir: {sizeLimit: 64Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  type: {{ $rustfs.service.type }}
+  selector:
+    app.kubernetes.io/component: rustfs
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - {name: s3, port: {{ $rustfs.service.port }}, targetPort: s3}
+    - {name: console, port: {{ $rustfs.service.consolePort }}, targetPort: console}
+{{- end }}

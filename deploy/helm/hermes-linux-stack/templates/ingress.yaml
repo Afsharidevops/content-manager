@@ -7,6 +7,7 @@
       "panel" (include "hermes.component" (dict "root" . "name" "panel"))
       "media-studio" (include "hermes.component" (dict "root" . "name" "media-studio"))
       "media-files" (include "hermes.component" (dict "root" . "name" "media-files"))
+      "rustfs" (include "hermes.component" (dict "root" . "name" "rustfs"))
 }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress

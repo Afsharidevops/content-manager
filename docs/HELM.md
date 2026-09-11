@@ -127,6 +127,7 @@ secrets and ConfigMap it references first:
 | `content-panel-secrets` | Optional; the panel token lives on its PVC (`data/panel/token` equivalent) |
 | `nine-router-secrets` | `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET`, `MACHINE_ID_SALT`, optionally `REQUIRE_API_KEY`, `AUTH_COOKIE_SECURE` |
 | `omniroute-secrets` | `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET`, `MANAGEMENT_API_KEY`, `OMNIROUTE_API_KEY`, `STORAGE_ENCRYPTION_KEY`, `MACHINE_ID_SALT`, `OMNIROUTE_WS_BRIDGE_SECRET` |
+| `rustfs-secrets` | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`, optionally other `RUSTFS_*` settings |
 
 ```bash
 kubectl -n content-manager create configmap content-policy \
@@ -151,6 +152,11 @@ Notes for the Kubernetes deployment:
 - Google Flow video jobs need a signed-in browser session and a CDP endpoint
   reachable from Media Studio. That is easiest on a single host; keep the
   Compose deployment for those drivers if the cluster cannot provide one.
+- `components.rustfs` runs the same S3-compatible server as the Compose profile.
+  In-cluster clients use `http://<release>-rustfs:9000` with path-style
+  addressing (`STORAGE_PROVIDER=s3` for Open WebUI, and the `S3_*` variables
+  documented in `docs/S3-STORAGE.md`). The console listens on port 9001 under
+  `/rustfs/console`; publish it through the ingress only on a trusted network.
 
 ## Values reference
 
@@ -164,6 +170,7 @@ Notes for the Kubernetes deployment:
 | `components.panel.*` | disabled | Panel image, service, PVC, `dockerSocket` |
 | `components.mediaStudio.*` | disabled | Media Studio image, service, PVC |
 | `components.mediaFiles.*` | disabled | nginx file server; `existingClaim` defaults to the Content Bot PVC |
+| `components.rustfs.*` | disabled | RustFS S3 server: image, `existingSecret`, `region`, PVC size, service ports, `env` |
 | `ingress.*` | disabled | Class, annotations, TLS, hosts; paths reference component names |
 | `secrets.existingSecret` | `hermes-smart-router-secrets` | Router/PostgreSQL/Redis secret |
 | `postgres.*`, `redis.*` | enabled | In-cluster HA state stores |

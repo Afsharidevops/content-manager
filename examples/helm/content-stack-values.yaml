@@ -41,6 +41,18 @@ components:
       PANEL_COOKIE_SECURE: "true"
   mediaFiles:
     enabled: true
+  # S3-compatible object storage. Create the secret first:
+  #   kubectl create secret generic rustfs-secrets \
+  #     --from-literal=RUSTFS_ACCESS_KEY=locallab-example \
+  #     --from-literal=RUSTFS_SECRET_KEY="$(openssl rand -hex 16)"
+  # and point applications at http://<release>-rustfs:9000 with path-style
+  # addressing (docs/S3-STORAGE.md). Pair it with Open WebUI outside the
+  # chart by setting STORAGE_PROVIDER=s3 and the S3_* variables.
+  rustfs:
+    enabled: true
+    existingSecret: rustfs-secrets
+    storage:
+      size: 20Gi
 
 ingress:
   enabled: true

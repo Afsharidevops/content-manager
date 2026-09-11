@@ -43,7 +43,7 @@ else
   ok "the full stack overlay renders"
   for resource in hermes-smart-router-content-bot hermes-smart-router-panel \
       hermes-smart-router-media-studio hermes-smart-router-media-files \
-      hermes-smart-router-upstream; do
+      hermes-smart-router-upstream hermes-smart-router-rustfs; do
     if grep -q "name: $resource$" <<<"$rendered"; then
       ok "the overlay renders $resource"
     else
@@ -65,6 +65,23 @@ else
   else
     not_ok "the ingress publishes the media file server"
   fi
+  if grep -q 'name: rustfs' <<<"$rendered" \
+     && grep -q 'containerPort: 9000' <<<"$rendered" \
+     && grep -q 'containerPort: 9001' <<<"$rendered" \
+     && grep -q 'mountPath: /data' <<<"$rendered" \
+     && grep -q 'name: rustfs-secrets' <<<"$rendered"; then
+    ok "the RustFS component exposes the S3 API, the console and a data volume"
+  else
+    not_ok "the RustFS component exposes the S3 API, the console and a data volume"
+  fi
+fi
+
+# The storage component stays opt-in.
+if default_render="$(helm template content-manager "$CHART" --namespace content-manager 2>/dev/null)" \
+   && ! grep -q 'rustfs' <<<"$default_render"; then
+  ok "RustFS is disabled unless the overlay enables it"
+else
+  not_ok "RustFS is disabled unless the overlay enables it"
 fi
 
 # TLS can be switched off when an external reverse proxy terminates HTTPS.
