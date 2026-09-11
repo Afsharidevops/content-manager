@@ -45,6 +45,7 @@ from .privacy import session_identity
 from .proxy import forward_headers, proxy_buffered, proxy_streaming, response_header_pairs
 from .routing import AUTO_ALIASES, Decision, build_policy_runtime, decide, tier_satisfies_capabilities
 from .tools_registry import ToolsRegistryError, load_tools
+from . import responses as responses_mod
 
 logger = logging.getLogger("smart-router")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -450,6 +451,7 @@ def create_app(
         Route("/v1/models", models, methods=["GET"]),
         Route("/v1/tools", tools, methods=["GET"]),
         Route("/v1/chat/completions", completions, methods=["POST"]),
+        Route("/v1/responses", responses_mod.handle, methods=["POST"]),
     ]
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.settings = settings

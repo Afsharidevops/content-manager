@@ -45,6 +45,14 @@ The current runtime release is **v0.5.9**.
   `Telegram connection problem, retrying` warning, including the host resolver
   check to run when the message repeats.
 
+- All Telegram API methods now convert transient connection errors to
+  ``TelegramNetworkError`` (a subclass of ``TelegramError``), so existing
+  ``except TelegramError`` guards in ``_startup`` (``delete_webhook``,
+  ``set_my_commands``) no longer crash when the outbound route stalls between
+  container startup and the first API call. The startup retry logic in
+  ``_startup_identity`` distinguishes ``TelegramNetworkError`` from a rejected
+  token and retries the former, while a bad token still fails immediately.
+
 ## Content Manager — fork of Hermes Linux Stack v0.5.9 (2026-09-07)
 
 This repository is **Content Manager**: a fork of the Hermes Linux Stack v0.5.9

@@ -631,6 +631,7 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(len(registrations), 2)
 
     def test_startup_gives_up_after_repeated_network_failures(self):
+        """_startup raises TelegramError after exhausting all attempts."""
         class DeadApi(FakeApi):
             def __init__(self):
                 super().__init__()
@@ -639,13 +640,14 @@ class BotTestCase(unittest.TestCase):
             def _transport(self, url, payload, *, timeout=35):
                 if url.rsplit("/", 1)[-1] == "getMe":
                     self.get_me_attempts += 1
+                    # _call wraps every connection error as TelegramNetworkError
                     raise ConnectionError("connection error: The read operation timed out")
                 return super()._transport(url, payload, timeout=timeout)
 
         api = DeadApi()
         self.bot.api = api
         with mock.patch("content_bot.bot.time.sleep"):
-            with self.assertRaises(ConnectionError):
+            with self.assertRaises(TelegramError):
                 self.bot._startup()
         self.assertEqual(api.get_me_attempts, _STARTUP_ATTEMPTS)
 

@@ -13,6 +13,15 @@ from content_bot.http import HttpError, request_json
 class TelegramError(RuntimeError):
     pass
 
+class TelegramNetworkError(TelegramError):
+    """A transient network failure during a Telegram API method.
+
+    Raised from :meth:`TelegramApi._call` so that methods wrapping
+    ``except TelegramError`` also capture it, while
+    :meth:`~content_bot.bot.ContentBot._startup_identity` can distinguish it
+    from a rejected token and retry.
+    """
+
 
 def _api_error_text(method: str, status: int, body: bytes) -> str:
     """Render a Bot API HTTP error together with Telegram's description."""
@@ -54,6 +63,10 @@ class TelegramApi:
         except HttpError as error:
             raise TelegramError(
                 _api_error_text(method, error.status, error.body)
+            ) from error
+        except (ConnectionError, TimeoutError, OSError) as error:
+            raise TelegramNetworkError(
+                f"Telegram {method} network error: {error}"
             ) from error
         if not isinstance(data, dict) or data.get("ok") is not True:
             description = data.get("description") if isinstance(data, dict) else str(data)
