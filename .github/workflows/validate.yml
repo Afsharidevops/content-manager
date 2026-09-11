@@ -16,7 +16,7 @@ jobs:
         run: |
           bash -n install.sh manage.sh
           bash -n scripts/stack-ops.sh scripts/helm-publish.sh
-          bash -n tests/test-stack-ops.sh tests/test-helm-chart.sh
+          bash -n tests/test-stack-ops.sh tests/test-helm-chart.sh tests/test-s3-storage.sh
       - name: Check provisioning script syntax
         run: |
           node --check scripts/bootstrap-openwebui.mjs
@@ -39,6 +39,7 @@ jobs:
           node --test tests/test-flow-unlock-patch.mjs
           tests/test-manage-n8n.sh
           tests/test-stack-ops.sh
+          tests/test-s3-storage.sh
           tests/test-flow-unlock-rules.sh
           tests/test-flow-unlock-package.sh
       - name: Validate the Helm chart
@@ -104,3 +105,4 @@ jobs:
           test "$(git check-ignore data/stack-secrets/n8n-bootstrap.env)" = "data/stack-secrets/n8n-bootstrap.env"
           test "$(git check-ignore data/stack-secrets/n8n-bootstrap-state.json)" = "data/stack-secrets/n8n-bootstrap-state.json"
           test "$(git check-ignore data/panel/token)" = "data/panel/token"
+          test "$(git check-ignore data/rustfs/data/object.bin)" = "data/rustfs/data/object.bin"

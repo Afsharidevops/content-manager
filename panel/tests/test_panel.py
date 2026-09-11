@@ -297,6 +297,14 @@ class StackExposureTest(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("MCP", warnings[0])
 
+    def test_public_rustfs_bind_warns_about_object_storage(self):
+        (self.root / ".env").write_text("RUSTFS_BIND_IP=192.168.4.11\n", encoding="utf-8")
+        payload = self.view.exposure()
+        self.assertEqual(payload["rows"][0]["service"], "rustfs")
+        self.assertFalse(payload["rows"][0]["loopback"])
+        self.assertEqual(len(payload["warnings"]), 1)
+        self.assertIn("RUSTFS_CONSOLE_BIND_IP", payload["warnings"][0])
+
 
 class ActionWhitelistTest(unittest.TestCase):
     def setUp(self):

@@ -48,6 +48,7 @@ If a future deployment moves data into PostgreSQL, back it up with
 | `panel` | `data/panel/` | Console token and edit backups |
 | `n8n` | `data/n8n/` | Workflows and credentials |
 | `openwebui` | `data/open-webui/` | Chats and users |
+| `s3` | `data/rustfs/` | Bundled RustFS objects and logs (see `docs/S3-STORAGE.md`) |
 | `caddy` | `data/caddy/` | Certificates and Caddy state |
 | `execution` | `data/execution-workspace/` | Agent execution workspace |
 | `state` | `data/stack-state/` | Update history and release state |

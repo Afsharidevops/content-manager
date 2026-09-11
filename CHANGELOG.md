@@ -16,7 +16,7 @@ platform; this section tracks the fork additions.
 
 - Section backups: `./manage.sh backup --only SECTION[,...]` archives only the
   named part of the stack (`env`, `secrets`, `hermes`, `router`, `content`,
-  `media`, `panel`, `n8n`, `openwebui`, `caddy`, `execution`, `state`,
+  `media`, `panel`, `n8n`, `openwebui`, `s3`, `caddy`, `execution`, `state`,
   `compose`). Archives carry a manifest and a `.meta.json` sidecar with the
   section list, so `backup-list` shows what each archive contains and
   `restore` knows it must copy those paths without replacing the rest of the
@@ -53,6 +53,31 @@ platform; this section tracks the fork additions.
   cross-server procedure, what to re-check after a restore, and why the
   single-host Compose stack does not need PostgreSQL (PostgreSQL and Redis
   exist for the multi-replica Kubernetes deployment).
+- Object storage: the stack now has one shared S3 block
+  (`S3_STORAGE_BACKEND=rustfs|external|off` plus the `S3_*` endpoint, bucket,
+  region, and credential variables) that every consumer reads. The optional
+  `rustfs` Compose profile runs RustFS - an Apache-2.0 S3-compatible server -
+  in-stack with its S3 API on 9000, its console on 9001 under
+  `/rustfs/console`, data under `data/rustfs/`, and an unprivileged identity
+  pinned to the operator (root-managed installs keep 10001:10001). Point any
+  other provider (AWS S3, Cloudflare R2, Backblaze B2, MinIO, Arvan S3, ...)
+  at the same block with `./manage.sh s3-enable --external`. Open WebUI
+  consumes it natively (`STORAGE_PROVIDER=s3` with path-style addressing);
+  the Content Bot, Media Studio, n8n free tier, and Hermes Agent keep their
+  local storage and the supported matrix is documented rather than implied.
+  `./manage.sh s3-status`, `s3-enable [--rustfs|--external] [--bind-ip IP]`,
+  `s3-disable`, `s3-verify [--create-bucket]` (signed requests, no cloud CLI),
+  `s3-keys [--show-secrets|--rotate]`, `s3-guide`, a storage menu group,
+  `logs rustfs`, and the `s3` backup section cover day-two operations.
+  `install.sh` asks for the backend, generates or preserves the credentials,
+  suggests the LAN address when a reverse proxy on another host publishes the
+  API or console, and records the public origins. The Helm chart gained an
+  optional `components.rustfs` (PVC, Deployment, Services for the API and
+  console) and the ingress can publish it. `docs/S3-STORAGE.md` documents the
+  consumer matrix, the configuration reference, the ArvanCloud-to-Caddy
+  route, the security notes, and troubleshooting; `data/rustfs` is gitignored
+  and `tests/test-s3-storage.sh` covers the configuration, the Compose
+  rendering, and the manage.sh commands.
 
 ### Fork release — Content Manager v0.3.0 (2026-09-10)
 

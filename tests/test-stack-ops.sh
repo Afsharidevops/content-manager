@@ -175,6 +175,7 @@ fi
 if output="$($FIX/scripts/stack-ops.sh backup-sections)" \
    && grep -q '^env ' <<<"$output" \
    && grep -q '^panel *data/panel' <<<"$output" \
+   && grep -q '^s3 *data/rustfs' <<<"$output" \
    && grep -q 'data/content-bot' <<<"$output"; then
   ok "backup-sections lists the scoped backup sections"
 else
@@ -190,9 +191,10 @@ exec "$@"
 SUDO
 chmod +x "$TMP/bin/sudo"
 
-mkdir -p "$FIX/data/panel" "$FIX/data/content-bot/media"
+mkdir -p "$FIX/data/panel" "$FIX/data/content-bot/media" "$FIX/data/rustfs/data"
 printf 'panel-token\n' > "$FIX/data/panel/token"
 printf 'content-media\n' > "$FIX/data/content-bot/media/clip.txt"
+printf 'object\n' > "$FIX/data/rustfs/data/object.bin"
 
 # 8. A section backup contains only the selected paths and records them.
 section_archive=""
@@ -206,6 +208,15 @@ if section_archive="$($FIX/scripts/stack-ops.sh backup --destination "$TMP/backu
   ok "backup --only stores the selected section, manifest, and metadata"
 else
   not_ok "backup --only stores the selected section, manifest, and metadata"
+fi
+
+# 8b. The bundled object storage server is a section of its own.
+if s3_archive="$($FIX/scripts/stack-ops.sh backup --destination "$TMP/backups" --no-pause --only s3)" \
+   && tar -tzf "$s3_archive" | grep -q 'data/rustfs/data/object.bin' \
+   && ! tar -tzf "$s3_archive" | grep -q 'data/panel/'; then
+  ok "backup --only s3 archives the RustFS data directory"
+else
+  not_ok "backup --only s3 archives the RustFS data directory"
 fi
 
 # 9. An unknown section name is rejected before any archive is written.

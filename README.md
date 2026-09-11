@@ -308,6 +308,7 @@ bash tests/test-manage-ux.sh
 - [Content production guide](docs/CONTENT-PRODUCTION-GUIDE.md) - bot flows and operations
 - [Instagram/Meta setup](docs/INSTAGRAM-SETUP.md) - official Graph API publishing
 - [Operator panel](docs/PANEL.md) - optional web console for status, config, logs, actions
+- [Object storage](docs/S3-STORAGE.md) - bundled RustFS or an external S3 endpoint for stack services
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing
 - [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
 - [Operations](docs/OPERATIONS.md) and [release process](docs/RELEASE-PROCESS.md)

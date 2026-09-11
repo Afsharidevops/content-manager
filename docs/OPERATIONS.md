@@ -16,6 +16,9 @@ The command treats Docker healthchecks as authoritative when a service defines o
 
 The full guide — section names, cross-server restores, and what to re-check
 after restoring on another host — lives in `docs/BACKUP-RESTORE.md`.
+When the bundled RustFS component is enabled, run `./manage.sh backup --only s3`
+after object-storage changes; the section layout is documented in
+`docs/S3-STORAGE.md`.
 
 By default backups are stored next to the checkout in `../content-manager-backups/` (derived from the checkout directory name), so restoring `data/` cannot accidentally delete the safety backup. Override this with `CONTENT_MANAGER_BACKUP_DIR` or `--destination`.
 

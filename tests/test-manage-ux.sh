@@ -21,6 +21,7 @@ grep -q 'Overview & health' <<<"$out"
 grep -q 'Smart Router' <<<"$out"
 grep -q 'Hermes Agent & Telegram' <<<"$out"
 grep -q 'Execution & SSH' <<<"$out"
+grep -q 'Object storage (S3)' <<<"$out"
 
 grep -q 'instagram-media-enable' <<<"$help"
 grep -q 'instagram-media-status' <<<"$help"

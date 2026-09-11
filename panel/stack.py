@@ -236,6 +236,7 @@ class StackView:
         "media-studio": "MEDIA_STUDIO_BIND_IP",
         "caddy": "CADDY_BIND_IP",
         "open-webui": "OPENWEBUI_BIND_IP",
+        "rustfs": "RUSTFS_BIND_IP",
     }
 
     def _env_map(self) -> dict:
@@ -273,6 +274,13 @@ class StackView:
                 warnings.append(
                     f"{service} is published to {bind} ({key}); confirm this is "
                     "intended for a trusted network only."
+                )
+            elif not local and service == "rustfs":
+                warnings.append(
+                    f"RustFS publishes the S3 API to {bind} ({key}). Keep it "
+                    "behind a reverse proxy with strong credentials, and leave "
+                    "RUSTFS_CONSOLE_BIND_IP on loopback unless the console must "
+                    "be reachable too."
                 )
         return {"rows": rows, "warnings": warnings}
 
