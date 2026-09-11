@@ -12,6 +12,48 @@ platform (upstream unchanged) extended with a deterministic daily
 content-production layer. The upstream changelog below documents the inherited
 platform; this section tracks the fork additions.
 
+### Unreleased
+
+- Section backups: `./manage.sh backup --only SECTION[,...]` archives only the
+  named part of the stack (`env`, `secrets`, `hermes`, `router`, `content`,
+  `media`, `panel`, `n8n`, `openwebui`, `caddy`, `execution`, `state`,
+  `compose`). Archives carry a manifest and a `.meta.json` sidecar with the
+  section list, so `backup-list` shows what each archive contains and
+  `restore` knows it must copy those paths without replacing the rest of the
+  stack. `./manage.sh backup-sections` lists the names, and the maintenance
+  menu gained a "create a section backup" entry.
+- Restores are portable across servers: when an archive records a different
+  checkout root, absolute `*_HOST_PATH`/`*_STACK_PATH` values in the restored
+  `.env` are rewritten to the current checkout
+  (`--no-relocate` disables it). Full archives still replace `.env` and
+  `data/`; partial archives merge, keep a pre-restore safety backup, and put
+  the previous state back when validation or readiness fails.
+- `install.sh` now asks whether a reverse proxy on another host publishes the
+  operator panel and suggests the detected LAN IPv4 address for the bind,
+  which is exactly what a router-side reverse proxy reaches; the final summary
+  prints the resulting URL and the proxy target. The same wizard already
+  suggested the LAN address for the Instagram media host, and the Helm chart
+  documentation repeats the pattern for cluster ingress.
+- Added `tests/test-stack-ops.sh` section coverage (partial backup, partial
+  restore, path relocation, `backup-list` metadata) and wired the file into
+  the Validate workflow, which had not been running it.
+- Helm chart review: the chart did not render at all (the escaped quotes in
+  the router PostgreSQL and Redis URLs were an invalid template), fixed now.
+  The chart gained an optional in-cluster 9router/OmniRoute upstream, optional
+  Content Bot, operator panel, Media Studio, and media file server components,
+  a generic ingress (with `ingress.tls: false` for an external reverse proxy),
+  image pull secrets, and `helm lint`/render coverage in
+  `tests/test-helm-chart.sh`. `examples/helm/content-stack-values.yaml` enables
+  the whole stack as an overlay, and `docs/HELM.md` documents the values,
+  component secrets, publishing the chart (GHCR OCI, GitHub Pages,
+  ChartMuseum, other OCI registries, Artifact Hub), and the free registry
+  options. `.github/workflows/publish-helm-chart.yml` and
+  `scripts/helm-publish.sh` publish the packaged chart on release tags.
+- Added `docs/BACKUP-RESTORE.md`: sections, full versus partial restores, the
+  cross-server procedure, what to re-check after a restore, and why the
+  single-host Compose stack does not need PostgreSQL (PostgreSQL and Redis
+  exist for the multi-replica Kubernetes deployment).
+
 ### Fork release — Content Manager v0.3.0 (2026-09-10)
 
 - Added `panel/`: an optional operator console (Compose profile `panel`) for
