@@ -5,6 +5,28 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Fixes — RustFS console route behind a reverse proxy (2026-09-11)
+
+- The console signs in with a signed `POST /` (`Action=AssumeRole`) against the
+  host that serves it. A router route that redirects `/` to
+  `/rustfs/console/` for every method answers that POST with a 302 and login
+  fails without a useful message. The installer wizard and `./manage.sh
+  s3-guide` now print a route that keeps the redirect for `GET` only, and
+  `docs/S3-STORAGE.md` explains the requirement plus the `Host` header rule
+  behind signed requests.
+- The installer asks directly whether the console should be published, derives
+  `S3_PUBLIC_CONSOLE_URL` from the host name it receives, and prints the
+  matching Caddy block, so the console URL recorded in `.env` always matches
+  the published route.
+- `install.sh` asks once for the zone the published services live in and stores
+  it as `STACK_BASE_DOMAIN` (for example `stack.example.com`). The panel, the
+  Instagram media host, the S3 API and the console are then suggested as
+  `<service>.<zone>`, and `./manage.sh s3-guide` prints the same names,
+  preferring the public origins already recorded in `.env`.
+- Examples, installer defaults, fixtures, and the Firefox extension id use the
+  `example.com` placeholder zone instead of the operator's own domain, so a
+  public checkout never names the real zone.
+
 ## Content Manager — fork of Hermes Linux Stack v0.5.9 (2026-09-07)
 
 This repository is **Content Manager**: a fork of the Hermes Linux Stack v0.5.9

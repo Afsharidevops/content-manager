@@ -61,6 +61,7 @@ their on-disk paths. Objects already in the bucket are never deleted.
 
 | Variable | Purpose |
 | --- | --- |
+| `STACK_BASE_DOMAIN` | Shared zone for the published hostnames, for example `stack.example.com`, so services are named `<service>.stack.example.com`. The installer asks for it once and `./manage.sh s3-guide` uses it when no public origin is recorded yet. |
 | `S3_STORAGE_BACKEND` | `rustfs`, `external`, or `off`. |
 | `S3_ENDPOINT_URL` | Endpoint the containers use. `http://rustfs:9000` for the bundled server. |
 | `S3_HOST_ENDPOINT_URL` | Optional endpoint for tools on the Docker host (`s3-verify`). Empty derives it from the RustFS bind address when the backend is `rustfs`. |
@@ -68,7 +69,7 @@ their on-disk paths. Objects already in the bucket are never deleted.
 | `S3_BUCKET`, `S3_REGION` | Bucket and region. RustFS accepts any bucket name; keep `us-east-1` as the region unless you changed it. |
 | `S3_FORCE_PATH_STYLE` | `true` for RustFS, MinIO, and most self-hosted endpoints. |
 | `S3_KEY_PREFIX` | Optional prefix inside the bucket, for example `locallab/`. |
-| `S3_PUBLIC_BASE_URL` | Public HTTPS origin that fronts the API, e.g. `https://s3.stack.locallab.ir`. Documentation and status output only. |
+| `S3_PUBLIC_BASE_URL` | Public HTTPS origin that fronts the API, e.g. `https://s3.stack.example.com`. Documentation and status output only. |
 | `S3_PUBLIC_CONSOLE_URL` | Public HTTPS origin of the RustFS console, used for browser redirects behind a proxy. |
 | `OPENWEBUI_STORAGE_PROVIDER` | `local` (default) or `s3`. `s3-enable` sets it; hand-edit it only when you manage `.env` yourself. |
 
@@ -105,46 +106,87 @@ read and write one bucket is enough for every consumer in this stack.
 
 ## Publishing the API or the console under a domain
 
-The stack runs behind the LAN address (`192.168.4.11` in the reference setup)
+The stack runs behind the LAN address (`192.168.1.50` in the reference setup)
 and the MikroTik router publishes domains with its Caddy container. The S3 API
 follows the same path as the other services.
+
+The host names below follow `STACK_BASE_DOMAIN` from `.env`: the installer
+asks for that zone once (for example `stack.example.com`), names the records
+`<service>.<zone>`, and `./manage.sh s3-guide` prints the same names, preferring
+the public origins already recorded in `.env`.
 
 1. Point the stack at the LAN address so the proxy can reach it:
 
    ```bash
-   ./manage.sh s3-enable --rustfs --bind-ip 192.168.4.11
+   ./manage.sh s3-enable --rustfs --bind-ip 192.168.1.50
    ```
 
-   For the console, set `RUSTFS_CONSOLE_BIND_IP=192.168.4.11` in `.env` and run
+   For the console, set `RUSTFS_CONSOLE_BIND_IP=192.168.1.50` in `.env` and run
    `./manage.sh restart` (or recreate the container).
 
 2. Create the DNS record in ArvanCloud, for example
-   `s3.stack.locallab.ir` (and `console.stack.locallab.ir` when the console is
+   `s3.stack.example.com` (and `console.stack.example.com` when the console is
    published).
 
 3. Add the route to the Caddy container on the router:
 
    ```
-   s3.stack.locallab.ir {
+   s3.stack.example.com {
        encode zstd gzip
-       reverse_proxy 192.168.4.11:9000
+       reverse_proxy 192.168.1.50:9000
    }
 
-   console.stack.locallab.ir {
+   console.stack.example.com {
        encode zstd gzip
-       reverse_proxy 192.168.4.11:9001
+       @console_root {
+           method GET
+           path /
+       }
+       redir @console_root /rustfs/console/ 302
+       reverse_proxy 192.168.1.50:9001
    }
    ```
 
    The console lives under `/rustfs/console`, so the public URL is
-   `https://console.stack.locallab.ir/rustfs/console/`.
+   `https://console.stack.example.com/rustfs/console/`.
+
+   The console signs in by sending a signed `POST /` request
+   (`Action=AssumeRole`) to the host that serves it, so the route must let that
+   request through. A blanket `redir / /rustfs/console/ 302` answers the POST
+   with a redirect, the browser never receives the session token, and sign-in
+   fails without a useful message. Either publish the console with no redirect
+   at all:
+
+   ```
+   console.stack.example.com {
+       encode zstd gzip
+       reverse_proxy 192.168.1.50:9001
+   }
+   ```
+
+   or keep the root redirect but restrict it to `GET`:
+
+   ```
+       @console_root {
+           method GET
+           path /
+       }
+       redir @console_root /rustfs/console/ 302
+   ```
+
+   Without the redirect the root path returns the API error document (403 /
+   `NotImplemented`) instead of the console page.
+
+   Keep the original `Host` header on that route (Caddy's default
+   `reverse_proxy` behaviour). The signature covers the host name, so a
+   `header_up Host <upstream>` rewrite invalidates every signed request.
 
 4. Record the public origins so the panel, the documentation, and the console
    redirects agree with the proxy:
 
    ```
-   S3_PUBLIC_BASE_URL=https://s3.stack.locallab.ir
-   S3_PUBLIC_CONSOLE_URL=https://console.stack.locallab.ir/rustfs/console
+   S3_PUBLIC_BASE_URL=https://s3.stack.example.com
+   S3_PUBLIC_CONSOLE_URL=https://console.stack.example.com/rustfs/console
    ```
 
    Recreate `rustfs` after changing the console URL.
@@ -152,7 +194,7 @@ follows the same path as the other services.
 5. Verify from outside:
 
    ```bash
-   curl -sS -o /dev/null -w '%{http_code}\n' https://s3.stack.locallab.ir/health
+   curl -sS -o /dev/null -w '%{http_code}\n' https://s3.stack.example.com/health
    ./manage.sh s3-verify
    ```
 
@@ -244,6 +286,8 @@ See `docs/HELM.md` for the full values list and publishing notes.
 | RustFS exits with `Permission denied` | `data/rustfs` is not owned by `RUSTFS_UID:RUSTFS_GID`. Fix with `sudo chown -R <uid>:<gid> data/rustfs`, or re-run the installer. |
 | Bucket is missing after a restore | Run `./manage.sh s3-verify --create-bucket`; section restores bring the objects back, not the bucket metadata of an external provider. |
 | Console shows a wrong redirect | `S3_PUBLIC_CONSOLE_URL` does not match the public console URL; update it and recreate `rustfs`. |
+| Console sign-in fails through the proxy with a signature or redirect error | The route redirects `/` for every method. Restrict the redirect to `GET` (see the console block above) so the signed `POST /` of the sign-in reaches RustFS. |
+| Console sign-in fails only behind the proxy | The proxy rewrote the `Host` header. Signed requests cover the host name, so keep the original host (`reverse_proxy` does this by default) and drop any `header_up Host` override. |
 
 A manual signed request is useful when debugging without the helper:
 

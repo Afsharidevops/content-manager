@@ -224,8 +224,8 @@ class MediaBaseUrlTest(unittest.TestCase):
 
     def test_configured_value_is_used_when_the_tunnel_is_not_configured(self):
         self.assertEqual(
-            drafts_mod.media_base_url(self.root, "https://media.locallab.ir/"),
-            "https://media.locallab.ir",
+            drafts_mod.media_base_url(self.root, "https://media.example.com/"),
+            "https://media.example.com",
         )
 
     def test_a_quick_tunnel_value_in_the_environment_is_ignored(self):
@@ -245,10 +245,10 @@ class MediaBaseUrlTest(unittest.TestCase):
     def test_a_pinned_file_wins_over_everything_else(self):
         self.write_tunnel("live-name")
         pin = self.root / "data" / "content-bot" / "media-base-url.txt"
-        pin.write_text("# pinned\nhttps://media.locallab.ir/media\n", encoding="utf-8")
+        pin.write_text("# pinned\nhttps://media.example.com/media\n", encoding="utf-8")
         self.assertEqual(
             drafts_mod.media_base_url(self.root, "https://other.example.com"),
-            "https://media.locallab.ir/media",
+            "https://media.example.com/media",
         )
 
 
@@ -300,7 +300,7 @@ class StackExposureTest(unittest.TestCase):
         self.assertIn("MCP", warnings[0])
 
     def test_public_rustfs_bind_warns_about_object_storage(self):
-        (self.root / ".env").write_text("RUSTFS_BIND_IP=192.168.4.11\n", encoding="utf-8")
+        (self.root / ".env").write_text("RUSTFS_BIND_IP=192.168.1.50\n", encoding="utf-8")
         payload = self.view.exposure()
         self.assertEqual(payload["rows"][0]["service"], "rustfs")
         self.assertFalse(payload["rows"][0]["loopback"])
@@ -319,12 +319,12 @@ class StorageAndBackupViewTest(unittest.TestCase):
             "S3_ENDPOINT_URL=http://rustfs:9000\n"
             "S3_BUCKET=locallab\n"
             "S3_REGION=us-east-1\n"
-            "S3_PUBLIC_BASE_URL=https://s3.stack.locallab.ir\n"
+            "S3_PUBLIC_BASE_URL=https://s3.stack.example.com\n"
             "S3_FORCE_PATH_STYLE=true\n"
             "OPENWEBUI_STORAGE_PROVIDER=s3\n"
-            "RUSTFS_BIND_IP=192.168.4.11\n"
+            "RUSTFS_BIND_IP=192.168.1.50\n"
             "RUSTFS_PORT=9000\n"
-            "RUSTFS_CONSOLE_BIND_IP=192.168.4.11\n",
+            "RUSTFS_CONSOLE_BIND_IP=192.168.1.50\n",
             encoding="utf-8",
         )
         payload = StackView(self.root).storage()
@@ -332,13 +332,13 @@ class StorageAndBackupViewTest(unittest.TestCase):
         self.assertEqual(payload["endpoint"], "http://rustfs:9000")
         self.assertEqual(payload["bucket"], "locallab")
         self.assertTrue(payload["force_path_style"])
-        self.assertEqual(payload["public_base_url"], "https://s3.stack.locallab.ir")
+        self.assertEqual(payload["public_base_url"], "https://s3.stack.example.com")
         self.assertEqual(payload["warnings"], [])
         modes = {row["service"]: row["mode"] for row in payload["consumers"]}
         self.assertEqual(modes["open-webui"], "s3")
         self.assertEqual(modes["content-bot"], "local")
         self.assertEqual(modes["n8n"], "local")
-        self.assertEqual(payload["rustfs"]["api_url"], "http://192.168.4.11:9000")
+        self.assertEqual(payload["rustfs"]["api_url"], "http://192.168.1.50:9000")
         self.assertEqual(payload["rustfs"]["service"], None)
 
     def test_storage_warns_when_openwebui_points_at_a_stopped_backend(self):
@@ -952,7 +952,7 @@ class MediaJobsViewTest(unittest.TestCase):
         self.addCleanup(server.server_close)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         (self.root / ".env").write_text(
-            "MEDIA_STUDIO_BIND_IP=192.168.4.11\n"
+            "MEDIA_STUDIO_BIND_IP=192.168.1.50\n"
             "MEDIA_STUDIO_PORT=8850\n"
             "MEDIA_STUDIO_API_TOKEN=super-secret\n"
             f"MEDIA_STUDIO_INTERNAL_URL=http://127.0.0.1:{server.server_address[1]}\n",

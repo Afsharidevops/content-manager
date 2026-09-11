@@ -151,6 +151,20 @@ else
   not_ok "s3-guide prints the reverse-proxy route"
 fi
 
+# The checklist uses the zone the stack records instead of a placeholder, and
+# the console route keeps / free for the signed POST that signs the console in.
+sed -i 's|^STACK_BASE_DOMAIN=.*|STACK_BASE_DOMAIN="stack.example.com"|' "$FIX/.env"
+sed -i 's|^S3_PUBLIC_BASE_URL=.*|S3_PUBLIC_BASE_URL="https://s3.stack.example.com"|' "$FIX/.env"
+sed -i 's|^S3_PUBLIC_CONSOLE_URL=.*|S3_PUBLIC_CONSOLE_URL="https://console.stack.example.com/rustfs/console"|' "$FIX/.env"
+guide_out="$(manage s3-guide)"
+if grep -q 'console.stack.example.com {' <<<"$guide_out" \
+   && grep -q 's3.stack.example.com {' <<<"$guide_out" \
+   && grep -q 'redir @console_root /rustfs/console/ 302' <<<"$guide_out"; then
+  ok "s3-guide names the recorded hosts and prints a GET-only console redirect"
+else
+  not_ok "s3-guide names the recorded hosts and prints a GET-only console redirect"
+fi
+
 if manage s3-disable >/dev/null 2>&1; then
   ok "s3-disable runs cleanly"
 else

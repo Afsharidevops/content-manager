@@ -37,9 +37,9 @@ status_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-status)"
 grep -q 'https://stale-name.trycloudflare.com' <<<"$status_out"
 grep -q 'not enabled' <<<"$status_out"
 
-printf 'https://media.locallab.ir/media\n' > "$tmp/data/content-bot/media-base-url.txt"
+printf 'https://media.example.com/media\n' > "$tmp/data/content-bot/media-base-url.txt"
 status_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-status)"
-grep -q 'https://media.locallab.ir/media' <<<"$status_out"
+grep -q 'https://media.example.com/media' <<<"$status_out"
 
 # Stopping only the tunnel must keep nginx's profile enabled.
 printf 'COMPOSE_PROFILES=9router,ig-media,ig-media-quick\n' >> "$tmp/.env"

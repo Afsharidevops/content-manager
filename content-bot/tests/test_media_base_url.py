@@ -48,8 +48,8 @@ class CleanBaseUrlTests(unittest.TestCase):
     def test_stable_rejects_quick_tunnel_hosts(self):
         self.assertEqual(_stable_base_url("https://x.trycloudflare.com"), "")
         self.assertEqual(
-            _stable_base_url("https://media.locallab.ir/media"),
-            "https://media.locallab.ir/media",
+            _stable_base_url("https://media.example.com/media"),
+            "https://media.example.com/media",
         )
 
 
@@ -66,12 +66,12 @@ class BaseUrlFileTests(unittest.TestCase):
         self.assertEqual(_base_url_from_file(self.data_dir), "")
 
     def test_comments_and_blank_lines_are_skipped(self):
-        self.write("# pinned by the deployment\n\nhttps://media.locallab.ir\n")
-        self.assertEqual(_base_url_from_file(self.data_dir), "https://media.locallab.ir")
+        self.write("# pinned by the deployment\n\nhttps://media.example.com\n")
+        self.assertEqual(_base_url_from_file(self.data_dir), "https://media.example.com")
 
     def test_trailing_comment_on_the_same_line_is_ignored(self):
-        self.write("https://media.locallab.ir  # stable\n")
-        self.assertEqual(_base_url_from_file(self.data_dir), "https://media.locallab.ir")
+        self.write("https://media.example.com  # stable\n")
+        self.assertEqual(_base_url_from_file(self.data_dir), "https://media.example.com")
 
     def test_an_unusable_first_line_falls_through_to_the_next(self):
         self.write("not-a-url\nhttps://media.example.com/base\n")
@@ -144,14 +144,14 @@ class BotResolutionTests(unittest.TestCase):
         self.assertEqual(self.make_bot()._instagram_media_base_url(), "")
 
     def test_a_pinned_file_wins_over_the_environment(self):
-        self.write_pin("https://media.locallab.ir\n")
+        self.write_pin("https://media.example.com\n")
         bot = self.make_bot(instagram_media_public_base_url="https://other.example.com")
-        self.assertEqual(bot._instagram_media_base_url(), "https://media.locallab.ir")
+        self.assertEqual(bot._instagram_media_base_url(), "https://media.example.com")
 
     def test_a_stable_environment_url_wins_over_the_tunnel_log(self):
         self.write_tunnel("quick-name")
-        bot = self.make_bot(instagram_media_public_base_url="https://media.locallab.ir")
-        self.assertEqual(bot._instagram_media_base_url(), "https://media.locallab.ir")
+        bot = self.make_bot(instagram_media_public_base_url="https://media.example.com")
+        self.assertEqual(bot._instagram_media_base_url(), "https://media.example.com")
 
     def test_a_stale_quick_tunnel_in_the_environment_falls_through_to_the_log(self):
         self.write_tunnel("live-name")
@@ -181,9 +181,9 @@ class BotResolutionTests(unittest.TestCase):
         self.assertEqual(second.media_base_url, "https://second-name.trycloudflare.com")
 
     def test_status_text_reports_the_resolved_media_host(self):
-        self.write_pin("https://media.locallab.ir/media\n")
+        self.write_pin("https://media.example.com/media\n")
         text = self.make_bot().instagram_status_text()
-        self.assertIn("Media base URL: https://media.locallab.ir/media", text)
+        self.assertIn("Media base URL: https://media.example.com/media", text)
 
     def test_status_text_says_when_no_media_host_exists(self):
         text = self.make_bot().instagram_status_text()

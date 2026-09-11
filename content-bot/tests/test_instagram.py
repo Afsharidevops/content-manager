@@ -119,7 +119,7 @@ class PublisherTests(unittest.TestCase):
         self.publisher = InstagramPublisher(
             "business-1",
             "token-1",
-            media_base_url="https://media.locallab.ir/bot",
+            media_base_url="https://media.example.com/bot",
             media_root=str(self.tmp),
         )
         self.transport = FakeGraphTransport()
@@ -133,7 +133,7 @@ class PublisherTests(unittest.TestCase):
     def test_public_url_maps_local_file_to_public_url(self):
         self.assertEqual(
             self.publisher.public_url(self.image),
-            "https://media.locallab.ir/bot/media/shot.png",
+            "https://media.example.com/bot/media/shot.png",
         )
 
     def test_public_url_requires_base_url(self):

@@ -2190,22 +2190,39 @@ s3_keys() {
 }
 
 s3_guide() {
-  local lan_ip bind
+  local lan_ip bind base_domain api_host console_host
   lan_ip="$(ip -4 route get 1.1.1.1 2>/dev/null \
     | awk '{ for (i=1; i<=NF; i++) if ($i == "src") { print $(i+1); exit } }')"
   bind="$(s3_bind_port)"
+  # Prefer the host names already recorded in .env, then the shared base
+  # domain from the installer, and only then the placeholder zone.
+  base_domain="$(env_value "$ENV_FILE" STACK_BASE_DOMAIN)"
+  [[ "$base_domain" == "CHANGE_ME" ]] && base_domain=""
+  base_domain="${base_domain:-stack.example.com}"
+  api_host="$(url_host "$(env_value "$ENV_FILE" S3_PUBLIC_BASE_URL)")"
+  console_host="$(url_host "$(env_value "$ENV_FILE" S3_PUBLIC_CONSOLE_URL)")"
+  api_host="${api_host:-s3.$base_domain}"
+  console_host="${console_host:-console.$base_domain}"
   printf 'Object storage guide: docs/S3-STORAGE.md\n'
   printf '\nPublic domain route (ArvanCloud -> router reverse proxy -> this stack):\n'
-  printf '  1) DNS: create s3.stack.locallab.ir (and console.stack.locallab.ir if you\n'
+  printf '  1) DNS: create %s (and %s if you\n' "$api_host" "$console_host"
   printf '     want the console) in ArvanCloud, proxied as usual.\n'
   printf '  2) The stack must listen on the LAN address instead of loopback:\n'
   printf '     ./manage.sh s3-enable --rustfs --bind-ip %s\n' "${lan_ip:-<LAN-IP>}"
   printf '     (console bind: set RUSTFS_CONSOLE_BIND_IP=%s in .env the same way)\n' "${lan_ip:-<LAN-IP>}"
   printf '  3) On the MikroTik Caddy container add:\n'
-  printf '     s3.stack.locallab.ir {\n         encode zstd gzip\n         reverse_proxy %s:%s\n     }\n' \
-    "${lan_ip:-<STACK-LAN-IP>}" "$(printf '%s' "$bind" | awk '{print $2}')"
-  printf '  4) Record the public origin for the stack: S3_PUBLIC_BASE_URL=https://s3.stack.locallab.ir in .env\n'
-  printf '     For the console add S3_PUBLIC_CONSOLE_URL=https://console.stack.locallab.ir/rustfs/console and\n'
+  printf '     %s {\n         encode zstd gzip\n         reverse_proxy %s:%s\n     }\n' \
+    "$api_host" "${lan_ip:-<STACK-LAN-IP>}" "$(printf '%s' "$bind" | awk '{print $2}')"
+  printf '     For the console, publish port 9001 under its own host name. Sign-in sends a\n'
+  printf '     signed POST to "/" (Action=AssumeRole) on that host, so a blanket\n'
+  printf '     redirect on "/" breaks login. Publish it with no redirect at all:\n'
+  printf '       %s {\n           encode zstd gzip\n           reverse_proxy %s:9001\n       }\n' \
+    "$console_host" "${lan_ip:-<STACK-LAN-IP>}"
+  printf '     or keep the friendly root redirect and restrict it to GET:\n'
+  printf '       @console_root {\n           method GET\n           path /\n       }\n'
+  printf '       redir @console_root /rustfs/console/ 302\n'
+  printf '  4) Record the public origin for the stack: S3_PUBLIC_BASE_URL=https://%s in .env\n' "$api_host"
+  printf '     For the console add S3_PUBLIC_CONSOLE_URL=https://%s/rustfs/console and\n' "$console_host"
   printf '     RUSTFS_CONSOLE_BIND_IP=%s, then restart rustfs.\n' "${lan_ip:-<LAN-IP>}"
   printf '\nSecurity: keep the console off the public internet unless you accept the risk; the S3 API\n'
   printf 'must always sit behind strong credentials. ./manage.sh s3-keys --rotate replaces them.\n'
@@ -2251,6 +2268,15 @@ storage_menu() {
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
   done
+}
+
+# Extracts the host name from a recorded public URL such as
+# https://s3.stack.example.com (empty input returns an empty string).
+url_host() {
+  local url="${1-}" host
+  host="${url#*//}"
+  host="${host%%/*}"
+  printf '%s' "$host"
 }
 
 env_value() {

@@ -191,6 +191,8 @@ Publish the console through HTTPS only:
 Caddy example for a dedicated hostname:
 
 ```caddyfile
+<!-- Host names follow STACK_BASE_DOMAIN from .env, so the installer names the
+     panel record <service>.<zone> when that zone is set. -->
 panel.example.com {
     reverse_proxy 127.0.0.1:8899
 }

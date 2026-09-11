@@ -440,17 +440,88 @@ prompt_domain_optional() {
   done
 }
 
+# One base domain drives every published hostname: a service becomes
+# <service>.<base domain>, so the suggestions match the operator's real zone.
+# An empty value keeps example.com placeholders in the printed checklists.
+detected_base_domain() {
+  local url host
+  for url in \
+    "$(existing_env_value S3_PUBLIC_BASE_URL)" \
+    "$(existing_env_value S3_PUBLIC_CONSOLE_URL)" \
+    "$(existing_env_value INSTAGRAM_MEDIA_PUBLIC_BASE_URL)"; do
+    [[ -n "$url" ]] || continue
+    host="${url#*//}"
+    host="${host%%/*}"
+    host="${host#*.}"
+    if [[ "$host" == *.* ]]; then
+      printf '%s' "$host"
+      return 0
+    fi
+  done
+  printf '%s' ""
+}
+
+suggest_host() {
+  local service="$1"
+  [[ -n "${base_domain:-}" ]] || return 0
+  printf '%s.%s' "$service" "$base_domain"
+}
+
+# Same as suggest_host, but always returns a host: the printed checklists stay
+# readable when the operator has not named a domain yet.
+suggest_host_or_example() {
+  local service="$1" host
+  host="$(suggest_host "$service")"
+  printf '%s' "${host:-$service.example.com}"
+}
+
 # A reverse proxy on another host publishes a service with two manual steps:
 # a DNS record and a proxy site block. Print both where the installer asks for
 # the decision so the checklist does not have to be found later in the docs.
 print_public_route() {
-  local host="$1" target="$2" note="${3-}"
+  local host="$1" target="$2" note="${3-}" kind="${4-}"
   printf '     Public route checklist for %s:\n' "$host"
   printf '       DNS:   create an A record %s -> router public IP in ArvanCloud\n' "$host"
   printf '              (keep the CDN proxy toggle off until the router serves its own certificate).\n'
   printf '       Proxy: in the Caddy container on the router add:\n'
-  printf '                %s {\n                    encode zstd gzip\n                    reverse_proxy %s\n                }\n' "$host" "$target"
+  printf '                %s {\n                    encode zstd gzip\n' "$host"
+  if [[ "$kind" == console ]]; then
+    printf '                    @console_root {\n                        method GET\n                        path /\n                    }\n'
+    printf '                    redir @console_root /rustfs/console/ 302\n'
+  fi
+  printf '                    reverse_proxy %s\n                }\n' "$target"
   [[ -n "$note" ]] && printf '       Note:  %s\n' "$note"
+}
+
+# The RustFS console is a browser app that signs in with a signed POST to the
+# site root of whatever host serves it, so the reverse proxy in front of it must
+# leave that request alone: a redirect on "/" that covers every method answers
+# the POST and the browser never receives a session. The block below prints a
+# route that keeps the friendly root redirect for GET only.
+ask_console_route() {
+  local scheme="$1" current="${2-}" host default
+  console_public_url=""
+  default="${current#*//}"
+  default="${default%%/*}"
+  default="${default:-$(suggest_host console)}"
+  default="${default:-console.example.com}"
+  if ! confirm "Publish the RustFS console through that proxy as well?" n; then
+    printf '%s\n' "Console target for that proxy: http://$rustfs_console_bind:$rustfs_console_port/rustfs/console/"
+    return 0
+  fi
+  host="$(prompt "Public console host name" "$default")"
+  host="${host#*//}"
+  host="${host%%/*}"
+  if [[ -z "$host" ]]; then
+    printf '%s\n' 'No console host recorded; publish it later with ./manage.sh s3-guide.'
+    return 0
+  fi
+  print_public_route "$host" "$rustfs_console_bind:$rustfs_console_port" \
+    'Keep the console off the public internet unless you accept the risk. The redirect on / must stay GET-only: sign-in sends a signed POST to / and a blanket redirect drops it.' \
+    console
+  printf '       Check: curl -sS -o /dev/null -w "%%{http_code}\\n" %s://%s/rustfs/console/\n' "$scheme" "$host"
+  printf '       Sign in with the keys from ./manage.sh s3-keys --show-secrets.\n'
+  console_public_url="$scheme://$host/rustfs/console"
 }
 
 install_docker() {
@@ -904,6 +975,24 @@ profiles=""
 [[ "$install_panel" == true ]] && profiles="${profiles:+$profiles,}panel"
 [[ "$install_rustfs" == true ]] && profiles="${profiles:+$profiles,}rustfs"
 
+# Ask once for the zone the published services live in; every hostname the
+# wizard suggests below is derived from it, and .env keeps the answer so later
+# runs and ./manage.sh reuse the same domain.
+base_domain="$(existing_env_value STACK_BASE_DOMAIN)"
+if [[ -z "$base_domain" ]]; then
+  base_domain="$(detected_base_domain)"
+fi
+if [[ "${configure_content:-false}" == true || "${configure_media:-false}" == true \
+  || "$install_panel" == true || "$install_rustfs" == true ]]; then
+  printf '\nPublic domains\n'
+  printf '%s\n' '--------------'
+  printf '%s\n' 'Hostnames suggested below follow this base domain: a service is published'
+  printf '%s\n' 'as <service>.<base domain>, for example s3.stack.example.com when the base'
+  printf '%s\n' 'domain is stack.example.com. Leave it empty to keep example.com in the'
+  printf '%s\n' 'printed checklists.'
+  base_domain="$(prompt_domain_optional "Base domain for published services (Enter to skip)" "$base_domain")"
+fi
+
 # The operator panel binds to loopback by default. A reverse proxy on the
 # router (or another host) can front it over the LAN, so the wizard offers the
 # detected LAN address the same way it does for the Instagram media host.
@@ -925,7 +1014,7 @@ if [[ "$install_panel" == true ]]; then
       valid_bind_ip "$panel_bind" && break
       warn "Enter an IPv4 address, for example 192.168.1.50."
     done
-    panel_public_host="$(prompt_domain_optional "Public panel hostname (Enter to skip; for example panel.example.com)")"
+    panel_public_host="$(prompt_domain_optional "Public panel hostname (Enter to skip)" "$(suggest_host panel)")"
     if [[ -n "$panel_public_host" ]]; then
       print_public_route "$panel_public_host" "$panel_bind:$panel_port" \
         'PANEL_COOKIE_SECURE=true keeps login cookies on the HTTPS host (set below).'
@@ -979,26 +1068,20 @@ if [[ "$s3_change" == true && "$s3_choice" == rustfs ]]; then
       warn "Enter an IPv4 address, for example 192.168.1.50."
     done
     if confirm "Does that proxy terminate HTTPS for the object storage?" y; then
-      rustfs_public_url="$(prompt "Public S3 origin" "${rustfs_public_url:-s3.stack.locallab.ir}")"
+      rustfs_public_url="$(prompt "Public S3 origin" \
+        "${rustfs_public_url:-$(suggest_host_or_example s3)}")"
       if [[ -n "$rustfs_public_url" && "$rustfs_public_url" != http* ]]; then
         rustfs_public_url="https://$rustfs_public_url"
       fi
-      rustfs_public_console_url="$(prompt "Public console origin (Enter to skip)" "$rustfs_public_console_url")"
-      if [[ -n "$rustfs_public_console_url" && "$rustfs_public_console_url" != http* ]]; then
-        rustfs_public_console_url="https://$rustfs_public_console_url"
-      fi
       print_public_route "${rustfs_public_url#*//}" "$rustfs_bind:$rustfs_port" \
         'S3_PUBLIC_BASE_URL in .env keeps this origin; later changes: ./manage.sh s3-guide'
-      if [[ -n "$rustfs_public_console_url" ]]; then
-        print_public_route "${rustfs_public_console_url#*//}" "$rustfs_console_bind:$rustfs_console_port" \
-          'The console path is /rustfs/console/; keep it off the public internet unless you accept the risk.'
-      else
-        printf '%s\n' "Console target for that proxy: http://$rustfs_console_bind:$rustfs_console_port/rustfs/console/"
-      fi
+      ask_console_route https "$rustfs_public_console_url"
+      rustfs_public_console_url="$console_public_url"
     else
-      print_public_route "s3.example.com" "$rustfs_bind:$rustfs_port" \
+      print_public_route "$(suggest_host_or_example s3)" "$rustfs_bind:$rustfs_port" \
         'Use your real hostname; set S3_PUBLIC_BASE_URL (and S3_PUBLIC_CONSOLE_URL) in .env once it exists.'
-      printf '%s\n' "Console target for that proxy: http://$rustfs_console_bind:$rustfs_console_port/rustfs/console/"
+      ask_console_route http "$rustfs_public_console_url"
+      rustfs_public_console_url="$console_public_url"
     fi
   elif [[ -n "$rustfs_bind" && "$rustfs_bind" != 127.0.0.1 ]]; then
     printf '%s\n' "Keeping the existing object storage bind addresses $rustfs_bind:$rustfs_port and $rustfs_console_bind:$rustfs_console_port."
@@ -1736,7 +1819,7 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
   done
   content_channel="$(prompt "Telegram channel ID or @username to publish to")"
   if [[ "$content_channel" =~ ^[0-9]+$ ]]; then
-    warn "A channel or supergroup id starts with -100 (for example -1004495457205); a bare number is a user id."
+    warn "A channel or supergroup id starts with -100 (for example -1001234567890); a bare number is a user id."
     content_channel="$(prompt "Telegram channel ID (Enter to use -100$content_channel)" "-100$content_channel")"
   fi
   content_users_default="$content_users"
@@ -1812,7 +1895,7 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
         warn "Enter an IPv4 address, for example 192.168.1.50."
       done
       [[ ",$profiles," == *,ig-media,* ]] || profiles="${profiles:+$profiles,}ig-media"
-      content_media_public_host="$(prompt_domain_optional "Public media hostname (Enter to skip; Instagram needs HTTPS)")"
+      content_media_public_host="$(prompt_domain_optional "Public media hostname (Enter to skip; Instagram needs HTTPS)" "$(suggest_host media)")"
       if [[ -n "$content_media_public_host" ]]; then
         content_media_public_url="https://$content_media_public_host"
         print_public_route "$content_media_public_host" "$content_media_bind:$content_media_port" \
@@ -2015,6 +2098,7 @@ fi
 chmod 600 "$tmp_env"
 # Preserve every v0.5.x setting and update only values owned by this wizard.
 replace_env_value "$tmp_env" COMPOSE_PROFILES "$profiles"
+replace_env_value "$tmp_env" STACK_BASE_DOMAIN "$(dotenv_quote "$base_domain")"
 if [[ -n "$caddy_media_domain" ]]; then
   replace_env_value "$tmp_env" INSTAGRAM_MEDIA_PUBLIC_BASE_URL "https://$caddy_media_domain"
 fi
@@ -2810,6 +2894,9 @@ fi
 
 printf '\n'
 ok "Installation complete."
+if [[ -n "${base_domain:-}" ]]; then
+  printf '%s\n' "Public domain zone: $base_domain (services are named <service>.$base_domain)"
+fi
 [[ "$install_nine" == true ]] && printf '9router dashboard: %s\n' "$nine_public_url"
 [[ "$install_omniroute" == true ]] && printf 'OmniRoute dashboard: %s\n' "$omni_public_url"
 [[ "$install_omniroute" == true ]] && printf 'OmniRoute OpenAI API: http://%s:%s/v1\n' "$(service_url_host "$omni_api_bind")" "$omni_api_port"

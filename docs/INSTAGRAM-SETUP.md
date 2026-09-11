@@ -46,13 +46,18 @@ under the bot data directory, so the effective URL is `<base>/media/<file>`.
 Examples:
 
 ```text
-https://media.locallab.ir/bot       -> https://media.locallab.ir/bot/media/<file>
+https://media.example.com/bot       -> https://media.example.com/bot/media/<file>
 https://cdn.example.com/content-bot -> https://cdn.example.com/content-bot/media/<file>
 ```
 
 Serve only the `media/` subtree and keep the rest of the bot data directory
 private. The URL must be directly fetchable by Meta, without login or bot
 protection.
+
+`./install.sh` asks once for the zone it should suggest host names from and
+stores it as `STACK_BASE_DOMAIN` (for example `stack.example.com`, which names
+this host `media.stack.example.com`). The value only drives suggestions;
+`INSTAGRAM_MEDIA_PUBLIC_BASE_URL` stays authoritative.
 
 ### The bundled media host (compose profile "ig-media")
 
@@ -104,32 +109,32 @@ take, the value that ends up in the bot is the same `<base>` that precedes
 only serves a hostname it manages DNS for, so either move the zone to
 Cloudflare or delegate just the media subdomain:
 
-1. In ArvanCloud (or wherever `locallab.ir` resolves) add NS records for the
+1. In ArvanCloud (or wherever `example.com` resolves) add NS records for the
    subdomain, for example `media` -> the two nameservers Cloudflare assigns
-   when you add `media.locallab.ir` as its own zone. The rest of `locallab.ir`
+   when you add `media.example.com` as its own zone. The rest of `example.com`
    stays where it is.
 2. In the Cloudflare dashboard create a tunnel (Zero Trust -> Networks ->
-   Tunnels), copy its token, and add a public hostname `media.locallab.ir`
+   Tunnels), copy its token, and add a public hostname `media.example.com`
    whose service is `http://ig-media:80`.
 3. In `.env` of this stack set:
 
 ```text
 IG_MEDIA_TUNNEL_TOKEN=<token from the dashboard>
-INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir
+INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.example.com
 ```
 
 4. Run `./manage.sh instagram-media-enable`. It enables the
    `ig-media-named` profile (nginx plus the named tunnel) instead of the quick
    tunnel, and the hostname never changes again. Check with
    `./manage.sh instagram-media-status`.
-5. Test: `curl -I https://media.locallab.ir/media/<file>` must answer `200`.
+5. Test: `curl -I https://media.example.com/media/<file>` must answer `200`.
 
 **Route B - reverse proxy that can reach the stack over the LAN.** This is
 the normal shape when the stack runs on a machine in your own network and the
 public address lives on the router (a router with a static IP and its own
 proxy container). Nothing tunnels and no port is opened on the stack host:
 
-1. DNS: point `media.locallab.ir` (A record) at the router's public IP. With
+1. DNS: point `media.example.com` (A record) at the router's public IP. With
    ArvanCloud, start with the proxy toggle **off** so the router's proxy can
    obtain its own certificate; turn the CDN on only if you want ArvanCloud to
    terminate TLS instead.
@@ -139,7 +144,7 @@ proxy container). Nothing tunnels and no port is opened on the stack host:
    and start the host without a tunnel:
 
 ```text
-IG_MEDIA_BIND_IP=192.168.4.11   # this host's LAN address
+IG_MEDIA_BIND_IP=192.168.1.50   # this host's LAN address
 IG_MEDIA_PORT=8099
 ```
 
@@ -151,19 +156,19 @@ IG_MEDIA_PORT=8099
    stack machine:
 
 ```caddyfile
-media.locallab.ir {
+media.example.com {
 	encode zstd gzip
-	reverse_proxy 192.168.4.11:8099
+	reverse_proxy 192.168.1.50:8099
 }
 ```
 
    Only `/media/...` is served; nginx answers `404` for `/` and for directory
    listings, so the rest of the bot data directory stays private. If you bind
    beyond loopback, allow only the router (or your proxy host) on that port.
-4. In `.env` set `INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir`
+4. In `.env` set `INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.example.com`
    (or write that line into `data/content-bot/media-base-url.txt`, which wins
    over `.env`).
-5. Test from outside the network: `curl -I https://media.locallab.ir/media/<file>`
+5. Test from outside the network: `curl -I https://media.example.com/media/<file>`
    must answer `200`, then run `./manage.sh instagram-media-verify`, which asks
    the Graph API to download a real file from the media directory without
    publishing anything. That single command is the decisive check.
@@ -186,7 +191,7 @@ autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
 3. On the server, proxy the hostname to `127.0.0.1:18099`.
 4. `./manage.sh instagram-media-tunnel-off` retires the quick tunnel while
    nginx keeps serving for the reverse tunnel.
-5. Test: `curl -I https://media.locallab.ir/media/<file>` must answer `200`.
+5. Test: `curl -I https://media.example.com/media/<file>` must answer `200`.
 
 **Route C - do nothing.** Keep the bundled quick tunnel. The bot re-reads the
 hostname on every publish, so a restart no longer breaks publishing; the only
@@ -202,7 +207,7 @@ the reverse proxy runs next to the origin. Use the built-in Caddy profile:
   profile plus `ig-media` in `COMPOSE_PROFILES`:
 
 ```caddyfile
-media.locallab.ir {
+media.example.com {
 	encode zstd gzip
 	reverse_proxy ig-media:80
 }
@@ -253,7 +258,7 @@ Add these values to the bot's `.env` and restart the bot:
 ```text
 INSTAGRAM_BUSINESS_ID=
 INSTAGRAM_ACCESS_TOKEN=
-INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.locallab.ir/bot
+INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.example.com/bot
 INSTAGRAM_API_BASE=https://graph.facebook.com
 INSTAGRAM_API_VERSION=v26.0
 INSTAGRAM_POLL_TIMEOUT_SECONDS=600
