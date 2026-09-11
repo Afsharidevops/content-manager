@@ -368,6 +368,7 @@ media data/media-studio
 panel data/panel
 n8n data/n8n
 openwebui data/open-webui
+s3 data/rustfs
 caddy data/caddy
 execution data/execution-workspace
 state data/stack-state

@@ -53,7 +53,7 @@ Interactive groups:
 Common direct commands:
   status                      Show container status
   health [--json]             Show per-service health
-  logs [SERVICE]              Follow logs (hermes/9router/omniroute/smart-router/webui/n8n/content/media/caddy)
+  logs [SERVICE]              Follow logs (hermes/9router/omniroute/smart-router/webui/n8n/content/media/caddy/rustfs)
   doctor                      Run diagnostics and hardening checks
   migrate-hermes-permissions [--dry-run]
                               Repair Hermes log ownership/mode under data/hermes/logs
@@ -99,6 +99,16 @@ Operator panel:
   panel-token                 Print the operator token (creates one if missing)
   panel-rotate-token          Replace the operator token and restart the panel
   panel-build                 Build the panel image locally from panel/Dockerfile
+
+Shared object storage (S3):
+  s3-status                   Backend, endpoints, bucket and per-service state (no secrets)
+  s3-enable [--rustfs|--external] [--bind-ip IP]
+                              Enable the shared S3 block and start the bundled RustFS server
+  s3-disable                  Stop the bundled server and switch services back to local storage
+  s3-verify [--create-bucket] Prove the endpoint, credentials and bucket with signed requests
+  s3-keys [--show-secrets|--rotate]
+                              Show or rotate the RustFS credentials shared with the stack
+  s3-guide                    Public-domain route and external-provider checklist
 
 Instagram media host (public address the Meta Graph API downloads media from):
   instagram-media-status      Show the public media URL and profile state
@@ -188,7 +198,7 @@ uninstall_stack() {
   if [[ "$purge" == true ]]; then
     rm -f -- "$ENV_FILE"
 
-    for dir in 9router omniroute caddy hermes n8n open-webui stack-secrets; do
+    for dir in 9router omniroute caddy hermes n8n open-webui rustfs stack-secrets; do
       if [[ -d "$ROOT_DIR/data/$dir" ]]; then
         find "$ROOT_DIR/data/$dir" -mindepth 1 -maxdepth 1 ! -name '.gitkeep' -exec rm -rf -- {} +
       fi
@@ -316,7 +326,7 @@ services_menu() {
         printf '%s\n' 'Log choices:'
         printf '%s\n' '  1) all          2) Hermes       3) backend gateway'
         printf '%s\n' '  4) Smart Router 5) Open WebUI   6) n8n          7) Caddy'
-        printf '%s\n' '  8) Content Bot  9) Media Studio'
+        printf '%s\n' '  8) Content Bot  9) Media Studio  10) RustFS'
         read -r -p 'Choose [1]: ' service
         case "${service:-1}" in
           1) "$ROOT_DIR/manage.sh" logs || true ;;
@@ -334,6 +344,7 @@ services_menu() {
           7) "$ROOT_DIR/manage.sh" logs caddy || true ;;
           8) "$ROOT_DIR/manage.sh" logs content || true ;;
           9) "$ROOT_DIR/manage.sh" logs media || true ;;
+          10) "$ROOT_DIR/manage.sh" logs rustfs || true ;;
           *) printf 'Unknown log choice.\n' >&2 ;;
         esac
         ;;
@@ -597,7 +608,8 @@ interactive_menu() {
     printf '%s\n'   '10) Security & integrity      Doctor, image pins, access credentials'
     printf '%s\n'   '11) Reconfigure installation  Run the v0.5.9 wizard again'
     printf '%s\n'   '12) Operator panel            Web console for status, config, logs, actions'
-    printf '%s\n'   '13) Uninstall                 Safe remove or explicit purge'
+    printf '%s\n'   '13) Object storage (S3)       RustFS or an external S3 endpoint'
+    printf '%s\n'   '14) Uninstall                 Safe remove or explicit purge'
     printf '%s\n'   '0) Exit'
     read -r -p 'Choose [0]: ' choice
     case "${choice:-0}" in
@@ -620,7 +632,8 @@ interactive_menu() {
       10) security_menu ;;
       11) exec "$ROOT_DIR/install.sh" ;;
       12) panel_menu ;;
-      13) uninstall_menu ;;
+      13) storage_menu ;;
+      14) uninstall_menu ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1727,6 +1740,514 @@ panel_menu() {
   done
 }
 
+# --- Shared S3-compatible object storage -------------------------------------
+# One endpoint backs every service that understands object storage: the
+# bundled RustFS server (profile "rustfs") or any external S3-compatible
+# provider. docs/S3-STORAGE.md documents the consumer matrix, the public
+# domain route, and the external-provider checklist.
+
+s3_data_dir() { printf '%s/data/rustfs' "$ROOT_DIR"; }
+
+s3_backend() {
+  local backend
+  backend="$(env_value "$ENV_FILE" S3_STORAGE_BACKEND)"
+  printf '%s' "${backend:-off}"
+}
+
+s3_rustfs_enabled() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  [[ ",$profiles," == *,rustfs,* ]]
+}
+
+s3_rustfs_add_profile() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  if [[ ",$profiles," == *,rustfs,* ]]; then
+    return 0
+  fi
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "${profiles:+$profiles,}rustfs"
+  printf 'Enabled the "rustfs" compose profile.\n'
+}
+
+s3_rustfs_remove_profile() {
+  local profiles entry filtered="" entries=()
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  IFS=',' read -r -a entries <<< "$profiles"
+  for entry in "${entries[@]}"; do
+    [[ -n "$entry" && "$entry" != rustfs ]] || continue
+    filtered="${filtered:+$filtered,}$entry"
+  done
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "$filtered"
+}
+
+s3_bind_port() {
+  local bind port
+  bind="$(env_value "$ENV_FILE" RUSTFS_BIND_IP)"; bind="${bind:-127.0.0.1}"
+  port="$(env_value "$ENV_FILE" RUSTFS_PORT)"; port="${port:-9000}"
+  case "$bind" in 0.0.0.0|::|"[::]") bind=127.0.0.1 ;; esac
+  printf '%s %s\n' "$bind" "$port"
+}
+
+# Address that tools on the Docker host use. Inside the stack network the
+# services reach the bundled server as http://rustfs:9000, which never
+# resolves from the host, so the operator-facing checks need this value.
+s3_host_endpoint() {
+  local override endpoint bind port
+  override="$(env_value "$ENV_FILE" S3_HOST_ENDPOINT_URL)"
+  if [[ -n "$override" ]]; then
+    printf '%s' "${override%/}"
+    return 0
+  fi
+  if [[ "$(s3_backend)" == rustfs ]]; then
+    read -r bind port < <(s3_bind_port)
+    printf 'http://%s:%s' "$bind" "$port"
+    return 0
+  fi
+  endpoint="$(env_value "$ENV_FILE" S3_ENDPOINT_URL)"
+  printf '%s' "${endpoint%/}"
+}
+
+s3_container_endpoint() {
+  local endpoint
+  endpoint="$(env_value "$ENV_FILE" S3_ENDPOINT_URL)"
+  if [[ -z "$endpoint" && "$(s3_backend)" == rustfs ]]; then
+    endpoint="http://rustfs:9000"
+  fi
+  printf '%s' "${endpoint%/}"
+}
+
+s3_console_url() {
+  local bind port prefix
+  bind="$(env_value "$ENV_FILE" RUSTFS_CONSOLE_BIND_IP)"; bind="${bind:-127.0.0.1}"
+  port="$(env_value "$ENV_FILE" RUSTFS_CONSOLE_PORT)"; port="${port:-9001}"
+  prefix="$(env_value "$ENV_FILE" RUSTFS_CONSOLE_PREFIX)"; prefix="${prefix:-/rustfs/console}"
+  case "$bind" in 0.0.0.0|::|"[::]") bind=127.0.0.1 ;; esac
+  printf 'http://%s:%s%s/' "$bind" "$port" "${prefix%/}"
+}
+
+# The RustFS image runs unprivileged, so the bind-mounted directories must be
+# writable by RUSTFS_UID/RUSTFS_GID. install.sh maps those to the invoking
+# user for unprivileged installs.
+s3_prepare_dirs() {
+  local uid gid owner dir
+  uid="$(env_value "$ENV_FILE" RUSTFS_UID)"; uid="${uid:-10001}"
+  gid="$(env_value "$ENV_FILE" RUSTFS_GID)"; gid="${gid:-10001}"
+  for dir in "$(s3_data_dir)/data" "$(s3_data_dir)/logs"; do
+    install -d -m 0700 "$dir"
+    owner="$(stat -c '%u:%g' "$dir")"
+    if [[ "$owner" != "$uid:$gid" ]]; then
+      if ! chown "$uid:$gid" "$dir" 2>/dev/null; then
+        printf 'WARNING: %s is owned by %s but RustFS runs as %s. Run: sudo chown %s:%s %s\n' \
+          "${dir#$ROOT_DIR/}" "$owner" "$uid:$gid" "$uid" "$gid" "${dir#$ROOT_DIR/}" >&2
+      fi
+    fi
+  done
+}
+
+s3_recreate_consumers() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  if [[ ",$profiles," == *,open-webui,* ]]; then
+    compose up -d --no-deps --force-recreate open-webui >/dev/null
+    printf 'Recreated Open WebUI with the updated storage settings.\n'
+  fi
+}
+
+s3_wait_healthy() {
+  local endpoint attempt
+  endpoint="$(s3_host_endpoint)"
+  for attempt in $(seq 1 30); do
+    if curl -fsS --connect-timeout 2 --max-time 4 "$endpoint/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+s3_curl_supported() {
+  curl --help all 2>/dev/null | grep -q -- '--aws-sigv4'
+}
+
+# Signed S3 request. Prints "HTTP_CODE" on stdout and the response body on
+# stderr so callers can decide on retries without leaking the secret.
+s3_signed_request() {
+  local method="$1" url="$2" key="$3" secret="$4" region="$5" body="${6:-}"
+  local args=(-sS -o /dev/stdout -w '%{http_code}' -X "$method"
+    --aws-sigv4 "aws:amz:${region}:s3" --user "${key}:${secret}")
+  if [[ -n "$body" ]]; then
+    printf '%s' "$body" | curl "${args[@]}" --data-binary @- "$url"
+  else
+    curl "${args[@]}" "$url"
+  fi
+}
+
+s3_ensure_bucket() {
+  local endpoint bucket key secret region response code
+  endpoint="$(s3_host_endpoint)"
+  bucket="$(env_value "$ENV_FILE" S3_BUCKET)"; bucket="${bucket:-locallab}"
+  key="$(env_value "$ENV_FILE" S3_ACCESS_KEY_ID)"
+  secret="$(env_value "$ENV_FILE" S3_SECRET_ACCESS_KEY)"
+  region="$(env_value "$ENV_FILE" S3_REGION)"; region="${region:-us-east-1}"
+  [[ -n "$endpoint" && -n "$key" && -n "$secret" ]] || return 1
+  response="$(s3_signed_request GET "$endpoint/" "$key" "$secret" "$region" 2>/dev/null)"
+  code="${response: -3}"
+  [[ "$code" == 200 ]] || return 1
+  if [[ "${response%???}" == *"<Name>${bucket}</Name>"* ]]; then
+    printf 'Bucket "%s" already exists.\n' "$bucket"
+    return 0
+  fi
+  response="$(s3_signed_request PUT "$endpoint/${bucket}" "$key" "$secret" "$region" 2>/dev/null)"
+  code="${response: -3}"
+  if [[ "$code" == 200 ]]; then
+    printf 'Created bucket "%s".\n' "$bucket"
+    return 0
+  fi
+  printf 'Could not create bucket "%s" (HTTP %s).\n' "$bucket" "$code" >&2
+  return 1
+}
+
+s3_status() {
+  local backend bucket region key secret profiles consumer public_base
+  backend="$(s3_backend)"
+  bucket="$(env_value "$ENV_FILE" S3_BUCKET)"; bucket="${bucket:-locallab}"
+  region="$(env_value "$ENV_FILE" S3_REGION)"; region="${region:-us-east-1}"
+  key="$(env_value "$ENV_FILE" S3_ACCESS_KEY_ID)"
+  secret="$(env_value "$ENV_FILE" S3_SECRET_ACCESS_KEY)"
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  printf 'Shared object storage\n'
+  printf '  Backend:            %s\n' "$backend"
+  printf '  Endpoint (stack):   %s\n' "$(s3_container_endpoint)"
+  printf '  Endpoint (host):    %s\n' "$(s3_host_endpoint)"
+  printf '  Bucket / region:    %s / %s\n' "$bucket" "$region"
+  printf '  Credentials:        %s\n' \
+    "$([[ -n "$key" && -n "$secret" ]] && printf 'configured (S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY)' || printf 'not configured; run ./manage.sh s3-enable')"
+  public_base="$(env_value "$ENV_FILE" S3_PUBLIC_BASE_URL)"
+  printf '  Public API URL:     %s\n' "${public_base:--}"
+  if [[ "$backend" == rustfs ]]; then
+    printf '  RustFS profile:     %s\n' "$(s3_rustfs_enabled && printf 'enabled' || printf 'missing; run ./manage.sh s3-enable --rustfs')"
+    printf '  RustFS bind:        %s\n' "$(s3_bind_port | tr ' ' ':')"
+    printf '  Console:            %s\n' "$(s3_console_url)"
+    printf '  Data directory:     %s\n' "$(s3_data_dir | sed "s|^$ROOT_DIR/||")"
+    if s3_rustfs_enabled; then
+      compose ps rustfs 2>/dev/null || true
+    fi
+  fi
+  printf '  Consumers:\n'
+  if [[ ",$profiles," == *,open-webui,* ]]; then
+    consumer="$(env_value "$ENV_FILE" OPENWEBUI_STORAGE_PROVIDER)"; consumer="${consumer:-local}"
+    printf '    open-webui        %s\n' "$([[ "$consumer" == s3 ]] && printf 's3 (uploads and generated files in the bucket)' || printf 'local disk (set storage to s3 with ./manage.sh s3-enable)')"
+  else
+    printf '    open-webui        not installed\n'
+  fi
+  printf '    content-bot       local disk (no S3 driver yet; documented in docs/S3-STORAGE.md)\n'
+  printf '    media-studio      local disk (no S3 driver yet; documented in docs/S3-STORAGE.md)\n'
+  printf '    n8n               external binary storage requires n8n Enterprise; n8n still stores workflows locally\n'
+  printf '    hermes-agent      no object-storage integration\n'
+  printf '  Verify:             ./manage.sh s3-verify\n'
+}
+
+s3_prompt_value() {
+  local label="$1" key="$2" secret_input="${3:-false}" value
+  if [[ ! -t 0 ]]; then
+    printf 'Set %s in .env first, or run this command from an interactive terminal.\n' "$key" >&2
+    return 1
+  fi
+  if [[ "$secret_input" == true ]]; then
+    read -r -s -p "$label: " value
+    printf '\n'
+  else
+    read -r -p "$label: " value
+  fi
+  [[ -n "$value" ]] || { printf '%s must not be empty.\n' "$key" >&2; return 1; }
+  replace_env_value "$ENV_FILE" "$key" "$value"
+  printf 'Stored %s in .env.\n' "$key" >&2
+}
+
+s3_enable() {
+  local mode="" bind_ip="" arg endpoint key secret bucket region bind port rustfs_uid rustfs_gid rustfs_data_owner
+  while (($#)); do
+    arg="$1"; shift
+    case "$arg" in
+      --rustfs|rustfs) mode=rustfs ;;
+      --external|external) mode=external ;;
+      --bind-ip)
+        (($#)) || { printf 'Usage: ./manage.sh s3-enable [--rustfs|--external] [--bind-ip IP]\n' >&2; return 2; }
+        bind_ip="$1"; shift ;;
+      *) printf 'Usage: ./manage.sh s3-enable [--rustfs|--external] [--bind-ip IP]\n' >&2; return 2 ;;
+    esac
+  done
+  [[ -n "$mode" ]] || mode="$(s3_backend)"
+  [[ "$mode" == rustfs || "$mode" == external ]] || mode=rustfs
+
+  replace_env_value "$ENV_FILE" S3_FORCE_PATH_STYLE true
+
+  if [[ "$mode" == rustfs ]]; then
+    if [[ -n "$bind_ip" ]]; then
+      replace_env_value "$ENV_FILE" RUSTFS_BIND_IP "$bind_ip"
+    fi
+    # The container identity must match the owner of data/rustfs. Root-managed
+    # stacks keep the image identity (10001:10001); an unprivileged operator
+    # cannot chown the bind mounts, so the container is pinned to that operator
+    # instead of the image default.
+    configured_rustfs_uid="$(env_value "$ENV_FILE" RUSTFS_UID)"
+    rustfs_uid="$configured_rustfs_uid"
+    rustfs_gid="$(env_value "$ENV_FILE" RUSTFS_GID)"
+    if [[ "$(id -u)" != 0 && ( -z "$rustfs_uid" || "$rustfs_uid" == 10001 ) ]]; then
+      # Only take over the image default when the tree is missing or already
+      # owned by the caller; a root-managed tree keeps its configured identity.
+      rustfs_data_owner="$(stat -c '%u' "$(s3_data_dir)/data" 2>/dev/null || true)"
+      if [[ -z "$rustfs_data_owner" || "$rustfs_data_owner" == "$(id -u)" ]]; then
+        rustfs_uid="$(id -u)"
+        rustfs_gid="$(id -g)"
+      fi
+    fi
+    rustfs_uid="${rustfs_uid:-10001}"
+    rustfs_gid="${rustfs_gid:-10001}"
+    if [[ "$rustfs_uid" != "$configured_rustfs_uid" ]]; then
+      replace_env_value "$ENV_FILE" RUSTFS_UID "$rustfs_uid"
+      replace_env_value "$ENV_FILE" RUSTFS_GID "$rustfs_gid"
+      printf 'Pinned RUSTFS_UID/RUSTFS_GID to %s:%s in .env.\n' "$rustfs_uid" "$rustfs_gid"
+    fi
+    key="$(env_value "$ENV_FILE" RUSTFS_ACCESS_KEY)"
+    case "$key" in
+      ""|CHANGE_ME)
+        key="locallab-$(random_hex 6)"
+        replace_env_value "$ENV_FILE" RUSTFS_ACCESS_KEY "$key"
+        ;;
+    esac
+    secret="$(env_value "$ENV_FILE" RUSTFS_SECRET_KEY)"
+    case "$secret" in
+      ""|CHANGE_ME)
+        secret="$(random_hex 16)"
+        replace_env_value "$ENV_FILE" RUSTFS_SECRET_KEY "$secret"
+        ;;
+    esac
+    bucket="$(env_value "$ENV_FILE" S3_BUCKET)"; bucket="${bucket:-locallab}"
+    region="$(env_value "$ENV_FILE" RUSTFS_REGION)"; region="${region:-us-east-1}"
+    read -r bind port < <(s3_bind_port)
+    replace_env_value "$ENV_FILE" S3_STORAGE_BACKEND rustfs
+    replace_env_value "$ENV_FILE" S3_ENDPOINT_URL "http://rustfs:9000"
+    replace_env_value "$ENV_FILE" S3_ACCESS_KEY_ID "$key"
+    replace_env_value "$ENV_FILE" S3_SECRET_ACCESS_KEY "$secret"
+    replace_env_value "$ENV_FILE" S3_BUCKET "$bucket"
+    replace_env_value "$ENV_FILE" S3_REGION "$region"
+    replace_env_value "$ENV_FILE" S3_HOST_ENDPOINT_URL "http://$bind:$port"
+    replace_env_value "$ENV_FILE" OPENWEBUI_STORAGE_PROVIDER s3
+    s3_rustfs_add_profile
+    s3_prepare_dirs
+    compose up -d --no-deps rustfs
+    if s3_wait_healthy; then
+      s3_ensure_bucket || printf 'WARNING: the bucket could not be created yet; rerun ./manage.sh s3-verify --create-bucket.\n' >&2
+    else
+      printf 'WARNING: the RustFS API did not answer yet; check ./manage.sh logs rustfs.\n' >&2
+    fi
+    s3_recreate_consumers
+    printf '\nObject storage: RustFS (profile "rustfs")\n'
+    printf '  S3 API:  %s\n' "$(s3_host_endpoint)"
+    printf '  Console: %s\n' "$(s3_console_url)"
+    printf '  Bucket:  %s (region %s)\n' "$bucket" "$region"
+    printf '  Credentials stay in .env; print them with ./manage.sh s3-keys --show-secrets\n'
+    printf '  Publish it with domain: ./manage.sh s3-guide\n'
+    return 0
+  fi
+
+  # Values that belong to the bundled server never count as external ones.
+  endpoint="$(env_value "$ENV_FILE" S3_ENDPOINT_URL)"
+  case "$endpoint" in "http://rustfs:9000"|"http://rustfs:9000/") endpoint="" ;; esac
+  [[ -n "$endpoint" ]] || s3_prompt_value 'S3 endpoint URL (for example https://s3.eu-central-1.amazonaws.com)' S3_ENDPOINT_URL
+  key="$(env_value "$ENV_FILE" S3_ACCESS_KEY_ID)"
+  case "$key" in
+    ""|CHANGE_ME|"$(env_value "$ENV_FILE" RUSTFS_ACCESS_KEY)") s3_prompt_value 'S3 access key id' S3_ACCESS_KEY_ID ;;
+  esac
+  secret="$(env_value "$ENV_FILE" S3_SECRET_ACCESS_KEY)"
+  case "$secret" in
+    ""|CHANGE_ME|"$(env_value "$ENV_FILE" RUSTFS_SECRET_KEY)") s3_prompt_value 'S3 secret access key' S3_SECRET_ACCESS_KEY true ;;
+  esac
+  bucket="$(env_value "$ENV_FILE" S3_BUCKET)"; [[ -n "$bucket" ]] || s3_prompt_value 'S3 bucket name' S3_BUCKET
+  region="$(env_value "$ENV_FILE" S3_REGION)"; [[ -n "$region" ]] || s3_prompt_value 'S3 region' S3_REGION
+  replace_env_value "$ENV_FILE" S3_STORAGE_BACKEND external
+  replace_env_value "$ENV_FILE" S3_HOST_ENDPOINT_URL ""
+  replace_env_value "$ENV_FILE" OPENWEBUI_STORAGE_PROVIDER s3
+  s3_rustfs_remove_profile
+  compose --profile rustfs rm -sf rustfs >/dev/null 2>&1 || true
+  s3_recreate_consumers
+  printf '\nObject storage: external S3 endpoint\n'
+  printf '  Bucket: %s (region %s)\n' "$(env_value "$ENV_FILE" S3_BUCKET)" "$(env_value "$ENV_FILE" S3_REGION)"
+  printf '  Verify the endpoint and credentials with ./manage.sh s3-verify\n'
+}
+
+s3_disable() {
+  local running
+  replace_env_value "$ENV_FILE" S3_STORAGE_BACKEND off
+  replace_env_value "$ENV_FILE" OPENWEBUI_STORAGE_PROVIDER local
+  running="$(compose --profile rustfs ps -q rustfs 2>/dev/null || true)"
+  if [[ -n "$running" ]]; then
+    compose --profile rustfs rm -sf rustfs >/dev/null 2>&1 || true
+    printf 'Stopped the bundled RustFS container; its data stays in %s.\n' "$(s3_data_dir | sed "s|^$ROOT_DIR/||")"
+  fi
+  s3_rustfs_remove_profile
+  s3_recreate_consumers
+  printf 'Object storage disabled; services fall back to their local storage.\n'
+}
+
+s3_verify() {
+  local create_bucket=false arg endpoint bucket key secret region response code
+  while (($#)); do
+    arg="$1"; shift
+    case "$arg" in
+      --create-bucket) create_bucket=true ;;
+      *) printf 'Usage: ./manage.sh s3-verify [--create-bucket]\n' >&2; return 2 ;;
+    esac
+  done
+  [[ "$(s3_backend)" != off ]] || {
+    printf 'Object storage is off. Run ./manage.sh s3-enable --rustfs (or --external) first.\n' >&2
+    return 1
+  }
+  s3_curl_supported || {
+    printf 'This curl lacks --aws-sigv4 support, so signed S3 requests cannot be made here.\n' >&2
+    printf 'Run the check from a host with curl 7.75+ or use the provider console.\n' >&2
+    return 1
+  }
+  endpoint="$(s3_host_endpoint)"
+  bucket="$(env_value "$ENV_FILE" S3_BUCKET)"; bucket="${bucket:-locallab}"
+  key="$(env_value "$ENV_FILE" S3_ACCESS_KEY_ID)"
+  secret="$(env_value "$ENV_FILE" S3_SECRET_ACCESS_KEY)"
+  region="$(env_value "$ENV_FILE" S3_REGION)"; region="${region:-us-east-1}"
+  [[ -n "$endpoint" ]] || { printf 'No S3 endpoint is configured.\n' >&2; return 1; }
+  [[ -n "$key" && -n "$secret" ]] || { printf 'S3 credentials are missing; run ./manage.sh s3-enable.\n' >&2; return 1; }
+
+  printf 'Endpoint: %s\n' "$endpoint"
+  response="$(s3_signed_request GET "$endpoint/" "$key" "$secret" "$region" 2>/dev/null || true)"
+  code="${response: -3}"
+  if [[ "$code" != 200 ]]; then
+    printf 'FAIL: signed request was rejected (HTTP %s). Check the endpoint, region, and credentials.\n' "$code" >&2
+    return 1
+  fi
+  printf 'OK: signed request accepted; the credentials are valid.\n'
+  if [[ "${response%???}" == *"<Name>${bucket}</Name>"* ]]; then
+    printf 'OK: bucket "%s" exists.\n' "$bucket"
+  elif [[ "$create_bucket" == true ]]; then
+    response="$(s3_signed_request PUT "$endpoint/${bucket}" "$key" "$secret" "$region" 2>/dev/null || true)"
+    code="${response: -3}"
+    if [[ "$code" == 200 ]]; then
+      printf 'OK: created bucket "%s".\n' "$bucket"
+    else
+      printf 'FAIL: could not create bucket "%s" (HTTP %s).\n' "$bucket" "$code" >&2
+      return 1
+    fi
+  else
+    printf 'Bucket "%s" is missing; rerun with --create-bucket to create it.\n' "$bucket" >&2
+    return 1
+  fi
+  printf 'Object storage verification passed.\n'
+}
+
+s3_keys() {
+  local key secret
+  [[ "$(s3_backend)" == rustfs ]] || {
+    printf 'These credentials belong to the bundled RustFS server; the active backend is "%s".\n' "$(s3_backend)" >&2
+    return 1
+  }
+  key="$(env_value "$ENV_FILE" RUSTFS_ACCESS_KEY)"
+  secret="$(env_value "$ENV_FILE" RUSTFS_SECRET_KEY)"
+  printf 'RustFS access key id: %s\n' "${key:-<not set; run ./manage.sh s3-enable --rustfs>}"
+  case "${1:-}" in
+    --show-secrets)
+      [[ -r /dev/tty && -w /dev/tty ]] || { printf 'A controlling terminal is required to reveal secrets.\n' >&2; return 1; }
+      read -r -p 'Reveal the object-storage secret on this terminal? [y/N]: ' answer </dev/tty
+      [[ "$answer" =~ ^[Yy]$ ]] || { printf 'Secret not shown.\n'; return 0; }
+      printf 'RUSTFS_SECRET_KEY=%s\n' "$secret"
+      printf 'S3_ACCESS_KEY_ID=%s\n' "$key"
+      printf 'S3_SECRET_ACCESS_KEY=%s\n' "$secret"
+      ;;
+    --rotate)
+      key="locallab-$(random_hex 6)"
+      secret="$(random_hex 16)"
+      replace_env_value "$ENV_FILE" RUSTFS_ACCESS_KEY "$key"
+      replace_env_value "$ENV_FILE" RUSTFS_SECRET_KEY "$secret"
+      replace_env_value "$ENV_FILE" S3_ACCESS_KEY_ID "$key"
+      replace_env_value "$ENV_FILE" S3_SECRET_ACCESS_KEY "$secret"
+      compose up -d --no-deps --force-recreate rustfs >/dev/null
+      if s3_wait_healthy; then
+        s3_ensure_bucket || true
+      fi
+      s3_recreate_consumers
+      printf 'Rotated the RustFS credentials; new access key id: %s\n' "$key"
+      printf 'Print it with ./manage.sh s3-keys --show-secrets when you need to configure a client.\n'
+      ;;
+    "")
+      printf 'Use --show-secrets to print the credentials or --rotate to replace them.\n'
+      ;;
+    *) printf 'Usage: ./manage.sh s3-keys [--show-secrets|--rotate]\n' >&2; return 2 ;;
+  esac
+}
+
+s3_guide() {
+  local lan_ip bind
+  lan_ip="$(ip -4 route get 1.1.1.1 2>/dev/null \
+    | awk '{ for (i=1; i<=NF; i++) if ($i == "src") { print $(i+1); exit } }')"
+  bind="$(s3_bind_port)"
+  printf 'Object storage guide: docs/S3-STORAGE.md\n'
+  printf '\nPublic domain route (ArvanCloud -> router reverse proxy -> this stack):\n'
+  printf '  1) DNS: create s3.stack.locallab.ir (and console.stack.locallab.ir if you\n'
+  printf '     want the console) in ArvanCloud, proxied as usual.\n'
+  printf '  2) The stack must listen on the LAN address instead of loopback:\n'
+  printf '     ./manage.sh s3-enable --rustfs --bind-ip %s\n' "${lan_ip:-<LAN-IP>}"
+  printf '     (console bind: set RUSTFS_CONSOLE_BIND_IP=%s in .env the same way)\n' "${lan_ip:-<LAN-IP>}"
+  printf '  3) On the MikroTik Caddy container add:\n'
+  printf '     s3.stack.locallab.ir {\n         encode zstd gzip\n         reverse_proxy %s:%s\n     }\n' \
+    "${lan_ip:-<STACK-LAN-IP>}" "$(printf '%s' "$bind" | awk '{print $2}')"
+  printf '  4) Record the public origin for the stack: S3_PUBLIC_BASE_URL=https://s3.stack.locallab.ir in .env\n'
+  printf '     For the console add S3_PUBLIC_CONSOLE_URL=https://console.stack.locallab.ir/rustfs/console and\n'
+  printf '     RUSTFS_CONSOLE_BIND_IP=%s, then restart rustfs.\n' "${lan_ip:-<LAN-IP>}"
+  printf '\nSecurity: keep the console off the public internet unless you accept the risk; the S3 API\n'
+  printf 'must always sit behind strong credentials. ./manage.sh s3-keys --rotate replaces them.\n'
+  printf 'External provider instead of RustFS: ./manage.sh s3-enable --external\n'
+}
+
+storage_menu() {
+  local choice
+  while true; do
+    menu_title 'Object Storage (S3)'
+    printf '%s\n' '1) Status                  Backend, endpoints, bucket and consumers'
+    printf '%s\n' '2) Enable RustFS           Bundled S3 server for the stack'
+    printf '%s\n' '3) Use an external S3      Point the stack at another provider'
+    printf '%s\n' '4) Verify                  Signed request, credentials and bucket'
+    printf '%s\n' '5) Create the bucket       Only when it is still missing'
+    printf '%s\n' '6) Credentials             Show or rotate the RustFS keys'
+    printf '%s\n' '7) Public domain guide     ArvanCloud, router proxy and bind addresses'
+    printf '%s\n' '8) Follow RustFS logs'
+    printf '%s\n' '9) Disable                 Back to local storage'
+    printf '%s\n' '0) Back'
+    read -r -p 'Choose [0]: ' choice
+    case "${choice:-0}" in
+      1) s3_status; menu_pause ;;
+      2) s3_enable --rustfs; menu_pause ;;
+      3) s3_enable --external; menu_pause ;;
+      4) s3_verify; menu_pause ;;
+      5) s3_verify --create-bucket; menu_pause ;;
+      6)
+        printf '%s\n' '1) Show access key id  2) Reveal credentials  3) Rotate'
+        read -r -p 'Choose [1]: ' choice
+        case "${choice:-1}" in
+          1) s3_keys ;;
+          2) s3_keys --show-secrets ;;
+          3) s3_keys --rotate ;;
+          *) printf 'Unknown choice.\n' >&2 ;;
+        esac
+        menu_pause
+        ;;
+      7) s3_guide; menu_pause ;;
+      8) compose logs -f --tail=100 rustfs ;;
+      9) s3_disable; menu_pause ;;
+      0) return 0 ;;
+      *) printf 'Unknown choice.\n' >&2 ;;
+    esac
+  done
+}
+
 env_value() {
   local file="$1" key="$2" value="" count
   [[ -f "$file" ]] || return 0
@@ -2519,6 +3040,13 @@ case "$command" in
   panel-token) panel_token ;;
   panel-rotate-token) panel_rotate_token ;;
   panel-build) panel_build ;;
+  storage|storage-menu) storage_menu ;;
+  s3-status) s3_status ;;
+  s3-enable) shift; s3_enable "$@" ;;
+  s3-disable) s3_disable ;;
+  s3-verify) shift; s3_verify "$@" ;;
+  s3-keys) shift; s3_keys "${1:-}" ;;
+  s3-guide) s3_guide ;;
   execution|execution-menu) execution_menu ;;
   maintenance|maintenance-menu) maintenance_menu ;;
   security|security-menu) security_menu ;;
@@ -2564,7 +3092,8 @@ case "$command" in
       content|content-bot) compose logs -f --tail=100 content-bot ;;
       media|media-studio) compose logs -f --tail=100 media-studio ;;
       caddy) compose logs -f --tail=100 caddy ;;
-      *) printf 'Choose hermes, 9router, omniroute, smart-router, webui, n8n, content, media, or caddy.\n' >&2; exit 2 ;;
+      rustfs|s3) compose logs -f --tail=100 rustfs ;;
+      *) printf 'Choose hermes, 9router, omniroute, smart-router, webui, n8n, content, media, caddy, or rustfs.\n' >&2; exit 2 ;;
     esac
     ;;
   dashboard-access)

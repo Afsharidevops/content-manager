@@ -528,6 +528,28 @@ choose_router_backend() {
   done
 }
 
+choose_s3_backend() {
+  local default_label="${1:-off}" label
+  # The menu goes to stderr: callers capture stdout for the selected backend.
+  printf '%s\n' 'Object storage backend:' >&2
+  printf '%s\n' '  1) RustFS   - run the bundled S3-compatible server inside this stack' >&2
+  printf '%s\n' '  2) External - point the stack at another S3 provider (AWS S3, Cloudflare R2, Backblaze B2, MinIO, Arvan S3, ...)' >&2
+  printf '%s\n' '  3) Off      - services keep their local storage' >&2
+  while true; do
+    case "$default_label" in
+      rustfs) label="$(prompt "Choose object storage" "1")" ;;
+      external) label="$(prompt "Choose object storage" "2")" ;;
+      *) label="$(prompt "Choose object storage" "3")" ;;
+    esac
+    case "$label" in
+      rustfs|1) printf 'rustfs'; return 0 ;;
+      external|2) printf 'external'; return 0 ;;
+      off|none|3) printf 'off'; return 0 ;;
+      *) warn "Choose 1 (RustFS), 2 (external), or 3 (off)." >&2 ;;
+    esac
+  done
+}
+
 printf '\nContent Manager - Easy Installer\n'
 printf '%s\n' '================================'
 printf '%s\n' 'Hermes Linux Stack v0.5.9 platform extended with the Content Manager daily content pipeline layer.'
@@ -555,6 +577,12 @@ change_bind_ips=false
 n8n_ready=false
 install_omniroute=false
 omniroute_was_enabled=false
+install_rustfs=false
+s3_change=false
+s3_choice=off
+s3_backend_configured=off
+rustfs_access_key=""
+rustfs_secret_key=""
 nine_was_enabled=false
 router_backend_changed=false
 
@@ -588,6 +616,9 @@ if [[ -f "$ENV_FILE" ]]; then
   media_was_enabled="$install_media"
   install_caddy=false; profile_enabled caddy && install_caddy=true
   install_panel=false; profile_enabled panel && install_panel=true
+  install_rustfs=false; profile_enabled rustfs && install_rustfs=true
+  s3_backend_configured="$(existing_env_value S3_STORAGE_BACKEND)"
+  s3_backend_configured="${s3_backend_configured:-off}"
 
   printf 'Existing components: %s\n' "$(existing_env_value COMPOSE_PROFILES)"
   printf '%s\n' 'The wizard keeps existing components, secrets, and data by default.'
@@ -705,6 +736,25 @@ if [[ -f "$ENV_FILE" ]]; then
       "$([[ "$install_content" == true || "$install_media" == true ]] && printf y || printf n)"; then
       install_panel=true
     fi
+    if [[ "$s3_backend_configured" != off ]]; then
+      if confirm "Keep the configured object storage ($s3_backend_configured) for this stack?" y; then
+        if [[ "$s3_backend_configured" == rustfs ]]; then
+          install_rustfs=true
+        else
+          install_rustfs=false
+        fi
+      else
+        s3_change=true
+        s3_choice="$(choose_s3_backend off)"
+        install_rustfs=false
+        [[ "$s3_choice" == rustfs ]] && install_rustfs=true
+      fi
+    elif confirm "Add S3-compatible object storage (bundled RustFS server or an external endpoint)?" n; then
+      s3_change=true
+      s3_choice="$(choose_s3_backend off)"
+      install_rustfs=false
+      [[ "$s3_choice" == rustfs ]] && install_rustfs=true
+    fi
     confirm "Change published container bind IPs only?" n && change_bind_ips=true
   fi
 else
@@ -803,6 +853,13 @@ else
     "$([[ "$install_content" == true || "$install_media" == true ]] && printf y || printf n)"; then
     install_panel=true
   fi
+  install_rustfs=false
+  if confirm "Add S3-compatible object storage (bundled RustFS server, or an external endpoint)?" \
+    "$([[ "$install_webui" == true ]] && printf y || printf n)"; then
+    s3_change=true
+    s3_choice="$(choose_s3_backend off)"
+    [[ "$s3_choice" == rustfs ]] && install_rustfs=true
+  fi
 fi
 
 profiles=""
@@ -815,6 +872,7 @@ profiles=""
 [[ "$install_content" == true ]] && profiles="${profiles:+$profiles,}content"
 [[ "$install_media" == true ]] && profiles="${profiles:+$profiles,}media"
 [[ "$install_panel" == true ]] && profiles="${profiles:+$profiles,}panel"
+[[ "$install_rustfs" == true ]] && profiles="${profiles:+$profiles,}rustfs"
 
 # The operator panel binds to loopback by default. A reverse proxy on the
 # router (or another host) can front it over the LAN, so the wizard offers the
@@ -840,6 +898,79 @@ if [[ "$install_panel" == true ]]; then
   else
     panel_bind="127.0.0.1"
   fi
+fi
+
+# RustFS follows the same pattern: the API and console listen on loopback
+# unless a reverse proxy on another host publishes them, in which case the
+# wizard suggests the detected LAN address the proxy must connect to.
+rustfs_port="$(existing_env_value RUSTFS_PORT)"
+rustfs_port="${rustfs_port:-9000}"
+rustfs_console_port="$(existing_env_value RUSTFS_CONSOLE_PORT)"
+rustfs_console_port="${rustfs_console_port:-9001}"
+rustfs_bind="$(existing_env_value RUSTFS_BIND_IP)"
+rustfs_console_bind="$(existing_env_value RUSTFS_CONSOLE_BIND_IP)"
+rustfs_public_url="$(existing_env_value S3_PUBLIC_BASE_URL)"
+rustfs_public_console_url="$(existing_env_value S3_PUBLIC_CONSOLE_URL)"
+s3_endpoint="$(existing_env_value S3_ENDPOINT_URL)"
+s3_bucket="$(existing_env_value S3_BUCKET)"
+s3_bucket="${s3_bucket:-locallab}"
+s3_region="$(existing_env_value S3_REGION)"
+s3_region="${s3_region:-us-east-1}"
+s3_access_key="$(existing_env_value S3_ACCESS_KEY_ID)"
+s3_secret_key="$(existing_env_value S3_SECRET_ACCESS_KEY)"
+if [[ "$s3_change" == true && "$s3_choice" == rustfs ]]; then
+  printf '\nRustFS object storage\n'
+  printf '%s\n' '--------------------'
+  printf '%s\n' 'The S3 API and the web console listen on 127.0.0.1 by default, so only'
+  printf '%s\n' 'this host can reach them. A reverse proxy on another host (for example'
+  printf '%s\n' 'the router) needs the LAN address instead.'
+  if confirm "Will a reverse proxy on another host publish the S3 API or console?" n; then
+    while true; do
+      rustfs_bind="$(prompt "S3 API bind address (LAN address that proxy connects to)" "${rustfs_bind:-${lan_ip:-127.0.0.1}}")"
+      valid_bind_ip "$rustfs_bind" && break
+      warn "Enter an IPv4 address, for example 192.168.1.50."
+    done
+    while true; do
+      rustfs_console_bind="$(prompt "RustFS console bind address" "${rustfs_console_bind:-${lan_ip:-127.0.0.1}}")"
+      valid_bind_ip "$rustfs_console_bind" && break
+      warn "Enter an IPv4 address, for example 192.168.1.50."
+    done
+    printf '%s\n' "Point that proxy at http://$rustfs_bind:$rustfs_port (API) and http://$rustfs_console_bind:$rustfs_console_port/rustfs/console/ (console)."
+    if confirm "Does that proxy terminate HTTPS for the object storage?" y; then
+      rustfs_public_url="$(prompt "Public S3 origin" "${rustfs_public_url:-s3.stack.locallab.ir}")"
+      if [[ -n "$rustfs_public_url" && "$rustfs_public_url" != http* ]]; then
+        rustfs_public_url="https://$rustfs_public_url"
+      fi
+      rustfs_public_console_url="$(prompt "Public console origin (Enter to skip)" "$rustfs_public_console_url")"
+      if [[ -n "$rustfs_public_console_url" && "$rustfs_public_console_url" != http* ]]; then
+        rustfs_public_console_url="https://$rustfs_public_console_url"
+      fi
+      printf '%s\n' 'Set S3_PUBLIC_BASE_URL/S3_PUBLIC_CONSOLE_URL later in .env when the proxy hostname changes.'
+    fi
+  elif [[ -n "$rustfs_bind" && "$rustfs_bind" != 127.0.0.1 ]]; then
+    printf '%s\n' "Keeping the existing object storage bind addresses $rustfs_bind:$rustfs_port and $rustfs_console_bind:$rustfs_console_port."
+  else
+    rustfs_bind="127.0.0.1"
+    rustfs_console_bind="127.0.0.1"
+  fi
+fi
+if [[ "$s3_change" == true && "$s3_choice" == external ]]; then
+  printf '\nExternal S3 endpoint\n'
+  printf '%s\n' '--------------------'
+  printf '%s\n' 'The stack stores uploads and generated files in this bucket.'
+  while true; do
+    s3_endpoint="$(prompt "S3 endpoint URL (for example https://s3.eu-central-1.amazonaws.com)" "$s3_endpoint")"
+    [[ -n "$s3_endpoint" ]] && break
+    warn "An endpoint URL is required."
+  done
+  s3_bucket="$(prompt "S3 bucket name" "$s3_bucket")"
+  while [[ -z "$s3_bucket" ]]; do
+    warn "A bucket name is required."
+    s3_bucket="$(prompt "S3 bucket name" "locallab")"
+  done
+  s3_region="$(prompt "S3 region" "$s3_region")"
+  s3_access_key="$(prompt_secret "S3 access key id")"
+  s3_secret_key="$(prompt_secret "S3 secret access key")"
 fi
 
 mkdir -p "$HERMES_DIR" "$NINEROUTER_DIR" "$OMNIROUTE_DIR" "$OPENWEBUI_DIR" "$SMART_ROUTER_DIR" "$N8N_DIR" "$CADDY_DIR" \
@@ -1751,6 +1882,33 @@ else
   media_run_as="${media_run_as:-10005:10005}"
 fi
 
+# The RustFS image runs as its own unprivileged user. Root installs keep the
+# image identity (10001:10001) so the bind-mounted data stays private, while
+# unprivileged installs map the container to the invoking user.
+if [[ "$install_rustfs" == true ]]; then
+  if [[ "$invoking_uid" == 0 ]]; then
+    rustfs_uid=10001
+    rustfs_gid=10001
+  else
+    rustfs_uid="$invoking_uid"
+    rustfs_gid="$invoking_gid"
+  fi
+else
+  rustfs_uid="$(existing_env_value RUSTFS_UID)"
+  rustfs_uid="${rustfs_uid:-10001}"
+  rustfs_gid="$(existing_env_value RUSTFS_GID)"
+  rustfs_gid="${rustfs_gid:-10001}"
+fi
+# Object-storage credentials: generated once, then preserved on every rerun.
+rustfs_access_key="$(existing_env_value RUSTFS_ACCESS_KEY)"
+case "$rustfs_access_key" in
+  ""|CHANGE_ME) rustfs_access_key="locallab-$(random_hex 6)" ;;
+esac
+rustfs_secret_key="$(existing_env_value RUSTFS_SECRET_KEY)"
+case "$rustfs_secret_key" in
+  ""|CHANGE_ME) rustfs_secret_key="$(random_hex 16)" ;;
+esac
+
 if [[ "$hermes_dashboard" == 1 ]]; then
   [[ -n "$hermes_dashboard_username" && -n "$hermes_dashboard_password" \
     && -n "$hermes_dashboard_secret" ]] \
@@ -1936,6 +2094,52 @@ if [[ "$install_content" == true && "$install_media" != true && "$media_was_enab
     replace_env_value "$tmp_env" CONTENT_MEDIA_STUDIO_TOKEN ""
   fi
 fi
+# Shared S3-compatible object storage. Values are only rewritten when the
+# operator added or replaced the backend, so hand-edited endpoints and
+# external credentials survive reconfigure runs.
+if [[ "$s3_change" == true ]]; then
+  case "$s3_choice" in
+    rustfs)
+      replace_env_value "$tmp_env" S3_STORAGE_BACKEND rustfs
+      replace_env_value "$tmp_env" S3_ENDPOINT_URL "http://rustfs:9000"
+      replace_env_value "$tmp_env" S3_ACCESS_KEY_ID "$(dotenv_quote "$rustfs_access_key")"
+      replace_env_value "$tmp_env" S3_SECRET_ACCESS_KEY "$(dotenv_quote "$rustfs_secret_key")"
+      replace_env_value "$tmp_env" S3_BUCKET "$(dotenv_quote "$s3_bucket")"
+      replace_env_value "$tmp_env" S3_REGION "$(dotenv_quote "$s3_region")"
+      replace_env_value "$tmp_env" S3_FORCE_PATH_STYLE true
+      replace_env_value "$tmp_env" S3_HOST_ENDPOINT_URL "http://${rustfs_bind}:${rustfs_port}"
+      replace_env_value "$tmp_env" RUSTFS_ACCESS_KEY "$(dotenv_quote "$rustfs_access_key")"
+      replace_env_value "$tmp_env" RUSTFS_SECRET_KEY "$(dotenv_quote "$rustfs_secret_key")"
+      replace_env_value "$tmp_env" RUSTFS_BIND_IP "$rustfs_bind"
+      replace_env_value "$tmp_env" RUSTFS_PORT "$rustfs_port"
+      replace_env_value "$tmp_env" RUSTFS_CONSOLE_BIND_IP "$rustfs_console_bind"
+      replace_env_value "$tmp_env" RUSTFS_CONSOLE_PORT "$rustfs_console_port"
+      replace_env_value "$tmp_env" RUSTFS_UID "$rustfs_uid"
+      replace_env_value "$tmp_env" RUSTFS_GID "$rustfs_gid"
+      replace_env_value "$tmp_env" RUSTFS_REGION "$s3_region"
+      replace_env_value "$tmp_env" S3_PUBLIC_BASE_URL "$(dotenv_quote "$rustfs_public_url")"
+      replace_env_value "$tmp_env" S3_PUBLIC_CONSOLE_URL "$(dotenv_quote "$rustfs_public_console_url")"
+      ;;
+    external)
+      replace_env_value "$tmp_env" S3_STORAGE_BACKEND external
+      replace_env_value "$tmp_env" S3_ENDPOINT_URL "$(dotenv_quote "$s3_endpoint")"
+      replace_env_value "$tmp_env" S3_ACCESS_KEY_ID "$(dotenv_quote "$s3_access_key")"
+      replace_env_value "$tmp_env" S3_SECRET_ACCESS_KEY "$(dotenv_quote "$s3_secret_key")"
+      replace_env_value "$tmp_env" S3_BUCKET "$(dotenv_quote "$s3_bucket")"
+      replace_env_value "$tmp_env" S3_REGION "$(dotenv_quote "$s3_region")"
+      replace_env_value "$tmp_env" S3_HOST_ENDPOINT_URL ""
+      ;;
+    off)
+      replace_env_value "$tmp_env" S3_STORAGE_BACKEND off
+      ;;
+  esac
+  if [[ "$s3_choice" == off ]]; then
+    replace_env_value "$tmp_env" OPENWEBUI_STORAGE_PROVIDER local
+  else
+    replace_env_value "$tmp_env" OPENWEBUI_STORAGE_PROVIDER s3
+  fi
+fi
+
 # The operator panel runs as the stack owner and joins the Docker socket
 # group so the mounted socket stays root:docker 0660.
 if [[ "$install_panel" == true ]]; then
@@ -2248,6 +2452,13 @@ fi
 if [[ "$DRY_RUN" != true && "$install_media" == true ]]; then
   install -d -m 0700 -o "$media_uid" -g "$media_gid" \
     "$ROOT_DIR/data/media-studio"
+fi
+
+# RustFS keeps objects and logs in one owner-only tree. The container runs as
+# RUSTFS_UID/RUSTFS_GID, so the bind mounts must already belong to that user.
+if [[ "$DRY_RUN" != true && "$install_rustfs" == true ]]; then
+  install -d -m 0700 -o "$rustfs_uid" -g "$rustfs_gid" \
+    "$ROOT_DIR/data/rustfs/data" "$ROOT_DIR/data/rustfs/logs"
 fi
 
 if [[ "$DRY_RUN" == true ]]; then
@@ -2613,6 +2824,22 @@ fi
 if [[ "$install_content" == true && "$install_media" == true ]]; then
   printf '%s\n' 'Content pipeline: Content Bot and Media Studio are wired on this server'
   printf '%s\n' 'Content pipeline status: ./manage.sh pipeline-status'
+fi
+if [[ "$install_rustfs" == true ]]; then
+  printf '%s\n' 'Object storage: RustFS (S3-compatible) is bundled with this stack'
+  printf '%s\n' "Object storage API: http://${rustfs_bind:-127.0.0.1}:${rustfs_port:-9000}"
+  if [[ -n "${rustfs_public_url:-}" ]]; then
+    printf '%s\n' "Object storage public origin: $rustfs_public_url (proxy target http://${rustfs_bind}:${rustfs_port})"
+  fi
+  printf '%s\n' "RustFS console: http://${rustfs_console_bind:-127.0.0.1}:${rustfs_console_port:-9001}/rustfs/console/"
+  printf '%s\n' 'Object storage bucket: '"${s3_bucket:-locallab}"' (credentials live in .env)'
+  printf '%s\n' 'Object storage status: ./manage.sh s3-status'
+  printf '%s\n' 'Object storage guide: docs/S3-STORAGE.md'
+fi
+if [[ "$s3_change" == true && "$s3_choice" == external ]]; then
+  printf '%s\n' "Object storage: external S3 endpoint ${s3_endpoint:-<unset>} (bucket ${s3_bucket:-<unset>})"
+  printf '%s\n' 'Object storage status: ./manage.sh s3-status'
+  printf '%s\n' 'Object storage guide: docs/S3-STORAGE.md'
 fi
 if [[ "$install_panel" == true ]]; then
   printf '%s\n' 'Operator panel: web console for stack status, configuration, logs and actions'
