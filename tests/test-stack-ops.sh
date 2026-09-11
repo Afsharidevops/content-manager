@@ -86,7 +86,7 @@ JSON
     "ps -q nine-router"*) printf 'cid-nine-router\n' ;;
     "ps -q n8n-init"*) printf 'cid-n8n-init\n' ;;
     "ps -q open-webui"*) printf 'cid-open-webui\n' ;;
-    "pause "*|"unpause "*) exit 0 ;;
+    "pause "*|"unpause "*|"stop "*) exit 0 ;;
     *)
       printf 'fake docker compose: unsupported args: %s\n' "$*" >&2
       exit 64
@@ -169,6 +169,90 @@ if output="$($FIX/scripts/stack-ops.sh version)" && grep -q '0.2.0-test' <<<"$ou
   ok "version command does not require Docker"
 else
   not_ok "version command does not require Docker"
+fi
+
+# 7. Section list is available without Docker and names the scoped paths.
+if output="$($FIX/scripts/stack-ops.sh backup-sections)" \
+   && grep -q '^env ' <<<"$output" \
+   && grep -q '^panel *data/panel' <<<"$output" \
+   && grep -q 'data/content-bot' <<<"$output"; then
+  ok "backup-sections lists the scoped backup sections"
+else
+  not_ok "backup-sections lists the scoped backup sections"
+fi
+
+# A fake sudo keeps the restore path testable without root.
+cat > "$TMP/bin/sudo" <<'SUDO'
+#!/usr/bin/env bash
+set -eu
+if [[ "${1:-}" == "-v" || "${1:-}" == "-n" ]]; then exit 0; fi
+exec "$@"
+SUDO
+chmod +x "$TMP/bin/sudo"
+
+mkdir -p "$FIX/data/panel" "$FIX/data/content-bot/media"
+printf 'panel-token\n' > "$FIX/data/panel/token"
+printf 'content-media\n' > "$FIX/data/content-bot/media/clip.txt"
+
+# 8. A section backup contains only the selected paths and records them.
+section_archive=""
+if section_archive="$($FIX/scripts/stack-ops.sh backup --destination "$TMP/backups" --no-pause --label partial --only panel)" \
+   && [[ -f "$section_archive" ]] \
+   && tar -tzf "$section_archive" | grep -q 'data/panel/token' \
+   && ! tar -tzf "$section_archive" | grep -q 'data/content-bot/' \
+   && ! tar -tzf "$section_archive" | grep -qE '(^|/)\.env$' \
+   && tar -xOzf "$section_archive" manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["format"] == 2; assert m["full"] is False; assert m["sections"] == ["panel"]; assert m["paths"] == ["data/panel"]; assert m["source_root"]' \
+   && python3 -c 'import json,sys,os; d=json.load(open(sys.argv[1])); assert d["full"] is False; assert d["sections"] == ["panel"]' "$section_archive.meta.json"; then
+  ok "backup --only stores the selected section, manifest, and metadata"
+else
+  not_ok "backup --only stores the selected section, manifest, and metadata"
+fi
+
+# 9. An unknown section name is rejected before any archive is written.
+if $FIX/scripts/stack-ops.sh backup --destination "$TMP/backups" --no-pause --only nosuchsection >/dev/null 2>&1; then
+  not_ok "backup --only rejects unknown sections"
+else
+  ok "backup --only rejects unknown sections"
+fi
+
+# 10. A partial restore replaces only the archived paths.
+printf 'operator-edited\n' > "$FIX/data/panel/token"
+printf 'untouched\n' > "$FIX/data/content-bot/media/clip.txt"
+if "$FIX/scripts/stack-ops.sh" restore "$section_archive" --no-start >/dev/null 2>&1 \
+   && [[ "$(cat "$FIX/data/panel/token")" == "panel-token" ]] \
+   && [[ "$(cat "$FIX/data/content-bot/media/clip.txt")" == "untouched" ]] \
+   && ! compgen -G "$FIX/restore-old.*" >/dev/null; then
+  ok "partial restore restores its section and leaves other data alone"
+else
+  not_ok "partial restore restores its section and leaves other data alone"
+fi
+
+# 11. Restoring a backup from another root rewrites absolute host paths in .env.
+mkdir -p "$TMP/portable"
+cat > "$TMP/portable/.env" <<'ENVFILE'
+COMPOSE_PROFILES=9router
+EXECUTION_WORKSPACE_HOST_PATH=/old/root/data/execution-workspace
+PANEL_STACK_PATH=/old/root
+ENVFILE
+printf '{"format":2,"full":false,"sections":["env"],"paths":[".env"],"source_root":"/old/root"}\n' > "$TMP/portable/manifest.json"
+tar -czf "$TMP/portable.tar.gz" -C "$TMP/portable" .env manifest.json
+if "$FIX/scripts/stack-ops.sh" restore "$TMP/portable.tar.gz" --no-start >/dev/null 2>&1 \
+   && grep -q "^EXECUTION_WORKSPACE_HOST_PATH=$FIX/data/execution-workspace$" "$FIX/.env" \
+   && grep -q "^PANEL_STACK_PATH=$FIX$" "$FIX/.env" \
+   && grep -q '^COMPOSE_PROFILES=9router$' "$FIX/.env"; then
+  ok "restore rewrites host paths when the archive came from another root"
+else
+  not_ok "restore rewrites host paths when the archive came from another root"
+fi
+
+# 12. backup-list reports the sections of every archive.
+if output="$($FIX/scripts/stack-ops.sh backup-list --destination "$TMP/backups")" \
+   && grep -q 'sections=panel' <<<"$output" \
+   && output_json="$($FIX/scripts/stack-ops.sh backup-list --destination "$TMP/backups" --json)" \
+   && python3 -c 'import json,sys; items=json.loads(sys.argv[1]); assert any(item.get("sections") == ["panel"] for item in items)' "$output_json"; then
+  ok "backup-list reports the sections recorded in each archive"
+else
+  not_ok "backup-list reports the sections recorded in each archive"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

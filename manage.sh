@@ -113,6 +113,15 @@ Media Studio automation:
   media-guide                 Print the Media Studio setup and API guide pointer
   media-configure             Reconfigure Media Studio settings (installer wizard)
 
+Backup and restore automation:
+  backup [--only SECTION[,...]] [--destination DIR] [--label NAME]
+                              Full-stack or per-section backup archive
+  backup-sections             List the section names accepted by --only
+  backup-list                 List archives with the sections they contain
+  restore ARCHIVE [--no-start] [--no-relocate]
+                              Restore a full or partial archive; host paths in
+                              a restored .env are rewritten to this checkout
+
 Content pipeline automation (Content Bot + Media Studio on one server):
   pipeline-status             Combined Content Bot, Media Studio, and API link status
 
@@ -510,19 +519,21 @@ maintenance_menu() {
     menu_title 'Maintenance, Backup & Recovery'
     printf '%s\n' '1) Update official images and recreate services'
     printf '%s\n' '2) Create backup'
-    printf '%s\n' '3) List backups'
-    printf '%s\n' '4) Restore backup archive'
-    printf '%s\n' '5) Roll back last update/state'
-    printf '%s\n' '6) Version information'
+    printf '%s\n' '3) Create a section backup (env, content, panel, ...)'
+    printf '%s\n' '4) List backups'
+    printf '%s\n' '5) Restore backup archive'
+    printf '%s\n' '6) Roll back last update/state'
+    printf '%s\n' '7) Version information'
     printf '%s\n' '0) Back'
     read -r -p 'Choose [0]: ' choice
     case "${choice:-0}" in
       1) read -r -p 'Pull and recreate selected services? [y/N]: ' value; [[ "$value" =~ ^[Yy]$ ]] && "$ROOT_DIR/manage.sh" update; menu_pause ;;
       2) "$ROOT_DIR/manage.sh" backup; menu_pause ;;
-      3) "$ROOT_DIR/manage.sh" backup-list; menu_pause ;;
-      4) read -r -p 'Backup archive path: ' value; [[ -n "$value" ]] && "$ROOT_DIR/manage.sh" restore "$value"; menu_pause ;;
-      5) read -r -p 'State ID (Enter = latest): ' value; if [[ -n "$value" ]]; then "$ROOT_DIR/manage.sh" rollback "$value"; else "$ROOT_DIR/manage.sh" rollback; fi; menu_pause ;;
-      6) "$ROOT_DIR/manage.sh" version; menu_pause ;;
+      3) "$ROOT_DIR/manage.sh" backup-sections; read -r -p 'Sections (comma separated): ' value; [[ -n "$value" ]] && "$ROOT_DIR/manage.sh" backup --only "$value"; menu_pause ;;
+      4) "$ROOT_DIR/manage.sh" backup-list; menu_pause ;;
+      5) read -r -p 'Backup archive path: ' value; [[ -n "$value" ]] && "$ROOT_DIR/manage.sh" restore "$value"; menu_pause ;;
+      6) read -r -p 'State ID (Enter = latest): ' value; if [[ -n "$value" ]]; then "$ROOT_DIR/manage.sh" rollback "$value"; else "$ROOT_DIR/manage.sh" rollback; fi; menu_pause ;;
+      7) "$ROOT_DIR/manage.sh" version; menu_pause ;;
       0) return 0 ;;
       *) printf 'Unknown maintenance choice.\n' >&2 ;;
     esac
@@ -3657,7 +3668,7 @@ PY
     ;;
   health) shift; ops health "$@" ;;
   version) ops version ;;
-  backup|backup-list|restore|rollback|lock-images|verify-images) cmd="$1"; shift; ops "$cmd" "$@" ;;
+  backup|backup-sections|backup-list|restore|rollback|lock-images|verify-images) cmd="$1"; shift; ops "$cmd" "$@" ;;
   router-status)
     profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
     if [[ ",$profiles," != *,smart-router,* ]]; then

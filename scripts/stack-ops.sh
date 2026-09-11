@@ -36,17 +36,24 @@ Operational-safety commands:
       successful exit.
 
   backup [--destination DIR] [--label NAME] [--no-pause]
-         [--age-recipient RECIPIENT]
+         [--only SECTION[,SECTION...]] [--age-recipient RECIPIENT]
       Create a checksum-protected backup of .env and data/. Running containers
       are paused by default so SQLite/WAL files are copied from a stable point.
+      --only limits the archive to the named sections (see backup-sections) so
+      one part of the stack can be restored without touching the rest.
+
+  backup-sections
+      List the section names and paths accepted by backup --only.
 
   backup-list [--destination DIR] [--json]
-      List backups.
+      List backups together with the sections each archive contains.
 
-  restore ARCHIVE [--wait SECONDS] [--no-start]
+  restore ARCHIVE [--wait SECONDS] [--no-start] [--no-relocate]
       Validate and restore a backup. A pre-restore backup is created first.
-      The current data directory is retained until configuration validation
-      succeeds, then services are restarted and checked.
+      Full archives replace .env and data/; partial archives copy only the
+      sections they contain. Absolute host paths in a restored .env are
+      rewritten to this checkout when the archive was created under a
+      different root, which makes an archive portable across servers.
 
   update [--plan] [--wait SECONDS] [--no-backup] [--force]
       Pull and recreate selected services. Before updating, record current image
@@ -346,12 +353,132 @@ resume_after_backup() {
   fi
 }
 
+# Section table for scoped backups. Each line is "SECTION PATH [PATH...]" and
+# lists stable paths under the repository root. `backup --only` accepts these
+# names; the manifest of every archive records the resolved section list so a
+# restore knows whether it owns the whole stack or one part of it.
+backup_sections_table() {
+  cat <<'TABLE'
+env .env
+secrets data/stack-secrets
+hermes data/hermes
+router data/smart-router data/9router data/omniroute
+content data/content-manager data/content-bot
+media data/media-studio
+panel data/panel
+n8n data/n8n
+openwebui data/open-webui
+caddy data/caddy
+execution data/execution-workspace
+state data/stack-state
+compose docker-compose.yml stack.lock.json
+TABLE
+}
+
+backup_section_paths() {
+  local section="$1" name paths
+  while read -r name paths; do
+    [[ -n "$name" ]] || continue
+    if [[ "$name" == "$section" ]]; then
+      # shellcheck disable=SC2086  # paths is a deliberate space-separated list
+      printf '%s\n' $paths
+      return 0
+    fi
+  done < <(backup_sections_table)
+  return 1
+}
+
+backup_all_sections() {
+  backup_sections_table | awk '{print $1}'
+}
+
+backup_sections_cmd() {
+  printf '%-12s %s\n' "SECTION" "PATHS (relative to the stack root)"
+  backup_sections_table | while read -r name paths; do
+    [[ -n "$name" ]] || continue
+    printf '%-12s %s\n' "$name" "${paths:-<none>}"
+  done
+  printf '\nExamples:\n'
+  printf '  ./manage.sh backup --only env --destination DIR\n'
+  printf '  ./manage.sh backup --only env,content,panel --label nightly\n'
+}
+
+backup_meta_write() {
+  local archive="$1" manifest="$2"
+  python3 - "$archive" "$manifest" <<'PY'
+import json, sys
+archive, manifest = sys.argv[1:3]
+with open(manifest, encoding="utf-8") as handle:
+    data = json.load(handle)
+meta = {key: data.get(key) for key in
+        ("format", "created_at", "stack_version", "label", "source_root", "full", "sections", "paths")}
+with open(archive + ".meta.json", "w", encoding="utf-8") as handle:
+    json.dump(meta, handle, indent=2, sort_keys=True)
+PY
+}
+
+backup_meta_read() {
+  local archive="$1" meta="${1}.meta.json" manifest
+  if [[ -f "$meta" && ! -L "$meta" ]]; then
+    cat -- "$meta"
+    return 0
+  fi
+  manifest="$(tar -xOzf "$archive" manifest.json 2>/dev/null || true)"
+  [[ -n "$manifest" ]] || return 1
+  printf '%s' "$manifest"
+}
+
+backup_meta_field() {
+  local json="$1" field="$2"
+  python3 -c '
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+except ValueError:
+    data = {}
+value = data.get(sys.argv[2])
+if value is None:
+    print("")
+elif isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, list):
+    print(",".join(str(item) for item in value))
+else:
+    print(value)
+' "$json" "$field"
+}
+
+backup_meta_sections() {
+  local archive="$1" json full sections
+  json="$(cat -- "${archive}.meta.json" 2>/dev/null || true)"
+  [[ -n "$json" ]] || { printf 'unknown'; return 0; }
+  full="$(backup_meta_field "$json" full)"
+  sections="$(backup_meta_field "$json" sections)"
+  if [[ "$full" == "true" ]]; then
+    printf 'full'
+  else
+    printf '%s' "${sections:-partial}"
+  fi
+}
+
 backup_create() {
   local destination="$BACKUP_DIR_DEFAULT" label="manual" pause=true age_recipient=""
+  local -a requested_sections=()
   while (($#)); do
     case "$1" in
       --destination) [[ $# -ge 2 ]] || die "--destination requires a directory"; destination="$2"; shift 2 ;;
       --label) [[ $# -ge 2 ]] || die "--label requires a value"; label="$2"; shift 2 ;;
+      --only)
+        [[ $# -ge 2 ]] || die "--only requires a comma-separated section list"
+        local item
+        local -a items=()
+        IFS=',' read -r -a items <<<"$2"
+        for item in "${items[@]}"; do
+          [[ -n "$item" ]] || continue
+          backup_section_paths "$item" >/dev/null || die "unknown backup section \"$item\"; run ./manage.sh backup-sections"
+          [[ " ${requested_sections[*]} " == *" $item "* ]] || requested_sections+=("$item")
+        done
+        shift 2 ;;
       --no-pause) pause=false; shift ;;
       --age-recipient) [[ $# -ge 2 ]] || die "--age-recipient requires a recipient"; age_recipient="$2"; shift 2 ;;
       *) die "unknown backup option: $1" ;;
@@ -365,7 +492,42 @@ backup_create() {
   compose config --quiet
   mkdir -p "$destination"
   chmod 700 "$destination" 2>/dev/null || true
-  local ts version tmp manifest archive checksum final_archive host profiles revision
+
+  local -a sections=()
+  if ((${#requested_sections[@]} == 0)); then
+    mapfile -t sections < <(backup_all_sections)
+  else
+    sections=("${requested_sections[@]}")
+  fi
+  local -a include_paths=() missing_paths=()
+  local section path candidate skip
+  for section in "${sections[@]}"; do
+    while IFS= read -r path; do
+      [[ -n "$path" ]] || continue
+      skip=false
+      for candidate in "${include_paths[@]}"; do
+        [[ "$candidate" == "$path" ]] && skip=true
+      done
+      if [[ "$skip" == true ]]; then continue; fi
+      if [[ -e "$ROOT_DIR/$path" || -L "$ROOT_DIR/$path" ]]; then
+        include_paths+=("$path")
+      else
+        missing_paths+=("$path")
+      fi
+    done < <(backup_section_paths "$section")
+  done
+  ((${#include_paths[@]})) || die "nothing to back up: the selected sections have no data under $ROOT_DIR"
+  local full=true
+  if [[ "$(printf '%s\n' "${sections[@]}" | sort | tr '\n' ',')" != "$(backup_all_sections | sort | tr '\n' ',')" ]]; then
+    full=false
+  fi
+  if ((${#requested_sections[@]})); then
+    for path in "${missing_paths[@]}"; do
+      warn "section path is not present and was skipped: $path"
+    done
+  fi
+
+  local ts version tmp manifest archive checksum final_archive host profiles revision slug
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   version="$(stack_version)"
   revision="$(source_revision)"
@@ -373,25 +535,42 @@ backup_create() {
   profiles="$(env_value COMPOSE_PROFILES)"
   tmp="$(mktemp -d)"
   manifest="$tmp/manifest.json"
-  archive="$destination/hermes-stack-${ts}-${label}.tar.gz"
-  python3 - "$manifest" "$version" "$revision" "$host" "$profiles" "$label" <<'PY'
-import json, os, sys, datetime
-path, version, revision, host, profiles, label = sys.argv[1:]
+  slug=""
+  if [[ "$full" == false ]]; then
+    slug="$(printf '%s' "${sections[*]}" | tr ' ' '_')"
+    if (( ${#slug} > 40 )); then slug="${#sections[@]}sections"; fi
+    slug="-${slug}"
+  fi
+  archive="$destination/hermes-stack-${ts}-${label}${slug}.tar.gz"
+  MANIFEST_PATH="$manifest" STACK_VERSION_VALUE="$version" STACK_REVISION_VALUE="$revision" \
+  MANIFEST_HOST="$host" MANIFEST_PROFILES="$profiles" MANIFEST_LABEL="$label" \
+  MANIFEST_SOURCE_ROOT="$ROOT_DIR" MANIFEST_FULL="$full" \
+  MANIFEST_SECTIONS="$(printf '%s,' "${sections[@]}")" MANIFEST_PATHS="$(printf '%s,' "${include_paths[@]}")" \
+  python3 - <<'PY'
+import datetime, json, os
+
+def split_env(name):
+    return [item for item in os.environ.get(name, "").split(",") if item]
+
 payload = {
-  "format": 1,
-  "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-  "stack_version": version,
-  "source_revision": revision or None,
-  "hostname": host,
-  "compose_profiles": [x for x in profiles.split(",") if x],
-  "label": label,
+    "format": 2,
+    "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "stack_version": os.environ["STACK_VERSION_VALUE"],
+    "source_revision": os.environ.get("STACK_REVISION_VALUE") or None,
+    "hostname": os.environ["MANIFEST_HOST"],
+    "compose_profiles": split_env("MANIFEST_PROFILES"),
+    "label": os.environ["MANIFEST_LABEL"],
+    "source_root": os.environ["MANIFEST_SOURCE_ROOT"],
+    "full": os.environ["MANIFEST_FULL"] == "true",
+    "sections": split_env("MANIFEST_SECTIONS"),
+    "paths": split_env("MANIFEST_PATHS"),
 }
-json.dump(payload, open(path,"w",encoding="utf-8"), indent=2, sort_keys=True)
+with open(os.environ["MANIFEST_PATH"], "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
 PY
   image_manifest_json > "$tmp/images.json"
   if [[ "$pause" == true ]]; then pause_for_backup; else warn "creating live backup without pausing containers"; fi
-  local tar_args=(--numeric-owner --exclude='./data/stack-state/ops.lock' -czf "$archive" -C "$ROOT_DIR" .env data docker-compose.yml)
-  [[ -f "$LOCK_FILE" ]] && tar_args+=(stack.lock.json)
+  local tar_args=(--numeric-owner --exclude='./data/stack-state/ops.lock' -czf "$archive" -C "$ROOT_DIR" "${include_paths[@]}")
   if (( EUID == 0 )); then
     tar "${tar_args[@]}" -C "$tmp" manifest.json images.json
   elif command -v sudo >/dev/null 2>&1 && sudo -v; then
@@ -406,6 +585,8 @@ PY
   fi
   resume_after_backup
   chmod 600 "$archive"
+  backup_meta_write "$archive" "$manifest"
+  chmod 600 "$archive.meta.json"
   checksum="$(sha256sum "$archive" | awk '{print $1}')"
   printf '%s  %s\n' "$checksum" "$(basename "$archive")" > "$archive.sha256"
   chmod 600 "$archive.sha256"
@@ -417,6 +598,7 @@ PY
     fi
     chmod 600 "$archive.age"
     rm -f -- "$archive" "$archive.sha256"
+    mv -- "$archive.meta.json" "$archive.age.meta.json"
     checksum="$(sha256sum "$archive.age" | awk '{print $1}')"
     printf '%s  %s\n' "$checksum" "$(basename "$archive.age")" > "$archive.age.sha256"
     chmod 600 "$archive.age.sha256"
@@ -424,6 +606,9 @@ PY
   fi
   rm -rf -- "$tmp"
   log "backup created: $final_archive"
+  if [[ "$full" == false ]]; then
+    log "sections: ${sections[*]}"
+  fi
   printf '%s\n' "$final_archive"
 }
 
@@ -484,40 +669,80 @@ decrypt_if_needed() {
   fi
 }
 
-restore_archive() {
-  local input="${1:-}" wait_seconds=180 start=true
-  [[ -n "$input" ]] || die "restore requires a backup archive"
-  shift || true
-  while (($#)); do
-    case "$1" in
-      --wait) [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || die "--wait requires seconds"; wait_seconds="$2"; shift 2 ;;
-      --no-start) start=false; shift ;;
-      *) die "unknown restore option: $1" ;;
-    esac
+PARTIAL_STAGED_PATHS=()
+PARTIAL_STAGED_OLDS=()
+PARTIAL_BACKUP_ROOT=""
+
+partial_restore_undo() {
+  local idx path old
+  for (( idx=${#PARTIAL_STAGED_PATHS[@]}-1; idx>=0; idx-- )); do
+    path="${PARTIAL_STAGED_PATHS[idx]}"
+    old="${PARTIAL_STAGED_OLDS[idx]}"
+    "${FS_ADMIN[@]}" rm -rf -- "$ROOT_DIR/$path"
+    if [[ -n "$old" ]]; then
+      "${FS_ADMIN[@]}" mv -- "$old" "$ROOT_DIR/$path"
+    fi
   done
-  ensure_configured
-  [[ -f "$input" && ! -L "$input" ]] || die "backup archive is missing or unsafe"
-  require_fs_admin
-  acquire_lock
-  local archive cleanup_archive=false checksum_file extract old_data old_env prebackup
-  archive=""
-  decrypt_if_needed "$input" archive
-  [[ "$archive" == "$input" ]] || cleanup_archive=true
-  checksum_file="$input.sha256"
-  if [[ -f "$checksum_file" ]]; then
-    (cd "$(dirname "$input")" && sha256sum -c "$(basename "$checksum_file")") || die "backup checksum verification failed"
-  else
-    warn "no checksum sidecar found for $(basename "$input")"
+  PARTIAL_STAGED_PATHS=()
+  PARTIAL_STAGED_OLDS=()
+  if [[ -n "$PARTIAL_BACKUP_ROOT" ]]; then
+    "${FS_ADMIN[@]}" rm -rf -- "$PARTIAL_BACKUP_ROOT"
+    PARTIAL_BACKUP_ROOT=""
   fi
-  validate_tar_paths "$archive" || die "backup contains unsafe paths"
-  extract="$(mktemp -d)"
-  "${FS_ADMIN[@]}" tar --numeric-owner -xzf "$archive" -C "$extract"
-  "${FS_ADMIN[@]}" test -f "$extract/.env" && "${FS_ADMIN[@]}" test -d "$extract/data" || die "backup does not contain .env and data/"
-  log "creating pre-restore safety backup"
-  prebackup="$(backup_create --label pre-restore)"
-  log "pre-restore backup: $prebackup"
-  compose stop
-  local ts="$(date -u +%Y%m%dT%H%M%SZ)"
+}
+
+# Rewrite absolute host paths (*_HOST_PATH, *_STACK_PATH) in a restored .env
+# when the archive was created under a different checkout root, so a backup
+# taken on one server starts on another without hand-editing every path.
+relocate_env_file() {
+  local env_file="$1" old_root="$2" new_root="$3" enabled="$4" report
+  [[ "$enabled" == true ]] || return 0
+  [[ -n "$old_root" && "$old_root" != "$new_root" ]] || return 0
+  [[ -f "$env_file" ]] || return 0
+  report="$(python3 - "$env_file" "$old_root" "$new_root" <<'PY'
+import sys
+
+path, old, new = sys.argv[1:4]
+old = old.rstrip("/")
+new = new.rstrip("/")
+with open(path, encoding="utf-8") as handle:
+    lines = handle.read().splitlines(keepends=True)
+out = []
+rewritten = []
+for line in lines:
+    if line.lstrip().startswith("#") or "=" not in line:
+        out.append(line)
+        continue
+    key, _, value = line.partition("=")
+    name = key.strip()
+    value_clean = value.rstrip("\r\n")
+    if not (name.endswith("_HOST_PATH") or name.endswith("_STACK_PATH")):
+        out.append(line)
+        continue
+    if value_clean == old or value_clean.startswith(old + "/"):
+        new_value = new + value_clean[len(old):]
+        ending = "\n" if value.endswith("\n") else ""
+        out.append(f"{key}={new_value}{ending}")
+        rewritten.append(f"{name}={new_value}")
+    else:
+        out.append(line)
+if rewritten:
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("".join(out))
+print("\n".join(rewritten))
+PY
+)"
+  if [[ -n "$report" ]]; then
+    while IFS= read -r line; do
+      log "relocated path for this host: $line"
+    done <<<"$report"
+  fi
+}
+
+restore_full_apply() {
+  local extract="$1" relocate="$2" source_root="$3" start="$4" wait_seconds="$5"
+  local ts old_data old_env
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
   old_data="$ROOT_DIR/data.restore-old.$ts"
   old_env="$ROOT_DIR/.env.restore-old.$ts"
   "${FS_ADMIN[@]}" mv "$ROOT_DIR/data" "$old_data"
@@ -531,6 +756,7 @@ restore_archive() {
     "${FS_ADMIN[@]}" mv "$old_env" "$ENV_FILE"
     die "restore copy failed; original state was put back"
   fi
+  relocate_env_file "$ENV_FILE" "$source_root" "$ROOT_DIR" "$relocate"
   if ! compose config --quiet; then
     "${FS_ADMIN[@]}" rm -rf -- "$ROOT_DIR/data" "$ENV_FILE"
     "${FS_ADMIN[@]}" mv "$old_data" "$ROOT_DIR/data"
@@ -550,7 +776,138 @@ restore_archive() {
       die "restore failed readiness and was rolled back"
     fi
   fi
-  "${FS_ADMIN[@]}" rm -rf -- "$old_data" "$old_env" "$extract"
+  "${FS_ADMIN[@]}" rm -rf -- "$old_data" "$old_env"
+}
+
+restore_partial_apply() {
+  local extract="$1" path_csv="$2" relocate="$3" source_root="$4" start="$5" wait_seconds="$6"
+  local -a paths=()
+  local path old env_restored=false
+  IFS=',' read -r -a paths <<<"$path_csv"
+  ((${#paths[@]})) || die "partial backup does not record its section paths"
+  for path in "${paths[@]}"; do
+    case "$path" in
+      .env|docker-compose.yml|stack.lock.json|data/*) ;;
+      *) die "partial backup records an unsupported path: $path" ;;
+    esac
+  done
+  log "restoring the selected sections without replacing the rest of the stack"
+  PARTIAL_STAGED_PATHS=()
+  PARTIAL_STAGED_OLDS=()
+  PARTIAL_BACKUP_ROOT="$ROOT_DIR/restore-old.$(date -u +%Y%m%dT%H%M%SZ)"
+  for path in "${paths[@]}"; do
+    if ! "${FS_ADMIN[@]}" test -e "$extract/$path" && ! "${FS_ADMIN[@]}" test -L "$extract/$path"; then
+      warn "the archive does not contain $path; the current data stays in place"
+      continue
+    fi
+    old="$PARTIAL_BACKUP_ROOT/$path"
+    "${FS_ADMIN[@]}" mkdir -p -- "$(dirname -- "$old")"
+    if "${FS_ADMIN[@]}" test -e "$ROOT_DIR/$path" || "${FS_ADMIN[@]}" test -L "$ROOT_DIR/$path"; then
+      "${FS_ADMIN[@]}" mv -- "$ROOT_DIR/$path" "$old"
+    else
+      old=""
+    fi
+    if ! "${FS_ADMIN[@]}" cp -a -- "$extract/$path" "$ROOT_DIR/$path"; then
+      "${FS_ADMIN[@]}" rm -rf -- "$ROOT_DIR/$path"
+      [[ -n "$old" ]] && "${FS_ADMIN[@]}" mv -- "$old" "$ROOT_DIR/$path"
+      partial_restore_undo
+      die "partial restore failed while copying $path; the previous state was put back"
+    fi
+    PARTIAL_STAGED_PATHS+=("$path")
+    PARTIAL_STAGED_OLDS+=("$old")
+    [[ "$path" == ".env" ]] && env_restored=true
+  done
+  if [[ "$env_restored" == true ]]; then
+    "${FS_ADMIN[@]}" chown "$(id -u):$(id -g)" "$ENV_FILE" 2>/dev/null || true
+    "${FS_ADMIN[@]}" chmod 600 "$ENV_FILE" 2>/dev/null || true
+    relocate_env_file "$ENV_FILE" "$source_root" "$ROOT_DIR" "$relocate"
+  fi
+  if ! compose config --quiet; then
+    warn "the restored configuration is invalid; the previous state was put back"
+    partial_restore_undo
+    die "partial restore rejected the restored configuration"
+  fi
+  if [[ "$start" == true ]]; then
+    compose up -d --remove-orphans
+    if ! health_wait "$wait_seconds" text; then
+      warn "restored services did not become ready; the previous state was put back"
+      compose stop || true
+      partial_restore_undo
+      compose up -d --remove-orphans
+      health_wait "$wait_seconds" text || warn "original services also failed readiness after rollback"
+      die "partial restore failed readiness and was rolled back"
+    fi
+  fi
+  if [[ -n "$PARTIAL_BACKUP_ROOT" ]]; then
+    "${FS_ADMIN[@]}" rm -rf -- "$PARTIAL_BACKUP_ROOT"
+    PARTIAL_BACKUP_ROOT=""
+  fi
+}
+
+restore_archive() {
+  local input="${1:-}" wait_seconds=180 start=true relocate=true
+  [[ -n "$input" ]] || die "restore requires a backup archive"
+  shift || true
+  while (($#)); do
+    case "$1" in
+      --wait) [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || die "--wait requires seconds"; wait_seconds="$2"; shift 2 ;;
+      --no-start) start=false; shift ;;
+      --no-relocate) relocate=false; shift ;;
+      *) die "unknown restore option: $1" ;;
+    esac
+  done
+  ensure_configured
+  [[ -f "$input" && ! -L "$input" ]] || die "backup archive is missing or unsafe"
+  require_fs_admin
+  acquire_lock
+  local archive cleanup_archive=false checksum_file extract prebackup
+  local meta_json="" full=true source_root="" section_csv="" path_csv=""
+  archive=""
+  decrypt_if_needed "$input" archive
+  [[ "$archive" == "$input" ]] || cleanup_archive=true
+  checksum_file="$input.sha256"
+  if [[ -f "$checksum_file" ]]; then
+    (cd "$(dirname "$input")" && sha256sum -c "$(basename "$checksum_file")") || die "backup checksum verification failed"
+  else
+    warn "no checksum sidecar found for $(basename "$input")"
+  fi
+  validate_tar_paths "$archive" || die "backup contains unsafe paths"
+  extract="$(mktemp -d)"
+  "${FS_ADMIN[@]}" tar --numeric-owner -xzf "$archive" -C "$extract"
+  meta_json="$(backup_meta_read "$archive" || true)"
+  if [[ -n "$meta_json" ]]; then
+    full="$(backup_meta_field "$meta_json" full)"
+    [[ -n "$full" ]] || full=true
+    source_root="$(backup_meta_field "$meta_json" source_root)"
+    section_csv="$(backup_meta_field "$meta_json" sections)"
+    path_csv="$(backup_meta_field "$meta_json" paths)"
+  fi
+  [[ "$full" == "true" ]] || full=false
+  if [[ "$full" == false && -z "$path_csv" ]]; then
+    local inner_manifest=""
+    inner_manifest="$(tar -xOzf "$archive" manifest.json 2>/dev/null || true)"
+    if [[ -n "$inner_manifest" ]]; then
+      path_csv="$(backup_meta_field "$inner_manifest" paths)"
+      section_csv="$(backup_meta_field "$inner_manifest" sections)"
+    fi
+  fi
+  if [[ "$full" == true ]]; then
+    "${FS_ADMIN[@]}" test -f "$extract/.env" && "${FS_ADMIN[@]}" test -d "$extract/data" || die "backup does not contain .env and data/"
+  else
+    [[ -n "$path_csv" ]] || die "partial backup does not record the sections it contains"
+  fi
+  log "creating pre-restore safety backup"
+  prebackup="$(backup_create --label pre-restore)"
+  log "pre-restore backup: $prebackup"
+  compose stop
+  if [[ "$full" == true ]]; then
+    log "restoring a full stack backup"
+    restore_full_apply "$extract" "$relocate" "$source_root" "$start" "$wait_seconds"
+  else
+    log "restoring sections: ${section_csv:-unknown}"
+    restore_partial_apply "$extract" "$path_csv" "$relocate" "$source_root" "$start" "$wait_seconds"
+  fi
+  "${FS_ADMIN[@]}" rm -rf -- "$extract"
   [[ "$cleanup_archive" == true ]] && rm -f -- "$archive"
   log "restore completed successfully"
 }
@@ -808,9 +1165,31 @@ backup_list() {
   mkdir -p "$destination"
   if [[ "$mode" == json ]]; then
     find "$destination" -maxdepth 1 -type f \( -name 'hermes-stack-*.tar.gz' -o -name 'hermes-stack-*.tar.gz.age' \) -printf '%T@\t%p\n' 2>/dev/null \
-      | sort -nr | python3 -c 'import json,sys; print(json.dumps([{"path":l.rstrip().split("\t",1)[1]} for l in sys.stdin if "\t" in l], indent=2))'
+      | sort -nr | python3 -c '
+import json, os, sys
+items = []
+for line in sys.stdin:
+    if "\t" not in line:
+        continue
+    path = line.rstrip("\n").split("\t", 1)[1]
+    entry = {"path": path}
+    meta = path + ".meta.json"
+    if os.path.exists(meta):
+        try:
+            with open(meta, encoding="utf-8") as handle:
+                data = json.load(handle)
+            for key in ("created_at", "full", "sections", "stack_version", "source_root"):
+                entry[key] = data.get(key)
+        except (OSError, ValueError):
+            pass
+    items.append(entry)
+print(json.dumps(items, indent=2, sort_keys=True))'
   else
-    find "$destination" -maxdepth 1 -type f \( -name 'hermes-stack-*.tar.gz' -o -name 'hermes-stack-*.tar.gz.age' \) -printf '%TY-%Tm-%Td %TH:%TM  %s bytes  %p\n' 2>/dev/null | sort -r
+    find "$destination" -maxdepth 1 -type f \( -name 'hermes-stack-*.tar.gz' -o -name 'hermes-stack-*.tar.gz.age' \) -printf '%TY-%Tm-%Td %TH:%TM\t%s\t%p\n' 2>/dev/null \
+      | sort -r | while IFS=$'\t' read -r when size file; do
+          [[ -n "$file" ]] || continue
+          printf '%-16s %12s bytes  sections=%-24s %s\n' "$when" "$size" "$(backup_meta_sections "$file")" "$file"
+        done
   fi
 }
 
@@ -846,6 +1225,7 @@ main() {
       if (( wait > 0 )); then health_wait "$wait" "$mode"; else health_snapshot "$mode"; fi
       ;;
     backup) shift; acquire_lock; backup_create "$@" ;;
+    backup-sections) backup_sections_cmd ;;
     backup-list) shift; backup_list "$@" ;;
     restore) shift; restore_archive "$@" ;;
     update) shift; safe_update "$@" ;;

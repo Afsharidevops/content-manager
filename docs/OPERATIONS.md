@@ -14,13 +14,18 @@ The command treats Docker healthchecks as authoritative when a service defines o
 
 ## Backups
 
+The full guide — section names, cross-server restores, and what to re-check
+after restoring on another host — lives in `docs/BACKUP-RESTORE.md`.
+
 By default backups are stored next to the checkout in `../content-manager-backups/` (derived from the checkout directory name), so restoring `data/` cannot accidentally delete the safety backup. Override this with `CONTENT_MANAGER_BACKUP_DIR` or `--destination`.
 
 ```bash
 ./manage.sh backup
 ./manage.sh backup --destination /mnt/backups
 ./manage.sh backup --label before-provider-change
+./manage.sh backup --only env,content,panel
 ./manage.sh backup --age-recipient age1...
+./manage.sh backup-sections
 ./manage.sh backup-list
 ```
 
@@ -28,13 +33,23 @@ By default the command briefly pauses running containers while archiving `.env` 
 
 Every unencrypted backup receives a `.sha256` sidecar. Encrypted backups use `age` and receive a checksum for the encrypted artifact.
 
+`backup --only SECTION[,...]` archives just those paths and marks the archive
+partial. `backup-list` prints the sections each archive contains, and a restore
+of a partial archive copies only its paths, so one part of the stack can be
+restored without replacing the rest.
+
 ## Restore
 
 ```bash
 ./manage.sh restore ../content-manager-backups/hermes-stack-YYYYMMDDTHHMMSSZ-manual.tar.gz
+./manage.sh restore ../content-manager-backups/hermes-stack-...-content_panel.tar.gz
 ```
 
 Restore performs path-safety validation, creates a pre-restore backup, stops services, restores `.env` and `data/`, validates Compose configuration, restarts the stack, and waits for readiness. If readiness fails, it restores the previous local state.
+
+When the archive was created under a different checkout root, absolute
+`*_HOST_PATH` and `*_STACK_PATH` values in the restored `.env` are rewritten to
+the current checkout (`--no-relocate` disables the rewrite).
 
 The archived `docker-compose.yml`, `manifest.json`, `images.json`, and optional `stack.lock.json` are retained for diagnostics; restore does not overwrite the currently checked-out Compose file.
 
