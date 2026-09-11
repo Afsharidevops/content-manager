@@ -423,6 +423,36 @@ prompt_domain() {
   done
 }
 
+prompt_domain_optional() {
+  local label="$1" default="${2-}" value
+  while true; do
+    value="$(prompt "$label" "$default")"
+    value="${value,,}"
+    if [[ -z "$value" ]]; then
+      printf '%s' ""
+      return 0
+    fi
+    if valid_domain "$value"; then
+      printf '%s' "$value"
+      return 0
+    fi
+    warn "Enter a domain only, such as panel.example.com, or press Enter to skip." >&2
+  done
+}
+
+# A reverse proxy on another host publishes a service with two manual steps:
+# a DNS record and a proxy site block. Print both where the installer asks for
+# the decision so the checklist does not have to be found later in the docs.
+print_public_route() {
+  local host="$1" target="$2" note="${3-}"
+  printf '     Public route checklist for %s:\n' "$host"
+  printf '       DNS:   create an A record %s -> router public IP in ArvanCloud\n' "$host"
+  printf '              (keep the CDN proxy toggle off until the router serves its own certificate).\n'
+  printf '       Proxy: in the Caddy container on the router add:\n'
+  printf '                %s {\n                    encode zstd gzip\n                    reverse_proxy %s\n                }\n' "$host" "$target"
+  [[ -n "$note" ]] && printf '       Note:  %s\n' "$note"
+}
+
 install_docker() {
   command -v curl >/dev/null 2>&1 || die "curl is required to install Docker."
   local installer
@@ -880,6 +910,9 @@ profiles=""
 panel_port="$(existing_env_value PANEL_PORT)"
 panel_port="${panel_port:-8899}"
 panel_bind="$(existing_env_value PANEL_BIND_IP)"
+panel_cookie_secure="$(existing_env_value PANEL_COOKIE_SECURE)"
+panel_cookie_secure="${panel_cookie_secure:-false}"
+panel_public_host=""
 if [[ "$install_panel" == true ]]; then
   printf '\nOperator panel\n'
   printf '%s\n' '--------------'
@@ -892,9 +925,19 @@ if [[ "$install_panel" == true ]]; then
       valid_bind_ip "$panel_bind" && break
       warn "Enter an IPv4 address, for example 192.168.1.50."
     done
-    printf '%s\n' "Point that proxy at http://$panel_bind:$panel_port and keep the console behind its token."
+    panel_public_host="$(prompt_domain_optional "Public panel hostname (Enter to skip; for example panel.example.com)")"
+    if [[ -n "$panel_public_host" ]]; then
+      print_public_route "$panel_public_host" "$panel_bind:$panel_port" \
+        'PANEL_COOKIE_SECURE=true keeps login cookies on the HTTPS host (set below).'
+      panel_cookie_secure=true
+    else
+      printf '%s\n' "Point that proxy at http://$panel_bind:$panel_port and keep the console behind its token."
+      printf '%s\n' 'Set PANEL_COOKIE_SECURE=true in .env once the HTTPS hostname is in front.'
+    fi
   elif [[ -n "$panel_bind" && "$panel_bind" != 127.0.0.1 ]]; then
     printf '%s\n' "Keeping the existing panel bind address $panel_bind:$panel_port."
+    printf '%s\n' 'Public route reminder: DNS A record -> router public IP, then proxy it to'
+    printf '%s\n' "http://$panel_bind:$panel_port with PANEL_COOKIE_SECURE=true (./manage.sh panel-status, docs/PANEL.md)."
   else
     panel_bind="127.0.0.1"
   fi
@@ -935,7 +978,6 @@ if [[ "$s3_change" == true && "$s3_choice" == rustfs ]]; then
       valid_bind_ip "$rustfs_console_bind" && break
       warn "Enter an IPv4 address, for example 192.168.1.50."
     done
-    printf '%s\n' "Point that proxy at http://$rustfs_bind:$rustfs_port (API) and http://$rustfs_console_bind:$rustfs_console_port/rustfs/console/ (console)."
     if confirm "Does that proxy terminate HTTPS for the object storage?" y; then
       rustfs_public_url="$(prompt "Public S3 origin" "${rustfs_public_url:-s3.stack.locallab.ir}")"
       if [[ -n "$rustfs_public_url" && "$rustfs_public_url" != http* ]]; then
@@ -945,10 +987,23 @@ if [[ "$s3_change" == true && "$s3_choice" == rustfs ]]; then
       if [[ -n "$rustfs_public_console_url" && "$rustfs_public_console_url" != http* ]]; then
         rustfs_public_console_url="https://$rustfs_public_console_url"
       fi
-      printf '%s\n' 'Set S3_PUBLIC_BASE_URL/S3_PUBLIC_CONSOLE_URL later in .env when the proxy hostname changes.'
+      print_public_route "${rustfs_public_url#*//}" "$rustfs_bind:$rustfs_port" \
+        'S3_PUBLIC_BASE_URL in .env keeps this origin; later changes: ./manage.sh s3-guide'
+      if [[ -n "$rustfs_public_console_url" ]]; then
+        print_public_route "${rustfs_public_console_url#*//}" "$rustfs_console_bind:$rustfs_console_port" \
+          'The console path is /rustfs/console/; keep it off the public internet unless you accept the risk.'
+      else
+        printf '%s\n' "Console target for that proxy: http://$rustfs_console_bind:$rustfs_console_port/rustfs/console/"
+      fi
+    else
+      print_public_route "s3.example.com" "$rustfs_bind:$rustfs_port" \
+        'Use your real hostname; set S3_PUBLIC_BASE_URL (and S3_PUBLIC_CONSOLE_URL) in .env once it exists.'
+      printf '%s\n' "Console target for that proxy: http://$rustfs_console_bind:$rustfs_console_port/rustfs/console/"
     fi
   elif [[ -n "$rustfs_bind" && "$rustfs_bind" != 127.0.0.1 ]]; then
     printf '%s\n' "Keeping the existing object storage bind addresses $rustfs_bind:$rustfs_port and $rustfs_console_bind:$rustfs_console_port."
+    printf '%s\n' 'Public route reminder: point the S3 hostname (and console hostname) at the'
+    printf '%s\n' "router public IP and proxy them to http://$rustfs_bind:$rustfs_port / http://$rustfs_console_bind:$rustfs_console_port; full steps: ./manage.sh s3-guide."
   else
     rustfs_bind="127.0.0.1"
     rustfs_console_bind="127.0.0.1"
@@ -1560,6 +1615,7 @@ caddy_n8n_domain=""
 caddy_media_domain=""
 content_media_bind=""
 content_media_port=""
+content_media_public_url=""
 
 if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_omniroute" == true || "$install_webui" == true \
   || "$install_n8n" == true || "$hermes_dashboard" == 1 || "$api_enabled" == true \
@@ -1634,6 +1690,13 @@ if [[ "$CONTENT_RECONFIGURE" != true && ( "$install_nine" == true || "$install_o
       install_caddy=false
     else
       warn "Caddy needs public DNS records plus inbound TCP 80/443 and UDP 443."
+      printf '     DNS:   create A records in ArvanCloud for:'
+      for caddy_domain in "${!selected_domains[@]}"; do
+        printf ' %s' "$caddy_domain"
+      done
+      printf '\n'
+      printf '%s\n' '            Point them at the router public IP and forward 80/443 to this host;'
+      printf '%s\n' '            keep the CDN proxy toggle off until the certificate is issued.'
       if [[ -n "$caddy_nine_domain" && "$install_nine" == true && "$nine_require_key" != true ]]; then
         warn "9router /v1 will be public without Bearer-key enforcement. Enable REQUIRE_API_KEY after creating a 9router endpoint key."
       fi
@@ -1745,9 +1808,19 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
         warn "Enter an IPv4 address, for example 192.168.1.50."
       done
       [[ ",$profiles," == *,ig-media,* ]] || profiles="${profiles:+$profiles,}ig-media"
-      printf '%s\n' "Point that proxy at http://$content_media_bind:$content_media_port and keep only /media public."
+      content_media_public_host="$(prompt_domain_optional "Public media hostname (Enter to skip; Instagram needs HTTPS)")"
+      if [[ -n "$content_media_public_host" ]]; then
+        content_media_public_url="https://$content_media_public_host"
+        print_public_route "$content_media_public_host" "$content_media_bind:$content_media_port" \
+          'Keep only /media public; INSTAGRAM_MEDIA_PUBLIC_BASE_URL will use this host.'
+      else
+        printf '%s\n' "Point that proxy at http://$content_media_bind:$content_media_port and keep only /media public."
+        printf '%s\n' 'Add the hostname later with ./manage.sh instagram-media-enable (set INSTAGRAM_MEDIA_PUBLIC_BASE_URL).'
+      fi
     elif [[ -n "$content_media_bind" && "$content_media_bind" != 127.0.0.1 ]]; then
       printf '%s\n' "Keeping the existing media bind address $content_media_bind:$content_media_port."
+      printf '%s\n' 'Public route reminder: point the media hostname at the router public IP,'
+      printf '%s\n' 'proxy it to this bind address, and set INSTAGRAM_MEDIA_PUBLIC_BASE_URL.'
     else
       content_media_bind="127.0.0.1"
     fi
@@ -1940,6 +2013,9 @@ chmod 600 "$tmp_env"
 replace_env_value "$tmp_env" COMPOSE_PROFILES "$profiles"
 if [[ -n "$caddy_media_domain" ]]; then
   replace_env_value "$tmp_env" INSTAGRAM_MEDIA_PUBLIC_BASE_URL "https://$caddy_media_domain"
+fi
+if [[ -n "$content_media_public_url" ]]; then
+  replace_env_value "$tmp_env" INSTAGRAM_MEDIA_PUBLIC_BASE_URL "$content_media_public_url"
 fi
 if [[ "$install_content" == true && -n "$content_media_bind" ]]; then
   replace_env_value "$tmp_env" IG_MEDIA_BIND_IP "$content_media_bind"
@@ -2148,6 +2224,8 @@ if [[ "$install_panel" == true ]]; then
   replace_env_value "$tmp_env" PANEL_DOCKER_GID "$panel_docker_gid"
   replace_env_value "$tmp_env" PANEL_BIND_IP "${panel_bind:-127.0.0.1}"
   replace_env_value "$tmp_env" PANEL_PORT "${panel_port:-8899}"
+  [[ "$panel_cookie_secure" == true ]] \
+    && replace_env_value "$tmp_env" PANEL_COOKIE_SECURE true
 fi
 mv "$tmp_env" "$ENV_FILE"
 
@@ -2732,6 +2810,7 @@ if [[ "$install_smart_router" == true ]]; then
   [[ "$smart_router_dashboard_enabled" == true ]] && printf 'Smart Router dashboard: http://%s:%s/dashboard\n' "$(service_url_host "$smart_router_bind")" "$smart_router_port"
   [[ "$smart_router_control_plane_enabled" == true ]] && printf 'Smart Router control plane: http://%s:%s/control/\n' "$(service_url_host "$smart_router_bind")" "$smart_router_port"
   [[ "$smart_router_control_plane_enabled" == true ]] && printf 'Control-plane access: ./manage.sh router-access\n'
+  printf '%s\n' 'Smart Router public ingress (optional, needs a domain): docs/SMART-ROUTER-PUBLIC-INGRESS.md'
   if [[ -n "$smart_router_combo_status" ]]; then
     printf 'Smart Router tier combos: %s (initially cloned from ai)\n' "$smart_router_combo_status"
   fi
@@ -2788,6 +2867,10 @@ if [[ "$install_n8n" == true ]]; then
       printf '%s\n' 'Hermes n8n MCP mode: MCP Server Trigger (http://n8n:5678/mcp/hermes)'
       ;;
   esac
+  if [[ -z "${caddy_n8n_domain:-}" ]]; then
+    printf '%s\n' 'n8n webhooks: no public domain is configured. External triggers need a public'
+    printf '%s\n' 'HTTPS URL; add one later with ./manage.sh configure (Caddy domains) and keep N8N_PUBLIC_URL in sync.'
+  fi
   printf '%s\n' 'n8n provisioning manager: ./manage.sh n8n-menu'
 fi
 if [[ "$install_caddy" == true ]]; then
@@ -2796,7 +2879,15 @@ if [[ "$install_caddy" == true ]]; then
   [[ -n "$caddy_hermes_dashboard_domain" ]] && printf 'Hermes dashboard HTTPS: https://%s\n' "$caddy_hermes_dashboard_domain"
   [[ -n "$caddy_hermes_api_domain" ]] && printf 'Hermes API HTTPS: https://%s\n' "$caddy_hermes_api_domain"
   [[ -n "$caddy_n8n_domain" ]] && printf 'n8n HTTPS: https://%s\n' "$caddy_n8n_domain"
-  printf '%s\n' 'Caddy requires public DNS plus inbound TCP 80/443 and UDP 443.'
+  printf '%s\n' 'Caddy needs public DNS plus inbound TCP 80/443 and UDP 443.'
+  if [[ -n "$caddy_nine_domain$caddy_webui_domain$caddy_hermes_dashboard_domain$caddy_hermes_api_domain$caddy_n8n_domain$caddy_media_domain" ]]; then
+    printf 'DNS: point these hostnames at the router public IP (or this host) and route 80/443 here:'
+    for caddy_domain in "$caddy_nine_domain" "$caddy_webui_domain" "$caddy_hermes_dashboard_domain" \
+      "$caddy_hermes_api_domain" "$caddy_n8n_domain" "$caddy_media_domain"; do
+      [[ -n "$caddy_domain" ]] && printf ' %s' "$caddy_domain"
+    done
+    printf '\n'
+  fi
 fi
 if [[ -d "$ROOT_DIR/content/config" ]]; then
   printf '%s\n' 'Content Manager: editorial policy working copy -> data/content-manager/config'
@@ -2809,8 +2900,12 @@ if [[ "$install_content" == true ]]; then
   printf '%s\n' 'Instagram/Meta setup (optional, pending): docs/INSTAGRAM-SETUP.md'
   if [[ -n "$caddy_media_domain" ]]; then
     printf '%s\n' "Instagram media URL: https://$caddy_media_domain/media/<file>"
+  elif [[ -n "$content_media_public_url" ]]; then
+    printf '%s\n' "Instagram media URL: $content_media_public_url/media/<file>"
+    printf '%s\n' "Instagram media DNS: point ${content_media_public_url#*//} at the router public IP and route it to http://$content_media_bind:$content_media_port"
   elif [[ -n "$content_media_bind" && "$content_media_bind" != 127.0.0.1 ]]; then
     printf '%s\n' "Instagram media origin: http://$content_media_bind:$content_media_port (public URL comes from the proxy in front)"
+    printf '%s\n' 'Instagram media: set INSTAGRAM_MEDIA_PUBLIC_BASE_URL once the public hostname exists (./manage.sh instagram-media-enable).'
   else
     printf '%s\n' 'Instagram media host (optional): ./manage.sh instagram-media-enable'
   fi
@@ -2830,8 +2925,12 @@ if [[ "$install_rustfs" == true ]]; then
   printf '%s\n' "Object storage API: http://${rustfs_bind:-127.0.0.1}:${rustfs_port:-9000}"
   if [[ -n "${rustfs_public_url:-}" ]]; then
     printf '%s\n' "Object storage public origin: $rustfs_public_url (proxy target http://${rustfs_bind}:${rustfs_port})"
+    printf '%s\n' "Object storage DNS: point ${rustfs_public_url#*//} at the router public IP and route it to http://${rustfs_bind}:${rustfs_port}"
   fi
   printf '%s\n' "RustFS console: http://${rustfs_console_bind:-127.0.0.1}:${rustfs_console_port:-9001}/rustfs/console/"
+  if [[ -n "${rustfs_public_console_url:-}" ]]; then
+    printf '%s\n' "RustFS console public origin: $rustfs_public_console_url (proxy target http://${rustfs_console_bind}:${rustfs_console_port})"
+  fi
   printf '%s\n' 'Object storage bucket: '"${s3_bucket:-locallab}"' (credentials live in .env)'
   printf '%s\n' 'Object storage status: ./manage.sh s3-status'
   printf '%s\n' 'Object storage guide: docs/S3-STORAGE.md'
@@ -2846,6 +2945,10 @@ if [[ "$install_panel" == true ]]; then
   printf '%s\n' "Operator panel URL: http://${panel_bind:-127.0.0.1}:${panel_port:-8899}/"
   if [[ -n "${panel_bind:-}" && "${panel_bind}" != 127.0.0.1 ]]; then
     printf '%s\n' "Operator panel reverse proxy target: http://${panel_bind}:${panel_port:-8899}"
+  fi
+  if [[ -n "${panel_public_host:-}" ]]; then
+    printf '%s\n' "Operator panel public origin: https://$panel_public_host (route it to http://${panel_bind}:${panel_port:-8899})"
+    printf '%s\n' 'Operator panel DNS: create the A record and keep the console behind its token (PANEL_COOKIE_SECURE=true).'
   fi
   printf '%s\n' 'Operator panel token: ./manage.sh panel-token'
   printf '%s\n' 'Operator panel guide: docs/PANEL.md'

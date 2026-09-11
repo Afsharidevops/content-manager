@@ -78,6 +78,14 @@ platform; this section tracks the fork additions.
   route, the security notes, and troubleshooting; `data/rustfs` is gitignored
   and `tests/test-s3-storage.sh` covers the configuration, the Compose
   rendering, and the manage.sh commands.
+- Install-time public-route checklists: every wizard step that needs a domain
+  now prints the two manual steps together where the decision is made (DNS A
+  record to the router public IP plus the Caddy site block with the exact
+  proxy target), the operator panel stores `PANEL_COOKIE_SECURE=true` when a
+  public hostname is given, the Instagram media host records
+  `INSTAGRAM_MEDIA_PUBLIC_BASE_URL` from the answer, re-runs that keep an
+  existing bind address repeat the route reminder, and the final summary
+  lists the DNS records to create for every selected hostname.
 
 ### Fork release — Content Manager v0.3.0 (2026-09-10)
 
