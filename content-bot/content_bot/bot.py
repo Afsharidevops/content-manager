@@ -483,17 +483,14 @@ class ContentBot:
         """Return getMe, retrying the transient failures seen at boot.
 
         A rejected token is reported immediately: retrying it would only delay
-        the failure. Connection errors, including a resolver that is not ready
-        yet, are retried with a growing delay.
+        the failure. Connection errors (wrapped as ``TelegramNetworkError``)
+        are retried with a growing delay.
         """
         delay = _STARTUP_BACKOFF_SECONDS
         for attempt in range(1, _STARTUP_ATTEMPTS + 1):
             try:
                 return self.api.get_me()
-            except telegram_mod.TelegramError as error:
-                log.error("Bot token rejected: %s", error)
-                raise
-            except (ConnectionError, TimeoutError, OSError) as error:
+            except telegram_mod.TelegramNetworkError as error:
                 if attempt >= _STARTUP_ATTEMPTS:
                     log.error(
                         "Telegram unreachable at startup after %s attempts: %s",
@@ -510,6 +507,9 @@ class ContentBot:
                 )
                 time.sleep(delay)
                 delay *= 2
+            except telegram_mod.TelegramError as error:
+                log.error("Bot token rejected: %s", error)
+                raise
         raise telegram_mod.TelegramError("getMe did not return a result")
 
     # ---------------------------------------------------------------- polls
