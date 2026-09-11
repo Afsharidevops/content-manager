@@ -38,16 +38,21 @@ Current release state:
 
 Fork release state (Content Manager):
 
-- fork/content release: `content-manager-v0.2.0`
-- Content Bot image: `afsharidevops/content-bot:0.2.0`
+- fork/content release: `content-manager-v0.3.0`
+- Content Bot image: `afsharidevops/content-bot:0.3.0`
 - Content Bot mutable current tag: `afsharidevops/content-bot:latest`
-- Media Studio image: `afsharidevops/media-studio:0.2.0`
+- Media Studio image: `afsharidevops/media-studio:0.3.0`
 - Media Studio mutable current tag: `afsharidevops/media-studio:latest`
+- Operator panel image: `afsharidevops/content-panel:0.3.0`
+- Operator panel mutable current tag: `afsharidevops/content-panel:latest`
 
-The Content Bot and Media Studio images are rebuilt and published by
-`.github/workflows/publish-content-bot.yml` and
-`.github/workflows/publish-media-studio.yml` on `main` pushes that touch their
-build contexts; no image rebuild is needed for a plain fork release. Fork
+The Content Bot, Media Studio, and operator panel images are rebuilt and
+published by `.github/workflows/publish-content-bot.yml`,
+`.github/workflows/publish-media-studio.yml`, and
+`.github/workflows/publish-panel.yml` on `main` pushes that touch their build
+contexts; no image rebuild is needed for a plain fork release. A
+`content-manager-v*` tag additionally publishes the packaged Helm chart through
+`.github/workflows/publish-helm-chart.yml`. Fork
 releases reuse the upstream versioning section only for inherited platform
 artifacts; the fork itself is versioned by the `content-manager-v*` release
 tags.

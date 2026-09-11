@@ -12,7 +12,49 @@ platform (upstream unchanged) extended with a deterministic daily
 content-production layer. The upstream changelog below documents the inherited
 platform; this section tracks the fork additions.
 
-### Unreleased
+### Fork release — Content Manager v0.3.0 (2026-09-11)
+
+- Added `panel/`: an optional operator console (Compose profile `panel`) for
+  stack status, validated YAML/JSON editing with backups, `.env` edits, service
+  logs, and a fixed whitelist of compose actions. It stays bound to loopback,
+  authenticates with a token stored outside the repository, and never returns a
+  secret to the browser.
+- The panel lists the live drafts and applies the same decisions as the
+  Telegram keyboard (text only, AI image, publish, discard). The bot keeps the
+  authoritative `state.json`, so the panel appends validated requests to
+  `data/content-bot/panel-actions.requests.jsonl` and the bot drains them from
+  its main loop, reporting each outcome in the console and in Telegram.
+- Added the shared tool registry (`content/config/tools.json`) and scheduled
+  per-platform routines (research, draft, media, queue) driven by the policy
+  cadence, plus the "edit or publish as-is" choice for operator-recorded
+  clips.
+- The Instagram long-lived token now refreshes itself: the bot extends it
+  weekly, stores the result in `data/content-bot/instagram-token.json`, keeps
+  publishing with the previous token when the Graph API refuses, and notifies
+  the operator once instead of failing quietly. `/instagram` and the console
+  card show the remaining days and can force a refresh.
+- The brand mark is now the LocalLab gradient pill (cyan to blue to violet to
+  magenta over navy) with a halo, highlight sweep, hairline border, and hexagon
+  mark, rendered with Pillow only. `MEDIA_STUDIO_BRAND_STYLE=chip` restores the
+  previous flat chip, and the `video-edit` driver bakes the same mark into
+  prepared clips through ffmpeg.
+- Added the optional `ig-media` compose profile: nginx serves
+  `data/content-bot/media` read-only on loopback while a cloudflared sidecar
+  publishes it, so the stack provides its own public media host instead of
+  depending on a hand-started process. `./manage.sh instagram-media-enable`,
+  `-status`, and `-disable` manage it, and the bot resolves the public base URL
+  from a pinned `media-base-url.txt`, a non-quick-tunnel
+  `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, or the live tunnel log, rebuilding the
+  Graph client when the hostname changes. Setting `IG_MEDIA_TUNNEL_TOKEN`
+  switches the same profile set to a named Cloudflare tunnel, which keeps one
+  permanent hostname on a domain you own instead of a random quick tunnel, and
+  the quick tunnel now lives in its own `ig-media-quick` profile so nginx can
+  stay up behind a reverse proxy (`./manage.sh instagram-media-tunnel-off`).
+  Installing the content stack on a server can publish the media directory on
+  a Caddy domain straight from the wizard, which needs no tunnel at all.
+- Documented quick-tunnel versus stable media URLs, since a tunnel hostname
+  that changes on restart breaks Instagram publishing with a confusing
+  media-processing error.
 
 - Section backups: `./manage.sh backup --only SECTION[,...]` archives only the
   named part of the stack (`env`, `secrets`, `hermes`, `router`, `content`,
@@ -113,50 +155,10 @@ platform; this section tracks the fork additions.
   (`media-studio:<MEDIA_STUDIO_PORT>`) instead of the published host bind, which
   a process inside the stack network cannot reach; `MEDIA_STUDIO_INTERNAL_URL`
   overrides the derived address.
-
-### Fork release — Content Manager v0.3.0 (2026-09-10)
-
-- Added `panel/`: an optional operator console (Compose profile `panel`) for
-  stack status, validated YAML/JSON editing with backups, `.env` edits, service
-  logs, and a fixed whitelist of compose actions. It stays bound to loopback,
-  authenticates with a token stored outside the repository, and never returns a
-  secret to the browser.
-- The panel lists the live drafts and applies the same decisions as the
-  Telegram keyboard (text only, AI image, publish, discard). The bot keeps the
-  authoritative `state.json`, so the panel appends validated requests to
-  `data/content-bot/panel-actions.requests.jsonl` and the bot drains them from
-  its main loop, reporting each outcome in the console and in Telegram.
-- Added the shared tool registry (`content/config/tools.json`) and scheduled
-  per-platform routines (research, draft, media, queue) driven by the policy
-  cadence, plus the "edit or publish as-is" choice for operator-recorded
-  clips.
-- The Instagram long-lived token now refreshes itself: the bot extends it
-  weekly, stores the result in `data/content-bot/instagram-token.json`, keeps
-  publishing with the previous token when the Graph API refuses, and notifies
-  the operator once instead of failing quietly. `/instagram` and the console
-  card show the remaining days and can force a refresh.
-- The brand mark is now the LocalLab gradient pill (cyan to blue to violet to
-  magenta over navy) with a halo, highlight sweep, hairline border, and hexagon
-  mark, rendered with Pillow only. `MEDIA_STUDIO_BRAND_STYLE=chip` restores the
-  previous flat chip, and the `video-edit` driver bakes the same mark into
-  prepared clips through ffmpeg.
-- Added the optional `ig-media` compose profile: nginx serves
-  `data/content-bot/media` read-only on loopback while a cloudflared sidecar
-  publishes it, so the stack provides its own public media host instead of
-  depending on a hand-started process. `./manage.sh instagram-media-enable`,
-  `-status`, and `-disable` manage it, and the bot resolves the public base URL
-  from a pinned `media-base-url.txt`, a non-quick-tunnel
-  `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, or the live tunnel log, rebuilding the
-  Graph client when the hostname changes. Setting `IG_MEDIA_TUNNEL_TOKEN`
-  switches the same profile set to a named Cloudflare tunnel, which keeps one
-  permanent hostname on a domain you own instead of a random quick tunnel, and
-  the quick tunnel now lives in its own `ig-media-quick` profile so nginx can
-  stay up behind a reverse proxy (`./manage.sh instagram-media-tunnel-off`).
-  Installing the content stack on a server can publish the media directory on
-  a Caddy domain straight from the wizard, which needs no tunnel at all.
-- Documented quick-tunnel versus stable media URLs, since a tunnel hostname
-  that changes on restart breaks Instagram publishing with a confusing
-  media-processing error.
+- The README opens with five operator-console screens captured from the panel
+  image against a seeded demo stack (`docs-site/assets/content-console-*-v0.3.0.png`):
+  stack status, pipeline state, object storage, backups, and the action
+  whitelist.
 
 ### Fork release — Content Manager v0.2.0 (2026-09-09)
 
