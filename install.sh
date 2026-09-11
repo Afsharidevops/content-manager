@@ -1735,6 +1735,10 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
     warn "The token format does not look valid. Expected digits, a colon, then the token."
   done
   content_channel="$(prompt "Telegram channel ID or @username to publish to")"
+  if [[ "$content_channel" =~ ^[0-9]+$ ]]; then
+    warn "A channel or supergroup id starts with -100 (for example -1004495457205); a bare number is a user id."
+    content_channel="$(prompt "Telegram channel ID (Enter to use -100$content_channel)" "-100$content_channel")"
+  fi
   content_users_default="$content_users"
   [[ -n "$content_users_default" ]] || content_users_default="$telegram_ids"
   while true; do
@@ -2128,8 +2132,14 @@ replace_env_value "$tmp_env" CONTENT_WRITER_BASE_URL "$(dotenv_quote "$content_w
 replace_env_value "$tmp_env" CONTENT_WRITER_API_KEY "$(dotenv_quote "$content_writer_key")"
 replace_env_value "$tmp_env" CONTENT_WRITER_MODEL "$(dotenv_quote "$content_writer_model")"
 replace_env_value "$tmp_env" CONTENT_SCHEDULER_ENABLED "$content_scheduler_enabled"
-replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_REPOSITORY "afsharidevops/media-studio"
-replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_TAG "0.2.0"
+# The image follows .env.example (the repository default) so a release bumps it
+# in one place; a tag already pinned in an existing .env is preserved.
+media_studio_image_repository="$(existing_env_value MEDIA_STUDIO_IMAGE_REPOSITORY)"
+media_studio_image_repository="${media_studio_image_repository:-afsharidevops/media-studio}"
+media_studio_image_tag="$(existing_env_value MEDIA_STUDIO_IMAGE_TAG)"
+media_studio_image_tag="${media_studio_image_tag:-0.3.0}"
+replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_REPOSITORY "$media_studio_image_repository"
+replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_TAG "$media_studio_image_tag"
 replace_env_value "$tmp_env" MEDIA_STUDIO_RUN_AS "$media_run_as"
 replace_env_value "$tmp_env" MEDIA_STUDIO_DRIVERS "$media_drivers"
 replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_BASE_URL "$(dotenv_quote "$media_writer_url")"
