@@ -561,6 +561,23 @@ services:
       OPENAI_API_BASE_URL: ${OPENWEBUI_OPENAI_BASE_URL}
       OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY}
       ENABLE_OLLAMA_API: "false"
+      # Object storage: "local" keeps uploads under data/open-webui; "s3" sends
+      # them to the shared S3 endpoint (the bundled RustFS server or an
+      # external provider). ./manage.sh s3-enable flips this together with the
+      # credentials below, and docs/S3-STORAGE.md explains the trade-offs.
+      STORAGE_PROVIDER: ${OPENWEBUI_STORAGE_PROVIDER:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_BUCKET_NAME: ${S3_BUCKET:-locallab}
+      S3_REGION_NAME: ${S3_REGION:-us-east-1}
+      S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
+      # "path" matches RustFS, MinIO, and most self-hosted endpoints; set
+      # OPENWEBUI_S3_ADDRESSING_STYLE=virtual for providers that require
+      # virtual-hosted-style buckets.
+      S3_ADDRESSING_STYLE: ${OPENWEBUI_S3_ADDRESSING_STYLE:-path}
+      S3_ENABLE_TAGGING: "false"
+      S3_USE_ACCELERATE_ENDPOINT: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks: [agent-net]
@@ -787,6 +804,61 @@ services:
     security_opt:
       - no-new-privileges:true
     networks: [agent-net]
+
+  # S3-compatible object storage (compose profile "rustfs"). RustFS is
+  # Apache-2.0 and speaks the S3 API on 9000; its web console is served on
+  # 9001 under /rustfs/console/. Services reach it as http://rustfs:9000, so
+  # the image stays private to the stack network unless RUSTFS_BIND_IP is
+  # changed to a LAN address for a reverse proxy. The Content Bot and Media
+  # Studio keep their own artifacts on disk (see docs/S3-STORAGE.md for the
+  # supported matrix); Open WebUI stores uploads here when
+  # OPENWEBUI_STORAGE_PROVIDER=s3. ./manage.sh s3-enable prepares the data
+  # directories and credentials, and ./manage.sh s3-verify proves them.
+  rustfs:
+    profiles: ["rustfs"]
+    image: ${RUSTFS_IMAGE_REPOSITORY:-rustfs/rustfs}:${RUSTFS_IMAGE_TAG:-latest}
+    container_name: rustfs
+    restart: unless-stopped
+    user: "${RUSTFS_UID:-10001}:${RUSTFS_GID:-10001}"
+    environment:
+      RUSTFS_VOLUMES: /data
+      # Listen on every container interface; RUSTFS_BIND_IP/RUSTFS_PORT limit
+      # the host port the same way MEDIA_STUDIO_BIND_IP does.
+      RUSTFS_ADDRESS: "0.0.0.0:9000"
+      RUSTFS_CONSOLE_ADDRESS: "0.0.0.0:9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_PREFIX: ${RUSTFS_CONSOLE_PREFIX:-/rustfs/console}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-}
+      RUSTFS_REGION: ${RUSTFS_REGION:-us-east-1}
+      RUSTFS_OBS_LOG_DIRECTORY: /logs
+      # Empty keeps console links relative; set S3_PUBLIC_CONSOLE_URL when the
+      # console is published through a reverse proxy.
+      RUSTFS_BROWSER_REDIRECT_URL: ${S3_PUBLIC_CONSOLE_URL:-}
+      TZ: ${N8N_TIMEZONE:-Asia/Tehran}
+    ports:
+      - "${RUSTFS_BIND_IP:-127.0.0.1}:${RUSTFS_PORT:-9000}:9000"
+      - "${RUSTFS_CONSOLE_BIND_IP:-127.0.0.1}:${RUSTFS_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - ./data/rustfs/data:/data
+      - ./data/rustfs/logs:/logs
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -fsS
+        - http://127.0.0.1:9000/health
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # Instagram media host (compose profile "ig-media"): the Graph API only
   # accepts public HTTPS URLs, so the published media directory needs a public

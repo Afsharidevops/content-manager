@@ -23,6 +23,8 @@ data/media-studio/*
 !data/media-studio/.gitkeep
 data/panel/*
 !data/panel/.gitkeep
+data/rustfs/*
+!data/rustfs/.gitkeep
 extensions/locallab-flow-unlock/_metadata/
 *.backup-*
 *.log
