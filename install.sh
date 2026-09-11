@@ -816,6 +816,32 @@ profiles=""
 [[ "$install_media" == true ]] && profiles="${profiles:+$profiles,}media"
 [[ "$install_panel" == true ]] && profiles="${profiles:+$profiles,}panel"
 
+# The operator panel binds to loopback by default. A reverse proxy on the
+# router (or another host) can front it over the LAN, so the wizard offers the
+# detected LAN address the same way it does for the Instagram media host.
+panel_port="$(existing_env_value PANEL_PORT)"
+panel_port="${panel_port:-8899}"
+panel_bind="$(existing_env_value PANEL_BIND_IP)"
+if [[ "$install_panel" == true ]]; then
+  printf '\nOperator panel\n'
+  printf '%s\n' '--------------'
+  printf '%s\n' 'The console listens on 127.0.0.1 by default, so only this host can open'
+  printf '%s\n' 'it. A reverse proxy on another host (for example the router) needs the'
+  printf '%s\n' 'LAN address instead.'
+  if confirm "Will a reverse proxy on another host publish the operator panel?" n; then
+    while true; do
+      panel_bind="$(prompt "Panel bind address (LAN address that proxy connects to)" "${panel_bind:-${lan_ip:-127.0.0.1}}")"
+      valid_bind_ip "$panel_bind" && break
+      warn "Enter an IPv4 address, for example 192.168.1.50."
+    done
+    printf '%s\n' "Point that proxy at http://$panel_bind:$panel_port and keep the console behind its token."
+  elif [[ -n "$panel_bind" && "$panel_bind" != 127.0.0.1 ]]; then
+    printf '%s\n' "Keeping the existing panel bind address $panel_bind:$panel_port."
+  else
+    panel_bind="127.0.0.1"
+  fi
+fi
+
 mkdir -p "$HERMES_DIR" "$NINEROUTER_DIR" "$OMNIROUTE_DIR" "$OPENWEBUI_DIR" "$SMART_ROUTER_DIR" "$N8N_DIR" "$CADDY_DIR" \
   "$ROOT_DIR/data/content-bot" "$ROOT_DIR/data/media-studio" "$ROOT_DIR/data/panel"
 mkdir -p "$HERMES_DIR/lazy-packages" "$HERMES_DIR/npm-packages" "$ROOT_DIR/data/stack-secrets"
@@ -1916,6 +1942,8 @@ if [[ "$install_panel" == true ]]; then
   panel_docker_gid="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || printf '984')"
   replace_env_value "$tmp_env" PANEL_RUN_AS "$execution_owner_uid:$execution_owner_gid"
   replace_env_value "$tmp_env" PANEL_DOCKER_GID "$panel_docker_gid"
+  replace_env_value "$tmp_env" PANEL_BIND_IP "${panel_bind:-127.0.0.1}"
+  replace_env_value "$tmp_env" PANEL_PORT "${panel_port:-8899}"
 fi
 mv "$tmp_env" "$ENV_FILE"
 
@@ -2588,7 +2616,10 @@ if [[ "$install_content" == true && "$install_media" == true ]]; then
 fi
 if [[ "$install_panel" == true ]]; then
   printf '%s\n' 'Operator panel: web console for stack status, configuration, logs and actions'
-  printf '%s\n' 'Operator panel URL: http://127.0.0.1:8899/'
+  printf '%s\n' "Operator panel URL: http://${panel_bind:-127.0.0.1}:${panel_port:-8899}/"
+  if [[ -n "${panel_bind:-}" && "${panel_bind}" != 127.0.0.1 ]]; then
+    printf '%s\n' "Operator panel reverse proxy target: http://${panel_bind}:${panel_port:-8899}"
+  fi
   printf '%s\n' 'Operator panel token: ./manage.sh panel-token'
   printf '%s\n' 'Operator panel guide: docs/PANEL.md'
 fi

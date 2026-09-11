@@ -129,7 +129,9 @@ for confirmation first.
 Publish the console through HTTPS only:
 
 1. Point a reverse proxy (the stack `caddy` profile or a proxy on another host)
-   at `http://<stack-host>:8899`.
+   at `http://<stack-host>:8899`. `install.sh` asks whether a reverse proxy on
+   another host will publish the console and suggests the detected LAN address
+   for the bind; answer the prompt or set the bind later.
 2. Set `PANEL_BIND_IP` to the interface the proxy reaches (for example the LAN
    address) or `0.0.0.0` behind a firewall.
 3. Set `PANEL_COOKIE_SECURE=true` so the session cookie is HTTPS-only.
