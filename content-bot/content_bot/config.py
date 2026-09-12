@@ -72,6 +72,7 @@ class BotSettings:
     instagram_api_base: str = "https://graph.facebook.com"
     instagram_api_version: str = "v26.0"
     instagram_poll_timeout_seconds: int = 600
+    instagram_disable_refresh: bool = False
     platforms_enabled: bool = False
 
     @classmethod
@@ -117,6 +118,7 @@ class BotSettings:
             instagram_poll_timeout_seconds=_env_int(
                 "INSTAGRAM_POLL_TIMEOUT_SECONDS", 600
             ),
+            instagram_disable_refresh=_env_bool("INSTAGRAM_DISABLE_REFRESH", False),
             platforms_enabled=_env_bool("CONTENT_PLATFORMS_ENABLED", False),
         )
 

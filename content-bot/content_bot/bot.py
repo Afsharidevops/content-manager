@@ -354,6 +354,8 @@ class ContentBot:
         The refresh is automatic; the operator only gets a Telegram notice
         when something needs attention (failure, or a token close to expiry).
         """
+        if self.settings.instagram_disable_refresh:
+            return False
         if not self.settings.instagram_business_id:
             return False
         token = self._instagram_token()
