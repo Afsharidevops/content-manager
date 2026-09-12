@@ -319,7 +319,9 @@ function draftControls(draft) {
     if (status === "media_ask") buttons.push(draftActionButton(draft, "image", "AI image", false));
   }
   if (PUBLISHABLE_STATUSES.includes(status)) {
-    buttons.push(draftActionButton(draft, "publish", "Publish", true));
+    buttons.push(draftActionButton(draft, "publish", "Publish (Telegram)", true));
+    buttons.push(draftActionButton(draft, "publish_both", "Telegram + Instagram", true));
+    buttons.push(draftActionButton(draft, "publish_ig", "Instagram", true));
   }
   buttons.push(draftActionButton(draft, "discard", "Discard", true));
   return h("div", { class: "row actions" }, ...buttons);

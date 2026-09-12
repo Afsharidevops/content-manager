@@ -231,6 +231,34 @@ def _apply(bot, request: dict) -> tuple[str, str]:
             return "done", "Published to Telegram."
         return "error", "Publish did not complete; check the bot log."
 
+    if action == "publish_both":
+        if status not in PUBLISH_STATUSES:
+            return "skipped", f"Publishing to both is not available while the draft is {status}."
+        bot._approve(
+            "",
+            record,
+            record.get("chat_id"),
+            record.get("message_id"),
+            targets=("telegram", "instagram"),
+        )
+        if bot.state.get_draft(draft_id) is None:
+            return "done", "Published to Telegram and Instagram."
+        return "error", "Publish to both did not complete; check the bot log."
+
+    if action == "publish_ig":
+        if status not in PUBLISH_STATUSES:
+            return "skipped", f"Instagram publishing is not available while the draft is {status}."
+        bot._approve(
+            "",
+            record,
+            record.get("chat_id"),
+            record.get("message_id"),
+            targets=("instagram",),
+        )
+        if bot.state.get_draft(draft_id) is None:
+            return "done", "Published to Instagram."
+        return "error", "Publish to Instagram did not complete; check the bot log."
+
     return "error", f"Unknown action: {action}"
 
 
