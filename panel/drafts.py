@@ -68,7 +68,7 @@ def _write_atomic(path: Path, payload: dict) -> None:
         json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
         handle.flush()
-        os.fchmod(handle.fileno(), 0o600)
+        os.fchmod(handle.fileno(), 0o666)
         handle.close()
         os.replace(handle.name, path)
     except BaseException:
@@ -125,7 +125,7 @@ def queue_action(root: Path, draft_id: str, action: str) -> dict:
         with open(path, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(request, ensure_ascii=False) + "\n")
             handle.flush()
-            os.fchmod(handle.fileno(), 0o600)
+            os.fchmod(handle.fileno(), 0o666)
     return request
 
 
@@ -201,7 +201,7 @@ def request_instagram_refresh(root: Path) -> Path:
     path = data_dir(root) / "instagram-refresh.request"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_now() + "\n", encoding="utf-8")
-    os.chmod(path, 0o600)
+    os.chmod(path, 0o666)
     return path
 
 

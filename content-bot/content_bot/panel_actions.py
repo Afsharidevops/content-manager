@@ -77,7 +77,7 @@ def _write_atomic(path: Path, payload: dict) -> None:
         json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
         handle.flush()
-        os.fchmod(handle.fileno(), 0o600)
+        os.fchmod(handle.fileno(), 0o666)
         handle.close()
         os.replace(handle.name, path)
     except BaseException:
