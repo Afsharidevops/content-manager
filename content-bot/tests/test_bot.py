@@ -1007,6 +1007,83 @@ class MediaFlowTestCase(unittest.TestCase):
         self.assertIn(f"approve_ig:{draft_id}", callbacks)
         self.assertIn(f"approve_both:{draft_id}", callbacks)
 
+    def test_instagram_buttons_disappear_when_auto_publish_is_off(self):
+        self.settings = replace(
+            _media_settings(self.tmp.name, instagram=True),
+            instagram_auto_publish=False,
+        )
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        previews = [
+            upload
+            for upload in self.api.uploads
+            if upload[0] == "sendPhoto"
+            and upload[1]["chat_id"] == 11
+            and "reply_markup" in upload[1]
+        ]
+        self.assertEqual(len(previews), 1)
+        markup = json.loads(previews[0][1]["reply_markup"])
+        callbacks = [
+            button["callback_data"]
+            for row in markup["inline_keyboard"]
+            for button in row
+        ]
+        self.assertNotIn(f"approve_ig:{draft_id}", callbacks)
+        self.assertNotIn(f"approve_both:{draft_id}", callbacks)
+
+    def test_auto_publish_switch_blocks_the_instagram_approve_path(self):
+        self.settings = replace(
+            _media_settings(self.tmp.name, instagram=True),
+            instagram_auto_publish=False,
+        )
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"approve_ig:{draft_id}",
+            }
+        )
+        answers = [
+            payload
+            for method, payload in self.api.calls
+            if method == "answerCallbackQuery"
+        ]
+        self.assertTrue(answers)
+        self.assertIn("INSTAGRAM_AUTO_PUBLISH", str(answers[-1].get("text")))
+        self.assertIsNotNone(bot.state.get_draft(draft_id))
+
+    def test_instagram_publish_needs_credentials_and_the_switch(self):
+        configured = replace(
+            self.settings,
+            instagram_business_id="17841400000000000",
+            instagram_access_token="IGQ-token",
+        )
+        self.assertTrue(configured.instagram_publish_enabled)
+        self.assertFalse(replace(self.settings, instagram_auto_publish=False).instagram_publish_enabled)
+        self.assertFalse(
+            replace(configured, instagram_auto_publish=False).instagram_publish_enabled
+        )
+
     def test_album_preview_offers_instagram_buttons_when_configured(self):
         self.settings = _media_settings(self.tmp.name, instagram=True)
         bot = self.build_bot()

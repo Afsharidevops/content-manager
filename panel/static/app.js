@@ -238,6 +238,8 @@ async function renderOverview() {
                 h("span", { class: "chip", text: `API ${instagram.api_version}` }),
                 h("span", { class: "chip " + (instagram.token_set ? "ok" : "warn"),
                   text: instagram.token_set ? "token stored" : "no token" }),
+                h("span", { class: "chip " + (instagram.auto_publish ? "ok" : "warn"),
+                  text: instagram.auto_publish ? "auto publish on" : "manual package" }),
               ),
               h("div", { class: "muted small" },
                 instagram.expires_at
@@ -311,7 +313,7 @@ function draftActionButton(draft, action, label, confirmFirst) {
   });
 }
 
-function draftControls(draft) {
+function draftControls(draft, instagramAuto) {
   const status = String(draft.status || "");
   const buttons = [];
   if (MEDIA_QUESTION_STATUSES.includes(status)) {
@@ -320,8 +322,11 @@ function draftControls(draft) {
   }
   if (PUBLISHABLE_STATUSES.includes(status)) {
     buttons.push(draftActionButton(draft, "publish", "Publish (Telegram)", true));
-    buttons.push(draftActionButton(draft, "publish_both", "Telegram + Instagram", true));
-    buttons.push(draftActionButton(draft, "publish_ig", "Instagram", true));
+    if (instagramAuto) {
+      buttons.push(draftActionButton(draft, "publish_both", "Telegram + Instagram", true));
+      buttons.push(draftActionButton(draft, "publish_ig", "Instagram", true));
+    }
+    buttons.push(draftActionButton(draft, "post_package", "Post package", false));
   }
   buttons.push(draftActionButton(draft, "discard", "Discard", true));
   return h("div", { class: "row actions" }, ...buttons);
@@ -343,7 +348,11 @@ function stateSignature(state) {
 }
 
 async function renderState() {
-  const state = await api("/api/drafts");
+  const [state, instagram] = await Promise.all([
+    api("/api/drafts"),
+    api("/api/instagram").catch(() => null),
+  ]);
+  const instagramAuto = Boolean(instagram && instagram.auto_publish);
   const counters = state.counters || {};
   const runs = state.routine_last_run || {};
   const signature = stateSignature(state);
@@ -368,11 +377,14 @@ async function renderState() {
               h("div", { class: "muted small", text: `${draft.kind} - ${draft.category || "no category"}` })),
             draft.media || "-",
             draft.created_at,
-            draftControls(draft),
+            draftControls(draft, instagramAuto),
           ]),
         ),
         h("div", { class: "muted small", style: "margin-top:10px" },
-          "Console actions are applied by the Content Bot within a few seconds and confirmed by a Telegram message."),
+          "Console actions are applied by the Content Bot within a few seconds and confirmed by a Telegram message."
+          + (instagramAuto
+              ? " Post package sends the media file and a copy-ready caption to your Telegram chat."
+              : " Instagram automatic publishing is off (INSTAGRAM_AUTO_PUBLISH); Post package sends the media file and a copy-ready caption to your Telegram chat.")),
       ),
       card("Console action results",
         (state.results || []).length

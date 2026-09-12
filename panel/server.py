@@ -55,6 +55,14 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _env_flag(value: str, default: bool = False) -> bool:
+    """Read one boolean environment value the way the bots do."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return default
+    return text in {"1", "true", "yes", "on"}
+
+
 class PanelApp:
     """Shared state and helpers behind the HTTP handlers."""
 
@@ -117,6 +125,9 @@ class PanelApp:
             "token_set": bool(token),
             "business_id": self.env_value("INSTAGRAM_BUSINESS_ID"),
             "api_version": self.env_value("INSTAGRAM_API_VERSION", "v26.0") or "v26.0",
+            "auto_publish": _env_flag(
+                self.env_value("INSTAGRAM_AUTO_PUBLISH"), True
+            ),
             "public_base_url": media_base_url(
                 self.root, self.env_value("INSTAGRAM_MEDIA_PUBLIC_BASE_URL")
             ),

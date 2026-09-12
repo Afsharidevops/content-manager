@@ -1143,6 +1143,15 @@ content_status() {
   else
     printf '  Instagram: not configured (set INSTAGRAM_BUSINESS_ID / INSTAGRAM_ACCESS_TOKEN)\n'
   fi
+  ig_auto="$(env_value "$ENV_FILE" INSTAGRAM_AUTO_PUBLISH)"
+  case "$(printf '%s' "$ig_auto" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off)
+      printf '  Instagram auto publish: off (manual Post package flow)\n'
+      ;;
+    *)
+      printf '  Instagram auto publish: on\n'
+      ;;
+  esac
   printf '  Editorial policy: data/content-manager/config/editorial-policy.yaml\n'
   printf '  Discovery sources: data/content-manager/config/sources.yaml\n'
   printf '  Guide: docs/CONTENT-PRODUCTION-GUIDE.md\n'
@@ -1159,6 +1168,8 @@ content_connect_instagram() {
   printf '%s\n' 'files a public address with ./manage.sh instagram-media-enable (or pin a stable'
   printf '%s\n' 'hostname in data/content-bot/media-base-url.txt), and restart the bot:'
   printf '%s\n' '  ./manage.sh restart content'
+  printf '%s\n' 'While the Graph API cannot publish, set INSTAGRAM_AUTO_PUBLISH=false and use the'
+  printf '%s\n' 'Post package action in the operator console for a manual upload from the app.'
 }
 
 content_configure() {

@@ -19,8 +19,11 @@ import logging
 import os
 import tempfile
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 
+from content_bot import instagram as instagram_mod
+from content_bot import platforms as platforms_mod
 from content_bot import telegram as telegram_mod
 
 log = logging.getLogger("content_bot.panel")
@@ -33,6 +36,7 @@ RESULT_LIMIT = 40
 TEXT_ONLY_STATUSES = {"media_ask", "awaiting_media", "media_failed"}
 IMAGE_STATUSES = {"media_ask", "media_failed"}
 PUBLISH_STATUSES = {"text", "text_only", "media_ready"}
+PACKAGE_MEDIA_LIMIT = 10
 
 _NO_MEDIA = (
     "Media Studio is not configured; set CONTENT_MEDIA_STUDIO_URL and restart "
@@ -185,6 +189,70 @@ def _sync_ask_message(bot, record: dict, text: str) -> None:
     bot._edit_safe(chat_id, int(ask_id), text)
 
 
+def post_package_text(record: dict) -> str:
+    """Copy-ready Instagram hand-off: short instructions plus the caption.
+
+    The caption sits in a ``<pre>`` block on purpose: Telegram renders every
+    code block with a copy button, so the operator pastes the exact text into
+    the Instagram app without selecting lines by hand.
+    """
+    caption = instagram_mod.build_caption(
+        str(record.get("title") or ""),
+        str(record.get("body") or ""),
+        str(record.get("source_url") or ""),
+    )
+    return (
+        "<b>Instagram post package</b>\n"
+        "Save the file above, then use the copy button on the caption below "
+        "and paste it into the Instagram app.\n\n"
+        f"<pre>{escape(caption)}</pre>"
+    )
+
+
+def send_post_package(bot, record: dict) -> tuple[str, str]:
+    """Send the stored media and a copy-ready caption to the operator.
+
+    Automatic Instagram publishing stays off while Meta blocks the account, so
+    this is the manual path: the operator gets the untouched media file plus
+    the exact caption for the Instagram app.
+    """
+    chat_id = record.get("chat_id")
+    if chat_id is None:
+        return "skipped", "This draft has no operator chat to send the package to."
+    entries = platforms_mod.stored_media(record)
+    sent = 0
+    for _kind, path, name in entries[:PACKAGE_MEDIA_LIMIT]:
+        file_path = Path(path)
+        if not file_path.is_file():
+            log.warning("post package media missing from storage: %s", path)
+            continue
+        try:
+            payload = file_path.read_bytes()
+        except OSError as error:
+            log.warning("post package media unreadable (%s): %s", path, error)
+            continue
+        try:
+            bot.api.send_document(chat_id, name, payload)
+        except telegram_mod.TelegramError as error:
+            log.warning("post package upload failed (%s): %s", path, error)
+            continue
+        sent += 1
+    try:
+        bot.api.send_message(chat_id, post_package_text(record), parse_mode="HTML")
+    except telegram_mod.TelegramError as error:
+        return "error", f"Telegram API error: {error}"
+    if not entries:
+        return "done", "Caption package sent; this draft has no stored media file."
+    if sent == 0:
+        return "error", "The media file could not be sent; check the bot log."
+    if sent < len(entries):
+        return "done", (
+            f"Package sent with {sent} of {len(entries)} media file(s); "
+            "check the bot log for the rest."
+        )
+    return "done", "Post package sent: media file plus a copy-ready caption."
+
+
 def _apply(bot, request: dict) -> tuple[str, str]:
     """Run one queued action; returns ``(status, detail)``."""
     draft_id = str(request.get("draft_id") or "")
@@ -231,6 +299,14 @@ def _apply(bot, request: dict) -> tuple[str, str]:
             return "done", "Published to Telegram."
         return "error", "Publish did not complete; check the bot log."
 
+    if action in {"publish_both", "publish_ig"} and not getattr(
+        bot.settings, "instagram_publish_enabled", False
+    ):
+        return "skipped", (
+            "Automatic Instagram publishing is off (INSTAGRAM_AUTO_PUBLISH); "
+            "use Post package for a manual Instagram post."
+        )
+
     if action == "publish_both":
         if status not in PUBLISH_STATUSES:
             return "skipped", f"Publishing to both is not available while the draft is {status}."
@@ -258,6 +334,11 @@ def _apply(bot, request: dict) -> tuple[str, str]:
         if bot.state.get_draft(draft_id) is None:
             return "done", "Published to Instagram."
         return "error", "Publish to Instagram did not complete; check the bot log."
+
+    if action == "post_package":
+        if status not in PUBLISH_STATUSES:
+            return "skipped", f"A post package is not available while the draft is {status}."
+        return send_post_package(bot, record)
 
     return "error", f"Unknown action: {action}"
 

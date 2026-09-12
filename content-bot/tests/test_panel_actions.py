@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,7 @@ class FakeApi(TelegramApi):
         super().__init__("123:TESTTOKENABCDEFGHIJKLMN")
         self.calls = []
         self.sent_messages = []
+        self.documents = []
 
     def _transport(self, url, payload, *, timeout=35):
         method = url.rsplit("/", 1)[-1]
@@ -32,6 +34,12 @@ class FakeApi(TelegramApi):
             self.sent_messages.append(payload)
             return {"ok": True, "result": {"message_id": 100 + len(self.sent_messages)}}
         return {"ok": True, "result": True}
+
+    def send_document(
+        self, chat_id, filename, file_bytes, *, caption="", parse_mode=None, reply_markup=None
+    ):
+        self.documents.append((chat_id, filename, file_bytes))
+        return {"message_id": 400 + len(self.documents)}
 
 
 class FakeWriter:
@@ -112,6 +120,17 @@ class PanelActionsTests(unittest.TestCase):
             handle.write(json.dumps(row) + "\n")
         return row
 
+    def add_media(self, name="post.png", payload=b"image-bytes"):
+        media_dir = Path(self.tmp.name) / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        path = media_dir / name
+        path.write_bytes(payload)
+        return {
+            "kind": "image",
+            "local_path": str(path),
+            "files": [{"kind": "image", "local_path": str(path), "name": name}],
+        }
+
     def results(self):
         payload = json.loads(
             panel_mod.results_path(self.settings).read_text(encoding="utf-8")
@@ -172,6 +191,67 @@ class PanelActionsTests(unittest.TestCase):
         result = self.results()[-1]
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "skipped")
+        self.assertIsNotNone(self.bot.state.get_draft(draft_id))
+
+    def test_post_package_sends_the_media_file_and_a_copy_ready_caption(self):
+        self.add_draft("media_ready", media=self.add_media())
+        self.queue("post_package")
+        self.assertEqual(panel_mod.drain(self.bot), 1)
+        self.assertEqual(self.api.documents, [(11, "post.png", b"image-bytes")])
+        packages = [
+            payload
+            for payload in self.api.sent_messages
+            if payload.get("parse_mode") == "HTML" and "<pre>" in str(payload.get("text"))
+        ]
+        self.assertEqual(len(packages), 1)
+        text = packages[0]["text"]
+        self.assertIn("Generated title", text)
+        self.assertIn("Generated body text.", text)
+        self.assertIn("https://example.com/layers", text)
+        self.assertTrue(text.endswith("</pre>"))
+        result = self.results()[-1]
+        self.assertTrue(result["ok"])
+        self.assertIn("copy-ready caption", result["message"])
+
+    def test_post_package_reports_a_missing_media_file(self):
+        missing = str(Path(self.tmp.name) / "media" / "gone.png")
+        self.add_draft("media_ready", media={"kind": "image", "local_path": missing})
+        self.queue("post_package")
+        panel_mod.drain(self.bot)
+        result = self.results()[-1]
+        self.assertEqual(result["status"], "error")
+        self.assertIn("media file", result["message"])
+        self.assertEqual(self.api.documents, [])
+
+    def test_post_package_still_sends_the_caption_for_a_text_only_draft(self):
+        self.add_draft("text_only", media={"kind": "none"})
+        self.queue("post_package")
+        panel_mod.drain(self.bot)
+        result = self.results()[-1]
+        self.assertTrue(result["ok"])
+        self.assertIn("no stored media", result["message"])
+        self.assertEqual(self.api.documents, [])
+
+    def test_post_package_is_skipped_while_media_is_running(self):
+        self.add_draft("media_running")
+        self.queue("post_package")
+        panel_mod.drain(self.bot)
+        self.assertEqual(self.results()[-1]["status"], "skipped")
+
+    def test_instagram_actions_are_skipped_while_auto_publish_is_off(self):
+        self.bot.settings = replace(
+            self.settings,
+            instagram_business_id="17841400000000000",
+            instagram_access_token="IGQ-token",
+            instagram_auto_publish=False,
+        )
+        draft_id = self.add_draft("media_ready", media={"kind": "none"})
+        for action in ("publish_ig", "publish_both"):
+            self.queue(action)
+            panel_mod.drain(self.bot)
+            result = self.results()[-1]
+            self.assertEqual(result["status"], "skipped")
+            self.assertIn("INSTAGRAM_AUTO_PUBLISH", result["message"])
         self.assertIsNotNone(self.bot.state.get_draft(draft_id))
 
     def test_discard_action_removes_the_draft_and_its_messages(self):

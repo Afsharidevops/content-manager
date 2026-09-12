@@ -1421,6 +1421,7 @@ class ContentBot:
             f"Tool registry: {self._tools_summary()}\n"
             f"Scheduled routines: {self._routines_summary()}\n"
             f"Platform packages: {'enabled' if self.settings.platforms_enabled else 'disabled'}\n"
+            f"Instagram auto publish: {'enabled' if self.settings.instagram_publish_enabled else 'disabled'}\n"
             f"Pending drafts: {drafts}\n"
             f"Published today: {today}\n"
             f"Total published: {published}"
@@ -2095,7 +2096,7 @@ class ContentBot:
     ) -> dict:
         """Build preview buttons with the options the factory supports."""
         options = {
-            "instagram": self.settings.instagram_enabled,
+            "instagram": self.settings.instagram_publish_enabled,
             "platforms": self.settings.platforms_enabled,
         }
         if collecting:
@@ -2684,12 +2685,18 @@ class ContentBot:
                 "No publish channel is configured (CONTENT_TELEGRAM_CHANNEL).",
             )
             return False
-        if "instagram" in targets and not self.settings.instagram_enabled:
-            self._safe_answer(
-                query_id,
-                "Instagram is not configured; set INSTAGRAM_BUSINESS_ID and "
-                "INSTAGRAM_ACCESS_TOKEN.",
-            )
+        if "instagram" in targets and not self.settings.instagram_publish_enabled:
+            if not self.settings.instagram_enabled:
+                reason = (
+                    "Instagram is not configured; set INSTAGRAM_BUSINESS_ID and "
+                    "INSTAGRAM_ACCESS_TOKEN."
+                )
+            else:
+                reason = (
+                    "Instagram automatic publishing is off; set "
+                    "INSTAGRAM_AUTO_PUBLISH=true to enable it."
+                )
+            self._safe_answer(query_id, reason)
             return False
         policy = workflow.load_policy(self.settings.policy_dir)
         zone = _policy_zone(policy)

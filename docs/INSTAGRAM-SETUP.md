@@ -26,7 +26,8 @@ Graph API:
   the first paragraph to LTR.
 
 The Telegram approval flow offers two extra buttons whenever the draft has
-media and Instagram is enabled:
+media, Instagram is configured, and automatic publishing is enabled
+(`INSTAGRAM_AUTO_PUBLISH=true`, the default):
 
 - **Approve to Instagram** - publishes to Instagram only,
 - **Approve to Telegram + Instagram** - publishes to the Telegram channel
@@ -35,6 +36,27 @@ media and Instagram is enabled:
 Media Studio generated images and operator-uploaded photos both work; the
 brand chip is applied before any upload. Albums are also sent to the Telegram
 channel as a media group.
+
+## Manual mode (post package)
+
+Set `INSTAGRAM_AUTO_PUBLISH=false` to keep the two Instagram buttons out of the
+Telegram keyboards and the operator console while the credentials stay in
+`/.env`. Nothing else changes: the caption builder, the media host, and the
+token refresh keep working, so flipping the switch back to `true` restores the
+API buttons.
+
+Manual mode exists for accounts that cannot publish through the Graph API
+(Meta review, a disabled account, a revoked permission) but can still post from
+the Instagram app. The operator console then shows a **Post package** action
+for every publishable draft: the bot re-sends the stored media file as an
+untouched Telegram document and follows it with the exact caption inside a
+code block. Telegram renders that block with a **copy** button, so the
+operator copies the caption, saves the file, and posts both from the Instagram
+app. Text-only drafts get the caption package alone.
+
+The same package is useful with a working API: use it when the post should go
+out by hand, for example with a first comment or a collaboration tag that the
+Graph API cannot set.
 
 ## Media URLs
 
@@ -262,6 +284,8 @@ INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.example.com/bot
 INSTAGRAM_API_BASE=https://graph.facebook.com
 INSTAGRAM_API_VERSION=v26.0
 INSTAGRAM_POLL_TIMEOUT_SECONDS=600
+INSTAGRAM_DISABLE_REFRESH=false
+INSTAGRAM_AUTO_PUBLISH=true
 IG_MEDIA_BIND_IP=127.0.0.1
 IG_MEDIA_PORT=8099
 ```
@@ -280,6 +304,12 @@ IG_MEDIA_PORT=8099
 - `INSTAGRAM_API_VERSION` - Graph API version (default `v26.0`).
 - `INSTAGRAM_POLL_TIMEOUT_SECONDS` - how long to wait for Meta media
   processing before failing (default 600).
+- `INSTAGRAM_AUTO_PUBLISH` - `true` (default) publishes through the Graph API
+  when the credentials are set; `false` hides every Instagram API button and
+  keeps the manual **Post package** action in the operator console.
+- `INSTAGRAM_DISABLE_REFRESH` - `true` stops the scheduled long-lived token
+  refresh entirely; use it while an account is under review so the bot does
+  not call the token endpoints on its own.
 - `IG_MEDIA_BIND_IP` / `IG_MEDIA_PORT` - loopback address and port the bundled
   nginx media host listens on (defaults `127.0.0.1:8099`).
 

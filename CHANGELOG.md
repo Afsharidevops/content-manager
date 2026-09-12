@@ -5,6 +5,27 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — Instagram manual mode and the post package (2026-09-12)
+
+- `INSTAGRAM_AUTO_PUBLISH` (default `true`) decides whether Instagram publishes
+  through the Graph API. With `false` the two Instagram approval buttons
+  disappear from the Telegram keyboards and the operator console, and the
+  queued `publish_ig` / `publish_both` actions answer with a skip message that
+  names the switch. Credentials, the media host, and the token refresh are
+  untouched, so setting it back to `true` restores the API path.
+- The operator console gains a **Post package** action for every publishable
+  draft. The bot re-sends the stored media as an untouched Telegram document
+  and follows it with the exact Instagram caption inside a `<pre>` block, which
+  Telegram renders with a copy button, so a manual post needs no text
+  selection. Text-only drafts receive the caption package alone.
+- `/api/instagram` reports the new switch as `auto_publish`, and the Overview
+  card shows `auto publish on` or `manual package` next to the token state.
+- `.env.example` and `docs/INSTAGRAM-SETUP.md` document
+  `INSTAGRAM_AUTO_PUBLISH` and `INSTAGRAM_DISABLE_REFRESH`, including the
+  manual checklist for posting from the Instagram app.
+- `content-bot` adds `TelegramApi.send_document` for full-quality file
+  hand-offs, and `/status` prints the Instagram automatic-publishing state.
+
 ### Fixes — RustFS console route behind a reverse proxy (2026-09-11)
 
 - The console signs in with a signed `POST /` (`Action=AssumeRole`) against the

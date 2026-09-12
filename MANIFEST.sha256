@@ -1,4 +1,4 @@
-5074cf82e3cc20d00b407034fa5558a87533eec31ddae32382347d3e31319076  ./.env.example
+74d9121269509ba8f1fdbf87bb838184beeec64273b44a18c75471090f8c1e5f  ./.env.example
 8ed5a6b036e51998d5729c0cd495bfef86acc4373b2c999b41dd9e828b3725eb  ./.github/workflows/platform-v0.5.6.yml
 5910cc997d369c252d987d720ad7dff4159fb08182e2b8188baf8f9a62d93a8f  ./.github/workflows/platform-v0.5.7.yml
 a7a6b25ceb9a098d816ce4f35662e2bb5204af2eaaf09da566eeeb825b41f893  ./.github/workflows/platform-v0.5.9.yml
@@ -11,7 +11,7 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 6502bb5def3d7527e476588fa8a0e67701c3364afb9050a55b7bffe46d449fb3  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-647535b8bb3347672a43b023eee377c413eb5a103841e287393c3fc6896c60a0  ./CHANGELOG.md
+c74ffd77bcf6c93b6403fb37dbb6fa18f66868c0dd2b36db4bdfb9abf0477626  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
 e4ef08dbadbb1fcaa8b818f8a97851e371044d97a8bcc9d0d5c51b0ec649311b  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
@@ -37,7 +37,7 @@ fe5ebbc8aed343cfb068cb026856456fdd542b6d2fdc40346907c70bed1dfaa4  ./deploy/helm/
 5c84000f86a4f6367c98f023ddefc4c5d521c61b5a29e5d0b58b264a056f68de  ./deploy/helm/hermes-linux-stack/templates/router.yaml
 f123278b4c0cb59bcf3bd2294bac94b497a98ee9fde6dbf703137e3cc89be5e7  ./deploy/helm/hermes-linux-stack/templates/serviceaccount.yaml
 d0438b7b112496203e01bd33cc0967943b56bf5c6d1933ba9e74ceb13add9d25  ./deploy/helm/hermes-linux-stack/values.yaml
-b8a20565b8bb3ac214519d21efc26385aed5a469bed3c603bf99729b9a43bb52  ./docker-compose.yml
+e29eafd1ec4cbb405f4a29ea4d71e4c1b8b1b8a895e1bee0106cf2777e2c2258  ./docker-compose.yml
 7027090985c6b7cef4bd12666014abde4cf194b8c945b067ea5b1de11d3bb522  ./docs-site/assets/flight-deck-v0.5.6.png
 02f9a764b15b9c21db2c800c2826aee5fc2519c6a3160f27e7a6c823424a5d1a  ./docs-site/assets/operations-center-v0.5.6.png
 0649430d5d8cc4abccd2aa9ef134736da7da9364b056c63a9cf00af201a957d8  ./docs-site/index.html
@@ -74,7 +74,7 @@ a3f25da07bbd442da7699f8de1a01d3cbd7b2742f855c64cf6e5f7b21f1f21f5  ./execution-br
 6b7ea776e22ebe10e6c40491d1aac4cda271f6c19afe4617cad978e9d8fc8724  ./execution-broker/src/broker/store.py
 66211081a60ab4390bf2073b09461e0798f924f3552383dff7bcd06cf45e7575  ./execution-broker/ssh-askpass.py
 647e72d003e6959bc15e2ea52ce6200384602e4ba1cd8f52d6026a7ac022a703  ./install.sh
-73e879890b10d3fe74a55ba11ab016091871ea715cbce5b2b9bb381b8e06305e  ./manage.sh
+371b5d584cdf1abc6e46b36e163202a103cb94df41657c7b891e44b037236590  ./manage.sh
 37a4106e8e076d9a4d6bd677861a66e64f79bba3bff41554d3825ae5a86bf04d  ./plugins/stack-execution-policy/__init__.py
 5544b17cc4cc7190d2c20ab35f5ec5336df7ab5211a5bdcfa61997236afed473  ./plugins/stack-execution-policy/plugin.yaml
 12a26259dfa56408d072f7b65f32a1bac0f4545fc3d4e0808321017bcb4ebd38  ./plugins/stack-package-policy/__init__.py

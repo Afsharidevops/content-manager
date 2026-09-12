@@ -183,6 +183,11 @@ class DraftQueueTest(unittest.TestCase):
         self.assertEqual(stored["id"], request["id"])
         self.assertEqual(drafts_mod.pending(self.root)[0]["action"], "publish")
 
+    def test_post_package_is_a_known_console_action(self):
+        request = drafts_mod.queue_action(self.root, "draft-1", "post_package")
+        self.assertEqual(request["action"], "post_package")
+        self.assertEqual(drafts_mod.pending(self.root)[0]["action"], "post_package")
+
     def test_queue_action_rejects_bad_input(self):
         with self.assertRaises(drafts_mod.DraftActionError):
             drafts_mod.queue_action(self.root, "../etc/passwd", "publish")
@@ -881,8 +886,23 @@ class PanelDraftApiTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload["token_set"])
         self.assertTrue(payload["configured"])
+        self.assertTrue(payload["auto_publish"])
         self.assertEqual(payload["refreshed_at"], "2026-09-10T12:00:00+00:00")
         self.assertEqual(payload["refresh_source"], "instagram-login")
+        self.assertNotIn("secret", body)
+
+    def test_instagram_view_reports_the_auto_publish_switch(self):
+        (self.root / ".env").write_text(
+            "INSTAGRAM_BUSINESS_ID=17841426952001533\n"
+            "INSTAGRAM_ACCESS_TOKEN=super-secret-token\n"
+            "INSTAGRAM_AUTO_PUBLISH=false\n",
+            encoding="utf-8",
+        )
+        self.login()
+        status, body = self.request("GET", "/api/instagram")
+        payload = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertFalse(payload["auto_publish"])
         self.assertNotIn("secret", body)
 
     def test_instagram_view_resolves_the_tunnel_media_host(self):

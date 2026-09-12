@@ -62,7 +62,8 @@ docker compose --profile panel up -d panel
 - **Overview** - containers, health, image tags, published host ports, disk
   usage under `data/`, the pipeline counters, the Instagram credential card
   (token state, last automatic refresh, expiry, last error, and a **Refresh
-  token now** button), Media Studio jobs, and warnings when an internal
+  token now** button, plus whether automatic Instagram publishing is on or the
+  stack is in manual **Post package** mode), Media Studio jobs, and warnings when an internal
   endpoint (n8n/MCP, router dashboards) is published beyond loopback.
 - **Pipeline state** - `data/content-bot/state.json` counters, the configured
   routines with their last run, and the most recent drafts with per-draft
@@ -137,6 +138,9 @@ keyboard, without leaving the console:
 | `Text only` | `media_ask`, `awaiting_media`, `media_failed` | Answers the media question with no media. |
 | `AI image` | `media_ask`, `media_failed` | Submits the configured image driver to Media Studio. |
 | `Publish` | `text`, `text_only`, `media_ready` | Runs the normal approval path and publishes to Telegram. |
+| `Telegram + Instagram` | `text`, `text_only`, `media_ready` | Publishes to the Telegram channel and to Instagram; only shown while `INSTAGRAM_AUTO_PUBLISH` is on. |
+| `Instagram` | `text`, `text_only`, `media_ready` | Publishes to Instagram only; only shown while `INSTAGRAM_AUTO_PUBLISH` is on. |
+| `Post package` | `text`, `text_only`, `media_ready` | Sends the stored media file plus a copy-ready caption (`<pre>` block with a Telegram copy button) to the operator chat for a manual Instagram upload. |
 | `Discard` | any | Drops the draft and deletes its Telegram messages. |
 
 The console never writes `state.json`: the bot keeps the authoritative copy in
@@ -150,9 +154,11 @@ results** in the panel, and the operator also gets a Telegram message. Draft
 ids and action names are validated against a fixed list, so the queue can only
 carry supported actions.
 
-`Publish` is the one action that is not reversible: it uses the same limits as
-Telegram (daily publish cap, media-still-running guard) and the browser asks
-for confirmation first.
+`Publish`, `Telegram + Instagram`, and `Instagram` are the actions that are not
+reversible: they use the same limits as Telegram (daily publish cap,
+media-still-running guard) and the browser asks for confirmation first.
+`Post package` only sends the operator a copy of the media file and the
+caption, so it can be repeated freely.
 
 ## Security model
 

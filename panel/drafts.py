@@ -34,6 +34,9 @@ ACTIONS = {
     "publish": "Publish the approved draft to Telegram.",
     "publish_both": "Publish the approved draft to Telegram and Instagram.",
     "publish_ig": "Publish the approved draft to Instagram.",
+    "post_package": (
+        "Send the stored media and a copy-ready Instagram caption to the operator."
+    ),
 }
 
 

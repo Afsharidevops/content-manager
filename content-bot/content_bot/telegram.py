@@ -157,6 +157,31 @@ class TelegramApi:
         )
         return result if isinstance(result, dict) else {}
 
+    def send_document(
+        self,
+        chat_id,
+        filename: str,
+        file_bytes: bytes,
+        *,
+        caption: str = "",
+        parse_mode: str | None = None,
+        reply_markup: dict | None = None,
+    ) -> dict:
+        """Send one file untouched, for a full-quality manual hand-off."""
+        fields = {"chat_id": chat_id, "caption": caption}
+        if parse_mode is not None:
+            fields["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            fields["reply_markup"] = json.dumps(reply_markup)
+        result = self._upload(
+            "sendDocument",
+            fields,
+            file_field="document",
+            filename=filename,
+            file_bytes=file_bytes,
+        )
+        return result if isinstance(result, dict) else {}
+
     def send_video_by_id(
         self,
         chat_id,

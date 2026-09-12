@@ -73,6 +73,7 @@ class BotSettings:
     instagram_api_version: str = "v26.0"
     instagram_poll_timeout_seconds: int = 600
     instagram_disable_refresh: bool = False
+    instagram_auto_publish: bool = True
     platforms_enabled: bool = False
 
     @classmethod
@@ -119,6 +120,7 @@ class BotSettings:
                 "INSTAGRAM_POLL_TIMEOUT_SECONDS", 600
             ),
             instagram_disable_refresh=_env_bool("INSTAGRAM_DISABLE_REFRESH", False),
+            instagram_auto_publish=_env_bool("INSTAGRAM_AUTO_PUBLISH", True),
             platforms_enabled=_env_bool("CONTENT_PLATFORMS_ENABLED", False),
         )
 
@@ -131,3 +133,14 @@ class BotSettings:
     def instagram_enabled(self) -> bool:
         """True when enough Graph API configuration exists to publish."""
         return bool(self.instagram_business_id and self.instagram_access_token)
+
+    @property
+    def instagram_publish_enabled(self) -> bool:
+        """True when the bot may publish to Instagram without a human step.
+
+        Credentials alone are not enough: ``INSTAGRAM_AUTO_PUBLISH`` lets the
+        operator keep the Instagram API buttons off (for example while Meta
+        reviews the account) and hand the operator a copy-ready post package
+        for a manual upload instead.
+        """
+        return bool(self.instagram_enabled and self.instagram_auto_publish)
