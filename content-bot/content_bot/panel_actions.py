@@ -99,6 +99,9 @@ class _QueueLock:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             self.handle = open(self.path, "a+", encoding="utf-8")
+            # Make the file accessible from the Panel container which runs
+            # under a different user (UID 1000 by default).
+            os.chmod(self.path, 0o666)
             fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
         except PermissionError:
             log.warning(
