@@ -37,7 +37,7 @@ fe5ebbc8aed343cfb068cb026856456fdd542b6d2fdc40346907c70bed1dfaa4  ./deploy/helm/
 5c84000f86a4f6367c98f023ddefc4c5d521c61b5a29e5d0b58b264a056f68de  ./deploy/helm/hermes-linux-stack/templates/router.yaml
 f123278b4c0cb59bcf3bd2294bac94b497a98ee9fde6dbf703137e3cc89be5e7  ./deploy/helm/hermes-linux-stack/templates/serviceaccount.yaml
 d0438b7b112496203e01bd33cc0967943b56bf5c6d1933ba9e74ceb13add9d25  ./deploy/helm/hermes-linux-stack/values.yaml
-e29eafd1ec4cbb405f4a29ea4d71e4c1b8b1b8a895e1bee0106cf2777e2c2258  ./docker-compose.yml
+4ea66926142ec0a1de7188f2a3f532a7366770a552b6f78ae322ca2204accca0  ./docker-compose.yml
 7027090985c6b7cef4bd12666014abde4cf194b8c945b067ea5b1de11d3bb522  ./docs-site/assets/flight-deck-v0.5.6.png
 02f9a764b15b9c21db2c800c2826aee5fc2519c6a3160f27e7a6c823424a5d1a  ./docs-site/assets/operations-center-v0.5.6.png
 0649430d5d8cc4abccd2aa9ef134736da7da9364b056c63a9cf00af201a957d8  ./docs-site/index.html

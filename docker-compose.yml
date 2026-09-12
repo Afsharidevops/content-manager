@@ -715,6 +715,12 @@ services:
     cap_drop: ["ALL"]
     security_opt:
       - no-new-privileges:true
+    sysctls:
+      # The bot reaches Telegram and other public APIs over IPv4 only. The
+      # kernel has no IPv6 route to them, so leave the duplicate stack off
+      # instead of letting a lookup attempt fail with a misleading
+      # "Network is unreachable" after the IPv4 path recovers.
+      net.ipv6.conf.all.disable_ipv6: "1"
     networks: [agent-net]
 
   # Media Studio: optional media generation worker (compose profile "media").
