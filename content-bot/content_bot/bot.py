@@ -2737,16 +2737,25 @@ class ContentBot:
         # Acknowledge before the slow publish; the result goes into the
         # draft message so a stale callback id cannot fail the update.
         self._safe_answer(query_id, "Publishing...")
-        try:
-            if "instagram" in targets:
+        ig_error = None
+        if "instagram" in targets:
+            try:
                 self._publish_to_instagram(record)
-            if "telegram" in targets:
+            except instagram_mod.InstagramError as error:
+                ig_error = str(error)
+        tg_error = None
+        if "telegram" in targets:
+            try:
                 self._publish_record(record)
-        except telegram_mod.TelegramError as error:
-            self._safe_answer(query_id, f"Publish failed: {error}")
-            return False
-        except instagram_mod.InstagramError as error:
-            self._safe_answer(query_id, f"Instagram publish failed: {error}")
+            except telegram_mod.TelegramError as error:
+                tg_error = str(error)
+        if ig_error or tg_error:
+            errors = []
+            if ig_error:
+                errors.append(f"Instagram: {ig_error}")
+            if tg_error:
+                errors.append(f"Telegram: {tg_error}")
+            self._safe_answer(query_id, "Publish had errors: " + "; ".join(errors))
             return False
         self.state.remember_published(
             str(record.get("content_hash") or ""),
