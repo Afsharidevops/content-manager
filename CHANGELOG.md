@@ -5,6 +5,42 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — Codex and Claude Code client protocols (2026-09-12)
+
+- `POST /v1/responses` now speaks the Responses API properly instead of
+  flattening it to plain chat: instructions become the system message,
+  `function_call` / `function_call_output` history round-trips as assistant
+  tool calls and tool results, tool definitions keep their JSON schema, and the
+  stream emits `response.created` / `output_item.added` /
+  `output_text.delta` / `function_call_arguments.delta` / `output_item.done` /
+  `response.completed` with `sequence_number` and Responses-shaped usage. A
+  broken upstream stream ends with `response.failed` rather than a truncated
+  `response.completed`. Codex connects with `wire_api = "responses"` and runs
+  its tool loop through the router.
+- New `POST /v1/messages` implements the Anthropic Messages API for Claude
+  Code: system blocks, text/image/tool_use/tool_result content, tools and
+  `tool_choice`, streaming `message_start` … `message_stop` events with
+  `text_delta` and `input_json_delta` blocks, and Anthropic usage reporting.
+  `POST /v1/messages/count_tokens` returns a local estimate, and `GET
+  /v1/models` answers in the Anthropic shape for clients that ask with
+  `anthropic-version` or `x-api-key`.
+- `examples/clients/` ships a ready-to-copy Codex `config.toml`, a Claude
+  Codex environment file, and a verification checklist.
+- `/v1/chat/completions`, `/v1/responses`, and `/v1/messages` share one routing
+  path, so tiering, budget enforcement, sticky sessions, and telemetry apply to
+  every protocol. `docs/SMART-ROUTER-CLIENT-API.md` documents both client
+  configurations end to end.
+
+### Fixes — panel config edits no longer lock the bot out (2026-09-12)
+
+- `ConfigStore.write` staged edits in a `0600` temporary file and kept that
+  mode after `os.replace`, so editing `editorial-policy.yaml` in the panel made
+  it unreadable for the bot container, which runs under a different uid and
+  crashed every maintenance cycle with `PermissionError`. Configuration files
+  are now written world readable (`0644`, existing bits preserved), matching
+  the shipped defaults and the read-only mounts of the bot, router, and n8n
+  containers.
+
 ### Features — Instagram manual mode and the post package (2026-09-12)
 
 - `INSTAGRAM_AUTO_PUBLISH` (default `true`) decides whether Instagram publishes

@@ -62,6 +62,48 @@ When `SMART_ROUTER_CLIENT_API_KEY` is set, clients must send `Authorization: Bea
 
 Clients should select `model=auto`. `auto-fast`, `auto-standard`, and `auto-strong` are available as explicit tier aliases. Forced fast/standard aliases can still be upgraded by hard capability gates.
 
+## Client wire protocols
+
+Smart Router serves three protocols on the same routing path:
+
+- `POST /v1/chat/completions` - OpenAI Chat Completions.
+- `POST /v1/responses` - OpenAI Responses, for Codex with
+  `wire_api = "responses"`. Instructions, message input, `function_call` /
+  `function_call_output` history, tools, `text.format`, streaming deltas, and
+  usage all translate to and from Chat Completions.
+- `POST /v1/messages` - Anthropic Messages, for Claude Code and Anthropic SDK
+  clients, including streaming, tool use, images, and
+  `POST /v1/messages/count_tokens`. `GET /v1/models` answers in the Anthropic
+  model-list shape for clients that send `anthropic-version` or `x-api-key`.
+
+```toml
+# Codex
+model = "auto"
+model_provider = "smart-router"
+
+[model_providers.smart-router]
+name = "Smart Router"
+base_url = "https://api.example.com/v1"
+wire_api = "responses"
+env_key = "SMART_ROUTER_CLIENT_API_KEY"
+```
+
+```bash
+# Claude Code
+export ANTHROPIC_BASE_URL=https://api.example.com
+export ANTHROPIC_AUTH_TOKEN="<SMART_ROUTER_CLIENT_API_KEY>"
+export ANTHROPIC_MODEL=auto
+export ANTHROPIC_SMALL_FAST_MODEL=auto
+```
+
+Ready-to-copy client files live in `examples/clients/`.
+
+Both translated protocols stream, so the upstream response must stay
+uncompressed; the endpoints request `accept-encoding: identity` themselves.
+Streaming failures terminate as `response.failed` (Responses) or `error`
+(Messages) instead of a truncated success. See `docs/SMART-ROUTER-CLIENT-API.md`
+for the full client reference.
+
 ## Router backend configuration
 
 `install.sh` selects one router backend and writes its settings into `.env`;

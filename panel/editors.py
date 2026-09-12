@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,6 +22,11 @@ import yaml
 MAX_EDIT_BYTES = 512 * 1024
 SECRET_KEY_RE = re.compile(r"(SECRET|TOKEN|PASSWORD|PASSWD|_KEY$|API_KEY|HASH)", re.IGNORECASE)
 ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+# Configuration files are mounted read-only into the bot, router, and n8n
+# containers, which run under different uids, so they always stay world
+# readable. Secrets live in .env and are handled by EnvStore instead.
+CONFIG_FILE_MODE = 0o644
 
 
 class EditError(ValueError):
@@ -158,6 +164,7 @@ class ConfigStore:
             handle.flush()
             os.fsync(handle.fileno())
             handle.close()
+            os.chmod(handle.name, _config_file_mode(item.path))
             os.replace(handle.name, item.path)
         except BaseException:
             try:
@@ -236,6 +243,20 @@ class ConfigStore:
             except OSError:
                 pass
         return target.name
+
+
+def _config_file_mode(path: Path) -> int:
+    """Return the mode the written configuration file must end up with.
+
+    ``tempfile`` creates the staging file as 0600 and ``os.replace`` keeps that
+    mode, which left the working copies unreadable for the bot container. Keep
+    whatever bits the operator set, but never drop the shared read permission.
+    """
+    try:
+        current = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        return CONFIG_FILE_MODE
+    return current | CONFIG_FILE_MODE
 
 
 def validate_config(item: ConfigFile, text: str) -> None:

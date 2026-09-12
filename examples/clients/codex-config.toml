@@ -1,0 +1,30 @@
+# Codex CLI configured for Smart Router.
+#
+# Copy this file to ~/.codex/config.toml, or keep your existing config and add
+# the [model_providers.smart-router] block, then select the provider with
+# model_provider = "smart-router".
+#
+# Credential: export the client key before starting Codex.
+#   export SMART_ROUTER_CLIENT_API_KEY="<SMART_ROUTER_CLIENT_API_KEY>"
+# Or delete env_key and keep the key in this file instead:
+#   experimental_bearer_token = "<client key>"
+
+model = "auto"
+model_provider = "smart-router"
+model_reasoning_effort = "high"
+
+[model_providers.smart-router]
+name = "Smart Router"
+# Smart Router origin plus /v1; Codex appends /responses for wire_api="responses".
+base_url = "https://api.example.com/v1"
+# "responses" uses POST /v1/responses (streaming, tools, usage).
+# "chat" uses POST /v1/chat/completions.
+wire_api = "responses"
+env_key = "SMART_ROUTER_CLIENT_API_KEY"
+
+# Model selection:
+#   auto            route by policy (recommended)
+#   auto-fast       cheapest tier
+#   auto-standard   mid tier
+#   auto-strong     strongest tier
+# Any other value is forwarded upstream verbatim and bypasses routing policy.

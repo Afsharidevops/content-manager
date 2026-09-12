@@ -89,6 +89,31 @@ class ConfigStoreTest(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertEqual(result["bytes"], path.stat().st_size)
 
+    def test_written_configs_stay_readable_for_the_other_containers(self):
+        path = self.config_path("editorial-policy.yaml")
+        path.write_text(VALID_POLICY, encoding="utf-8")
+        os.chmod(path, 0o644)
+        self.store.write(
+            "editorial-policy",
+            VALID_POLICY + "  - id: weekly\n    platform: telegram\n    cadence: weekly\n",
+        )
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o644)
+
+    def test_written_configs_repair_a_restrictive_mode(self):
+        path = self.config_path("editorial-policy.yaml")
+        path.write_text(VALID_POLICY, encoding="utf-8")
+        os.chmod(path, 0o600)
+        self.store.write("editorial-policy", VALID_POLICY)
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o644)
+
+    def test_seeded_config_is_readable_for_the_other_containers(self):
+        source = self.root / "content" / "config"
+        source.mkdir(parents=True)
+        (source / "editorial-policy.yaml").write_text(VALID_POLICY, encoding="utf-8")
+        self.store.seed("editorial-policy")
+        seeded = self.config_path("editorial-policy.yaml")
+        self.assertEqual(stat.S_IMODE(os.stat(seeded).st_mode), 0o644)
+
     def test_policy_rejects_duplicate_routine_ids(self):
         duplicate = VALID_POLICY + "  - id: morning\n    cadence: daily\n"
         with self.assertRaisesRegex(EditError, "duplicate routine id"):

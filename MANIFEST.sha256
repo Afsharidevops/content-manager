@@ -11,7 +11,7 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 6502bb5def3d7527e476588fa8a0e67701c3364afb9050a55b7bffe46d449fb3  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-c74ffd77bcf6c93b6403fb37dbb6fa18f66868c0dd2b36db4bdfb9abf0477626  ./CHANGELOG.md
+2d4ebe07361ac628dba9ec8932914e54ad0d08ecda7412db63517aed159e38ac  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
 e4ef08dbadbb1fcaa8b818f8a97851e371044d97a8bcc9d0d5c51b0ec649311b  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
@@ -45,7 +45,7 @@ e29eafd1ec4cbb405f4a29ea4d71e4c1b8b1b8a895e1bee0106cf2777e2c2258  ./docker-compo
 1607d7018acf3606732a3ab7b965027de384473ee94aa8504df24ed8ccb9e09a  ./docs/OPERATIONS-CENTER-RATE-RAG-v0.5.4.md
 fc4d766f2c6a50dab97ffe396a2784f765e0a767a30e05a827d7ff62d9e5a3ac  ./docs/OPERATIONS.md
 d296c51f843dd4a453db00f37c10bb4efad2a0ab184aaf8ac6630bbf9a933186  ./docs/RELEASE-PROCESS.md
-a1d11e616d92c9d25efed01de792735ebf772bbe51a7ef5cc6161df1048496d4  ./docs/SMART-ROUTER-CLIENT-API.md
+61123e8f33ef9dbc2688ae65037ab4d9a4f0f6cbd7016b0f2a0f6f31e6600dd8  ./docs/SMART-ROUTER-CLIENT-API.md
 facd4105594e96b56e955ba8943e83602067ce7f2d31915d772615844678c788  ./docs/SMART-ROUTER-PUBLIC-INGRESS.md
 daaeb8dc31f4df82bdfb8bd8563a5d036bc5b48d07c1cf7de2796eb290e12d7c  ./docs/publishing/EXECUTION-BROKER-DOCKERHUB.md
 3302b66a33ef503231fff392af179dbf7d23efee1ebcef5e8dc73f6624fe4308  ./docs/publishing/SMART-ROUTER-DOCKERHUB.md
@@ -56,6 +56,9 @@ f9154e329458cb7e52880332940c913c01fb342731515780fa5a009d083590e6  ./examples/cad
 e2d698523e8e999bc6e76871f96266f6cb7c23f4e5ea5021f7b7994a1bb5feb6  ./examples/caddy/Caddyfile.smart-router-external-proxy-http.example
 87757fb78fd2fd572974fb83e9faffedb506bfb0466493f002fa3df99ceb9813  ./examples/caddy/Caddyfile.smart-router-standalone-tls.example
 4942248afb9fdda0d480ed9abe71a6586de0f9c95a690e3b908b072ee6338652  ./examples/caddy/docker-compose.external-proxy.yml
+65fe7b01a7121e8f56a9a8b41725a883670f60d79f810f82a9313186f2120eec  ./examples/clients/README.md
+f8e9c1cdf26f344ffa7e99dbd165e3471e54d1b120e81df6ab420b2ec25ff91a  ./examples/clients/claude-code.env.example
+888d67dddfbd7d415813e7592e14bc9b25749e189f3be414b405cfd05edb3ec2  ./examples/clients/codex-config.toml
 e99b283cbc655a4fb85c2dba34d64b0325325e730e3cc79299766b0942212972  ./examples/reverse-proxy/nginx-smart-router.conf.example
 9a19ec8c1a9eadd19ef232c5a8c5fbeb25909d5e8383d4bdda9b47de762de7ef  ./examples/reverse-proxy/traefik-smart-router.yml.example
 87d639e571167c6a5896b4a23c56b8744cd838b88c818f1be058e99e8141d2bd  ./execution-broker/.dockerignore
@@ -99,7 +102,7 @@ eedadaf55fe6eb31ccbb337f6581f5d28fd6894d4e16e0ded66fcd73ed6b1ab5  ./scripts/veri
 fb89a752690bfc3e4f15829183aea5364cd309111ed6fa4b991e355e004b4769  ./smart-router/.dockerignore
 2e7af9f773773843404ba63c5033b2961144c79606669cef923a72fe26d94954  ./smart-router/.gitignore
 f0095199301d001cf238abcdc4fd87b182c03f60237a4535a1b6e8c74015fa13  ./smart-router/Dockerfile
-b10a79d148f2a9700c9753c86526bffb092b275a858f05052f18668cecde6b3b  ./smart-router/README.md
+0d91920967a8b0c7ff336216ab4a9b4be4150a4921eefa8fcc210198180edd16  ./smart-router/README.md
 ff64e58b4899575a1222d872745ed1f36a30583f6ca44eefce972de0e014b059  ./smart-router/V0.5.9-RELEASE-NOTES.md
 7cd91e86e04975031fe50f1e30e4a0334d7621a28db2f55006c344790372557f  ./smart-router/compose-ha-v0.5.1.example.yml
 147980c55d11f21d07d50135789fb140cb15649e4feb1fd9e2fdc89590c75efc  ./smart-router/compose-ha-v0.5.2.example.yml
@@ -130,6 +133,7 @@ b2e7050cafbc65486180b8a9f2dae802b0bd65c615aa72effbb0d4371015e3bb  ./smart-router
 f2e82f30a9a0eb5406426afa15e3cc292575f99802691754cc21f6e7f71f3e3d  ./smart-router/requirements.txt
 2572f2845e5698b8116417d61b3f7359eda0e4848a48ba67da3a7cc8b682face  ./smart-router/src/smart_router/__init__.py
 f09e926d63c4b7d49ac4c6dee4fa7e28236d759cdcd6a609184918f2f3717b50  ./smart-router/src/smart_router/acl_v52.py
+a7f2010c2f698e727bca309a4ec59247c519449691f2388e131d4e8f6034bb44  ./smart-router/src/smart_router/anthropic.py
 7e06c147b0f8a8aa0b30370b5060eae5e795f56ed5229f16b5037e07150045ce  ./smart-router/src/smart_router/asgi.py
 70c958706e2821cf01534f8a3f016dbe2869a62621d2b64d22fea2ae75c9cbed  ./smart-router/src/smart_router/benchmark_v51.py
 cfe673dd3696af4e0068fa7768f9b777ca222e7fdbd97b20a2675e24596bdd9c  ./smart-router/src/smart_router/budget.py
@@ -154,7 +158,7 @@ af441e22db725d02f7790384464807245ab53ea6b8801892c1c1067b51a4cb7f  ./smart-router
 0351101e0fe030c57d7896d0ab2a7bcf587d9f9d4ee8bd4eac80d27659ed98cb  ./smart-router/src/smart_router/learned/model.py
 9f1a5db54274c44985fbf04f362e79376b8b9d8bf130ea75008c9bf6bce0cfac  ./smart-router/src/smart_router/learned/schema.py
 82ea7ca40cc2efb5c44416cb3694ea359b904b260696c9d9917483fbac71f071  ./smart-router/src/smart_router/learned/train.py
-21f333a774c5b435e68ed3d44d6150a5bb530c0dc50bc66df1ecde82ffbed3f1  ./smart-router/src/smart_router/main.py
+37c092758251def7ed688683253ab9abdae06a5036bb14fec0c7b3dcec71a6ec  ./smart-router/src/smart_router/main.py
 92e67ced6656536dc029e17d3567d23d199b398670c432bc4bfe26eff07f3517  ./smart-router/src/smart_router/metrics.py
 35275c6abc87cc1c5b05332da81a3212954c2c1da28fee7191425b7faf27fa63  ./smart-router/src/smart_router/observations.py
 e1807a576835c778fd3f8b5bdd310c275267c0f3047be1ebfb0520be8ff4445e  ./smart-router/src/smart_router/oidc_v52.py
@@ -167,12 +171,15 @@ de5552e0edc691207e214934049e31360704905b634e6b660107541bc28db009  ./smart-router
 7748e58798cc9ef54318970de29f337dbdd390c8683e539fe7536a05590918fc  ./smart-router/src/smart_router/provider_health.py
 593406bbc4cf3ed79c91ac0b0c9594ac9be66a184ae723b653f12443f75a4ef9  ./smart-router/src/smart_router/provider_registry.py
 a8a8ed4aa8b177c9fe24e0c0069e0d19769f990267b431e5e8a40cbebd9af300  ./smart-router/src/smart_router/proxy.py
+f7c0bf2f717e779f21404079f81d0f1c4134ad0f226c4c1e5c72cda56c4b0f5d  ./smart-router/src/smart_router/responses.py
 7d65d78b3585d657d09f7b4f046f5d943a69330c07b54f4db46dfb78852d36e7  ./smart-router/src/smart_router/routing.py
 80f430cb4d6838bc51540169a8c06d7faaccd9d349d22f128f3b40d16eb9ebb3  ./smart-router/src/smart_router/secrets_v52.py
 ca240947e6641e5a45cf3c7217a7706c54ad0d63d4d4244efa677da25b6e31af  ./smart-router/src/smart_router/security_v51.py
 f5a8e6a52d7cb4b2c469d2fac1b4ee990c588fdd867deba9c6ffee5436f1be3a  ./smart-router/src/smart_router/shared_state.py
+c452f00d86bf6787908f181107fc08abbaf098eb52c4db071badc9285d02b555  ./smart-router/src/smart_router/tools_registry.py
 86a0e6a3cb6da3bd0337a53a1e77c771c3abfe098995014beedcc0da996dfada  ./smart-router/src/smart_router/vector_rag_v56.py
 40460b50b0d808dc8c592970dea24535860b44c7e236e8e62d6b57f1db515409  ./smart-router/tests/conftest.py
+37834e239aef6e43c4d033a267b17ed9f536d9cb6f33dfa1df92c5d0c32b4b83  ./smart-router/tests/test_anthropic.py
 4b6a3706c4ef679251096d88f6c2c01ad38665e8296e49f98b4b1691b1d00fe6  ./smart-router/tests/test_api.py
 c23e060b487f56b04e758631323e80a0f9cea1ec04a219370593fed777d9f9f6  ./smart-router/tests/test_benchmark.py
 d05b4c491390fb808cefd350e2e66406a4c031c3962e9a3df660b84f33cb16e9  ./smart-router/tests/test_budget.py
@@ -183,6 +190,7 @@ d05b4c491390fb808cefd350e2e66406a4c031c3962e9a3df660b84f33cb16e9  ./smart-router
 367b16076637b1705f3108d6067df4e6364da9f1f83916be1fcf2829ca62edaf  ./smart-router/tests/test_learned.py
 4b69f3898a84a915ab4e410231735004873aab5870d6d40a4de72ec0b7ed3b02  ./smart-router/tests/test_privacy.py
 b127cce098b341215dc3391ed1a53455608846fef6a05f371a5c1aa23ccc53b4  ./smart-router/tests/test_report.py
+d79b9032fe3dd84dfb78197c1c04310af3578c7e1a161f003497dd79d6a74c92  ./smart-router/tests/test_responses.py
 156b65a5f67036e270e2b3eea48acd6eadc07273de21597bb90f5da8e1ac4295  ./smart-router/tests/test_routing.py
 5648a048cbc4c38d51386a70566608016ea516fbb0e623ee341c702bdc476905  ./smart-router/tests/test_training_schema.py
 0b6900944cf26070827df36a6592172e714f1ac9b08f3657d789a002def6974e  ./smart-router/tests/test_v040_hardening.py
