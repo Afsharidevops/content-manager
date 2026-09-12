@@ -203,7 +203,7 @@ def request_instagram_refresh(root: Path) -> Path:
     path = data_dir(root) / "instagram-refresh.request"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_now() + "\n", encoding="utf-8")
-    os.chmod(path, 0o666)
+    os.chmod(path, 0o600)
     return path
 
 
