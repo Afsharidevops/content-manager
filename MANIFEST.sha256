@@ -2,7 +2,7 @@
 8ed5a6b036e51998d5729c0cd495bfef86acc4373b2c999b41dd9e828b3725eb  ./.github/workflows/platform-v0.5.6.yml
 5910cc997d369c252d987d720ad7dff4159fb08182e2b8188baf8f9a62d93a8f  ./.github/workflows/platform-v0.5.7.yml
 a7a6b25ceb9a098d816ce4f35662e2bb5204af2eaaf09da566eeeb825b41f893  ./.github/workflows/platform-v0.5.9.yml
-26212228d90a84ae17e80b47339bb98980a6f7795fd004995d25f1a82bebad56  ./.github/workflows/publish-smart-router.yml
+f7f1c432e3f11008b8c58b44d9be2bcd1d668a3c62fdc09cb43d1ccaabde0341  ./.github/workflows/publish-smart-router.yml
 a9ebc67ef709769d3cc94d3fde50995ea6630512cb578f2cb354898621bf11b3  ./.github/workflows/security-v0.5.5.yml
 05008b3e2c36181db9434d6e233c1e234647967e483a64ee82e8fe8bf80a3dde  ./.github/workflows/security-v0.5.6.yml
 ce5aa4bb673ec9c5480a0d27eb58b5e32231e4a6d12903dd0eee419ebb48176a  ./.github/workflows/security-v0.5.7.yml
@@ -11,7 +11,7 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 6502bb5def3d7527e476588fa8a0e67701c3364afb9050a55b7bffe46d449fb3  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-2d4ebe07361ac628dba9ec8932914e54ad0d08ecda7412db63517aed159e38ac  ./CHANGELOG.md
+f774d9c3927e2cb8344acf3374b2a676a8fe968e4d40ca32eb5863903d04c816  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
 e4ef08dbadbb1fcaa8b818f8a97851e371044d97a8bcc9d0d5c51b0ec649311b  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
@@ -48,7 +48,7 @@ d296c51f843dd4a453db00f37c10bb4efad2a0ab184aaf8ac6630bbf9a933186  ./docs/RELEASE
 61a006483441a5d07c7ca6064e2fe8e1b126304f8f7d260720aa50f530e0e492  ./docs/SMART-ROUTER-CLIENT-API.md
 b55501eeeef63ef7af2aefdfb0dfaa96cfce52aa4939b880dc61bdd90d62d35c  ./docs/SMART-ROUTER-PUBLIC-INGRESS.md
 daaeb8dc31f4df82bdfb8bd8563a5d036bc5b48d07c1cf7de2796eb290e12d7c  ./docs/publishing/EXECUTION-BROKER-DOCKERHUB.md
-3302b66a33ef503231fff392af179dbf7d23efee1ebcef5e8dc73f6624fe4308  ./docs/publishing/SMART-ROUTER-DOCKERHUB.md
+80d664d366df4046603354b252c33fe3f6f725860bd11b9cff663d389d589852  ./docs/publishing/SMART-ROUTER-DOCKERHUB.md
 b8b13f0e7e44818a86996c796dfc035bc69854dfd2595b354b720968597b3283  ./docs/smart-router-v0.5.0/figures/v050-dashboard-measurement-funnel.png
 f67d5ec4924d8378cd3d0a2d2ee5b7fcdd9a08f3b9ecbc71472cdc58c00e44a1  ./docs/smart-router-v0.5.0/figures/v050-improvement-scorecard.png
 1f6c6f58b1b4f41c3c5293bb44566e237f3f87527ea3b348b3439b5ce9151604  ./examples/caddy/Caddyfile

@@ -5,6 +5,17 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Fixes — Smart Router image publishes on its own again (2026-09-12)
+
+- `.github/workflows/publish-smart-router.yml` only ran on
+  `workflow_dispatch`, so Smart Router changes merged to `main` never reached
+  Docker Hub and deployments kept pulling a stale image. The workflow now also
+  triggers on pushes that touch `smart-router/**` or itself, and it derives the
+  image version from `smart-router/pyproject.toml` when no manual version is
+  given, so the published tags can no longer drift from the package version.
+  A manual run still accepts an explicit version and rejects a value that does
+  not match the package version.
+
 ### Features — Codex and Claude Code client protocols (2026-09-12)
 
 - `POST /v1/responses` now speaks the Responses API properly instead of

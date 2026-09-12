@@ -1,12 +1,18 @@
 name: Publish Smart Router
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'smart-router/**'
+      - '.github/workflows/publish-smart-router.yml'
   workflow_dispatch:
     inputs:
       version:
-        description: Image version without a leading v
-        required: true
-        default: 0.5.9
+        description: Image version without a leading v; leave empty to use the smart-router package version
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -43,12 +49,6 @@ jobs:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
         run: |
           set -euo pipefail
-          version="${INPUT_VERSION}"
-
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
-            printf 'Invalid semantic version: %s\n' "$version" >&2
-            exit 2
-          }
 
           package_version="$(python3 - <<'PY'
           import tomllib
@@ -56,6 +56,14 @@ jobs:
               print(tomllib.load(handle)['project']['version'])
           PY
           )"
+
+          version="${INPUT_VERSION:-$package_version}"
+
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+            printf 'Invalid semantic version: %s\n' "$version" >&2
+            exit 2
+          }
+
           if [[ "$version" != "$package_version" ]]; then
             echo "Release version $version does not match smart-router package version $package_version." >&2
             exit 2
