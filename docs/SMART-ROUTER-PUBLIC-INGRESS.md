@@ -57,6 +57,9 @@ curl -i http://10.20.0.20:8088/health -H 'Host: api.example.com'
 Externally:
 
 ```bash
-curl -i https://api.example.com/health
-curl https://api.example.com/v1/models -H 'Authorization: Bearer YOUR_CLIENT_KEY'
+SR=https://api.example.com
+KEY="$SMART_ROUTER_CLIENT_API_KEY"
+
+curl -i "$SR/health"
+curl -sS "$SR/v1/models" -H "Authorization: Bearer $KEY"
 ```

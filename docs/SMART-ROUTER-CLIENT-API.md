@@ -105,14 +105,21 @@ auto-compaction should use the true limit.
 ## Test
 
 ```bash
-curl https://api.example.com/health
-curl https://api.example.com/v1/models -H 'Authorization: Bearer YOUR_CLIENT_KEY'
-curl https://api.example.com/v1/responses -H 'Authorization: Bearer YOUR_CLIENT_KEY' \
+SR=https://api.example.com
+KEY="$SMART_ROUTER_CLIENT_API_KEY"
+
+curl -sS "$SR/health"
+curl -sS "$SR/v1/models" -H "Authorization: Bearer $KEY"
+curl -sS "$SR/v1/responses" -H "Authorization: Bearer $KEY" \
   -H 'content-type: application/json' \
   -d '{"model":"auto","input":"say hi","stream":true}'
-curl https://api.example.com/v1/messages -H 'x-api-key: YOUR_CLIENT_KEY' \
+curl -sS "$SR/v1/messages" -H "x-api-key: $KEY" \
   -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' \
   -d '{"model":"auto","max_tokens":64,"messages":[{"role":"user","content":"say hi"}]}'
 ```
+
+The same commands are kept next to the client files in
+`examples/clients/README.md`; both use shell variables on purpose, so no header
+in the documentation ever looks like a committed credential.
 
 For multiple independent customers, put an API gateway/identity-aware proxy in front for per-client keys, quotas, revocation and audit identity.
