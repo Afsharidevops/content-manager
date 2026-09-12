@@ -391,6 +391,22 @@ Notes:
   client only carries the traffic of the profile above, so leaving it
   installed is harmless.
 
+### When WARP is needed, and when it is not
+
+WARP exists here for one reason only: the Meta developer console rejects the
+network used to **create the app and the token**. It is a browser-side
+workaround for that single page.
+
+It is not part of the stack:
+
+- No stack container runs WARP and nothing in `docker-compose.yml` depends on
+  it. Outbound API calls (Instagram Graph, Telegram, model providers, image
+  registries) use the host network and its router.
+- With `INSTAGRAM_AUTO_PUBLISH=false` the stack publishes through the manual
+  package, which never calls Meta, so WARP is not needed at all in that mode.
+- WARP becomes relevant again only when a Meta app or token has to be created
+  or replaced, and only on the machine in front of that browser.
+
 ## Manual checklist
 
 1. **Professional account**: in the Instagram app, Settings > Account type
