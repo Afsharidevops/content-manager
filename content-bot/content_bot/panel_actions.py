@@ -97,8 +97,14 @@ class _QueueLock:
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = open(self.path, "a+", encoding="utf-8")
-        fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
+        try:
+            self.handle = open(self.path, "a+", encoding="utf-8")
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
+        except PermissionError:
+            log.warning(
+                "panel queue disabled: %s is not writable", self.path
+            )
+            self.handle = None
         return self
 
     def __exit__(self, *exc):
@@ -113,7 +119,10 @@ def _consume(settings) -> list[dict]:
     """Take every queued request, leaving the queue empty for the panel."""
     path = requests_path(settings)
     rows: list[dict] = []
-    with _QueueLock(settings):
+    with _QueueLock(settings) as lock:
+        # If the lock file is not writable the queue is best-effort skipped.
+        if lock.handle is None:
+            return rows
         if not path.is_file():
             return rows
         taken = path.with_name(path.name + ".draining")
