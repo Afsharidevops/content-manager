@@ -1,9 +1,9 @@
-# Hermes Smart Router v0.6.0 — Docker Hub
+# Hermes Smart Router v0.6.1 — Docker Hub
 
 ## Images
 
 ```text
-afsharidevops/hermes-smart-router:0.6.0
+afsharidevops/hermes-smart-router:0.6.1
 afsharidevops/hermes-smart-router:latest
 ```
 
@@ -14,7 +14,7 @@ linux/amd64
 linux/arm64
 ```
 
-Do not publish a redundant `v0.6.0` Docker tag.
+Do not publish a redundant `v0.6.1` Docker tag.
 
 ## How the image gets published
 
@@ -30,6 +30,14 @@ the previous tag and deployments that pin a version will not see it. A manual
 package version.
 
 ## Release focus
+
+v0.6.1 fixes buffered chat clients against streaming upstreams. A request that
+omits `stream` now reaches the upstream with an explicit `stream: false`
+instead of relying on that upstream's default, and if the upstream answers with
+`text/event-stream` anyway the router collapses the deltas into one
+`chat.completion` JSON body. Internal callers such as the Orchestrator planner,
+executor, and reviewer rely on that contract, so a gateway that defaults to
+streaming no longer breaks an orchestration run.
 
 v0.6.0 adds the multi-agent Orchestrator to the Operations Center: a planner
 builds a validated machine-readable plan, the supervisor runs the steps through

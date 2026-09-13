@@ -5,6 +5,18 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Fixes — Buffered chat clients and streaming upstreams (2026-09-14)
+
+- A Chat Completions request that omits `stream` is now forwarded with an
+  explicit `stream: false` instead of relying on the upstream default, and a
+  `text/event-stream` body that an upstream returns for a buffered request is
+  collapsed into one `chat.completion` JSON body. Internal callers that post to
+  the router's own `/v1/chat/completions` (the Orchestrator planner, executor,
+  reviewer, and team synthesis) no longer fail with "agent returned no
+  completion" when the gateway streams by default. Streaming clients are
+  unchanged.
+- Smart Router release: `afsharidevops/hermes-smart-router:0.6.1`.
+
 ### Features — Multi-agent Orchestrator and the LocalLab router console (2026-09-14)
 
 - The Operations Center gained an **Orchestrator** page and the matching

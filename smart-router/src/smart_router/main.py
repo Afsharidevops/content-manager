@@ -44,7 +44,7 @@ from .metrics import (
 )
 from .observations import ObservationWriter
 from .privacy import session_identity
-from .proxy import forward_headers, proxy_buffered, proxy_streaming, response_header_pairs
+from .proxy import collapse_chat_stream, forward_headers, proxy_buffered, proxy_streaming, response_header_pairs
 from .routing import AUTO_ALIASES, Decision, build_policy_runtime, decide, tier_satisfies_capabilities
 from .tools_registry import ToolsRegistryError, load_tools
 
@@ -278,6 +278,11 @@ def create_app(
             return v51_error
         requested_model = body["model"]
         stream = body.get("stream") is True
+        if "stream" not in body:
+            # OpenAI clients treat a missing flag as "buffered". Some upstreams
+            # stream instead of applying that default, so send it explicitly.
+            body = {**body, "stream": False}
+            raw = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
 
         # Explicit model requests remain byte-transparent and bypass Smart Router policy.
         if requested_model not in AUTO_ALIASES:
@@ -556,6 +561,7 @@ async def _dispatch(
                         current_content = content
                 await asyncio.sleep(min(0.25 * (2 ** (attempt - 1)), 2.0))
                 response = await proxy_buffered(request.app.state.client, "POST", url, headers, current_content)
+            response = _buffered_response(response)
             _record_actual_usage(response)
     except httpx.HTTPError as error:
         logger.error(json.dumps({"event": "upstream_error", "reason": type(error).__name__}))
@@ -570,6 +576,16 @@ async def _dispatch(
         # status and usage while the client receives its own protocol.
         response = await transform(response)
     return response
+
+
+def _buffered_response(response: Response) -> Response:
+    """Collapse an SSE body an upstream sent for a request that did not stream."""
+    if not response.headers.get("content-type", "").startswith("text/event-stream"):
+        return response
+    payload = collapse_chat_stream(response.body.decode("utf-8", "replace"))
+    if payload is None:
+        return response
+    return JSONResponse(payload, status_code=response.status_code)
 
 
 def _client_auth_error(request: Request, settings: Settings) -> JSONResponse | None:

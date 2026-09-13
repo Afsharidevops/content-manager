@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator, Callable
+from typing import Any
 
 import httpx
 from starlette.background import BackgroundTask
@@ -85,6 +87,74 @@ async def proxy_streaming(
     )
     response.raw_headers = response_header_pairs(upstream.headers)
     return response
+
+
+def collapse_chat_stream(text: str) -> dict[str, Any] | None:
+    """Rebuild one Chat Completions payload from a streamed SSE body.
+
+    Upstreams may answer with ``text/event-stream`` even when the client asked
+    for a buffered response. Collapsing the deltas keeps that client on the
+    OpenAI contract instead of leaking raw SSE frames. Returns ``None`` when
+    the body holds no completion chunk.
+    """
+    content: list[str] = []
+    tool_calls: dict[int, dict[str, Any]] = {}
+    last: dict[str, Any] = {}
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            continue
+        try:
+            chunk = json.loads(data)
+        except ValueError:
+            continue
+        choices = chunk.get("choices") if isinstance(chunk, dict) else None
+        if not isinstance(choices, list) or not choices:
+            continue
+        last = chunk
+        choice = choices[0]
+        delta = choice.get("delta") if isinstance(choice, dict) else None
+        if not isinstance(delta, dict):
+            continue
+        piece = delta.get("content")
+        if isinstance(piece, str):
+            content.append(piece)
+        for call in delta.get("tool_calls") or []:
+            if isinstance(call, dict):
+                _merge_tool_call(tool_calls, call)
+    if not last:
+        return None
+    choices = last.get("choices") or [{}]
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    message: dict[str, Any] = {"role": "assistant", "content": "".join(content)}
+    if tool_calls:
+        message["tool_calls"] = [tool_calls[index] for index in sorted(tool_calls)]
+    payload = {key: value for key, value in last.items() if key != "choices"}
+    payload["object"] = "chat.completion"
+    payload["choices"] = [{
+        "index": choice.get("index", 0),
+        "message": message,
+        "finish_reason": choice.get("finish_reason"),
+    }]
+    return payload
+
+
+def _merge_tool_call(acc: dict[int, dict[str, Any]], delta: dict[str, Any]) -> None:
+    index = int(delta.get("index") or 0)
+    entry = acc.setdefault(index, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+    if delta.get("id"):
+        entry["id"] = str(delta["id"])
+    if delta.get("type"):
+        entry["type"] = str(delta["type"])
+    function = delta.get("function")
+    if isinstance(function, dict):
+        if function.get("name"):
+            entry["function"]["name"] = str(function["name"])
+        if isinstance(function.get("arguments"), str):
+            entry["function"]["arguments"] += function["arguments"]
 
 
 def _excluded_headers(headers: list[tuple[bytes, bytes]]) -> set[bytes]:

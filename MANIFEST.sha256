@@ -1,4 +1,4 @@
-550a0bc4542bb34d568543d8c2ae6b115da7ca2be384888cce36f7b31ca47854  ./.env.example
+bc3810d4a3a7f0101631a47e6dedf79a9bed9698777a3538151f99151a0e50e3  ./.env.example
 8ed5a6b036e51998d5729c0cd495bfef86acc4373b2c999b41dd9e828b3725eb  ./.github/workflows/platform-v0.5.6.yml
 5910cc997d369c252d987d720ad7dff4159fb08182e2b8188baf8f9a62d93a8f  ./.github/workflows/platform-v0.5.7.yml
 a7a6b25ceb9a098d816ce4f35662e2bb5204af2eaaf09da566eeeb825b41f893  ./.github/workflows/platform-v0.5.9.yml
@@ -11,9 +11,9 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 54a2894246012da9011c7e56e1635594af7341374b3602253a17b84b6222e035  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-c6cb810634a8737440cce55d4db5ce81291e621c1f0f156698db812ef0017fdd  ./CHANGELOG.md
+9819cf12d6bc6028b33a5e9f100a51fcf568abf5a6893744d7841e3b27f15ea4  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
-1b26a4f9601285c638a2962fc4513088b571cb417782dfaa57fd7ba0f39b0a7a  ./README.md
+184744279cb6b0a06e39ab533250f2eb3981a9e0eae3913c9608e5d8828b6b15  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
 14f902162772401747f01f771b13eddb86c3552404be449c4db34b66bda2ea41  ./VERSION
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./data/9router/.gitkeep
@@ -27,7 +27,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./data/stack-s
 4bf37a3d035f52ab0fa5bdb14400ffed58c1e02bc416f73d1b03a80148036baf  ./deploy/demo/docker-compose.v0.5.7.yml
 b1fc208b59878a012048e6d973a8ad20e3b29158c7c9abdc627db42a3e51b3e5  ./deploy/demo/docker-compose.v0.5.8.yml
 fbb45b39eb617e22646dcbb9d75409981fff115b5a8b1124d59ed96e017d1e86  ./deploy/demo/docker-compose.v0.5.9.yml
-b8456da8536fd5f2477f031c833fe3e90b906d12249e33892f4833fbff8d0516  ./deploy/helm/hermes-linux-stack/Chart.yaml
+a0cbb797bd9d68592f073c924565a1acc3bdba16df809a70e75df5ccc9ed2f80  ./deploy/helm/hermes-linux-stack/Chart.yaml
 11a430fdf4591bc497e2d9f1e521c0fd355307832c8e95fa29d092617e7c8f24  ./deploy/helm/hermes-linux-stack/README.md
 edec3bbac60251f6a3fbb49870318167234288488d1568ac5fa89c1af3f2ebaa  ./deploy/helm/hermes-linux-stack/templates/_helpers.tpl
 22579dfc0d58fb0edaf803df8632d4c337697fff3c8da99b921f06025b4c4dd9  ./deploy/helm/hermes-linux-stack/templates/hpa.yaml
@@ -36,8 +36,8 @@ edec3bbac60251f6a3fbb49870318167234288488d1568ac5fa89c1af3f2ebaa  ./deploy/helm/
 fe5ebbc8aed343cfb068cb026856456fdd542b6d2fdc40346907c70bed1dfaa4  ./deploy/helm/hermes-linux-stack/templates/redis.yaml
 07475e8ba9f9c36c96456d0c801ec6d170c953a8cbe123672f5363a987fe6c45  ./deploy/helm/hermes-linux-stack/templates/router.yaml
 f123278b4c0cb59bcf3bd2294bac94b497a98ee9fde6dbf703137e3cc89be5e7  ./deploy/helm/hermes-linux-stack/templates/serviceaccount.yaml
-467e049d09a681c33183f44463ca379978f7409915fd1c3571401dcb6274dacb  ./deploy/helm/hermes-linux-stack/values.yaml
-5ef9ef9365f59fa5c66b4b9ffc6dc5e926beb0a8ce5f5e4e062d5ed4e4c68e29  ./docker-compose.yml
+1e87743f6413251cb20e2f2988927640d31503c3d643c2420a672e2dfb0ec7e1  ./deploy/helm/hermes-linux-stack/values.yaml
+3e75616a45e3717b442b13f0fce842db858cd30cb792afb393135ff6736e2bf2  ./docker-compose.yml
 7027090985c6b7cef4bd12666014abde4cf194b8c945b067ea5b1de11d3bb522  ./docs-site/assets/flight-deck-v0.5.6.png
 02f9a764b15b9c21db2c800c2826aee5fc2519c6a3160f27e7a6c823424a5d1a  ./docs-site/assets/operations-center-v0.5.6.png
 2b294d692f2997980a721b510e8d1c868f7bd6647f0fae96581c22cf9ffc610e  ./docs-site/assets/smart-router-console-v0.6.0.png
@@ -49,11 +49,11 @@ e6807f578f70ba5b15936e7a3e0ffd0f4a88f52e3e3fdcb35f2f62ac6499f5a1  ./docs/HERMES-
 1607d7018acf3606732a3ab7b965027de384473ee94aa8504df24ed8ccb9e09a  ./docs/OPERATIONS-CENTER-RATE-RAG-v0.5.4.md
 fc4d766f2c6a50dab97ffe396a2784f765e0a767a30e05a827d7ff62d9e5a3ac  ./docs/OPERATIONS.md
 1394c1252e667bd825ed9f1f127bb8d4262bf4b13ab2fd9af510c5a5b2235687  ./docs/ORCHESTRATION.md
-77fe3fa9a98939339ca72506c9f0f5619bc0dbdc4ad3c3a50d2b121bf812572d  ./docs/RELEASE-PROCESS.md
+6942421545f04deacb45dd5c3c9fbe1ef958726d18f5ece313d493a117e96045  ./docs/RELEASE-PROCESS.md
 61a006483441a5d07c7ca6064e2fe8e1b126304f8f7d260720aa50f530e0e492  ./docs/SMART-ROUTER-CLIENT-API.md
 b55501eeeef63ef7af2aefdfb0dfaa96cfce52aa4939b880dc61bdd90d62d35c  ./docs/SMART-ROUTER-PUBLIC-INGRESS.md
 daaeb8dc31f4df82bdfb8bd8563a5d036bc5b48d07c1cf7de2796eb290e12d7c  ./docs/publishing/EXECUTION-BROKER-DOCKERHUB.md
-85d3f7efc2aa43031f95b3559775e87fd37d08c9678783db571d218ee7a37024  ./docs/publishing/SMART-ROUTER-DOCKERHUB.md
+3aae3f7b839eb9dc1f7abc02d12fd1c0e5cbac1026f997007562913b851a6089  ./docs/publishing/SMART-ROUTER-DOCKERHUB.md
 b8b13f0e7e44818a86996c796dfc035bc69854dfd2595b354b720968597b3283  ./docs/smart-router-v0.5.0/figures/v050-dashboard-measurement-funnel.png
 f67d5ec4924d8378cd3d0a2d2ee5b7fcdd9a08f3b9ecbc71472cdc58c00e44a1  ./docs/smart-router-v0.5.0/figures/v050-improvement-scorecard.png
 1f6c6f58b1b4f41c3c5293bb44566e237f3f87527ea3b348b3439b5ce9151604  ./examples/caddy/Caddyfile
@@ -81,7 +81,7 @@ a3f25da07bbd442da7699f8de1a01d3cbd7b2742f855c64cf6e5f7b21f1f21f5  ./execution-br
 8712b285c9d4a75b7f24f0f31bcc7f241e7da3e84a7b470a56d2015c60224ed3  ./execution-broker/src/broker/ssh.py
 6b7ea776e22ebe10e6c40491d1aac4cda271f6c19afe4617cad978e9d8fc8724  ./execution-broker/src/broker/store.py
 66211081a60ab4390bf2073b09461e0798f924f3552383dff7bcd06cf45e7575  ./execution-broker/ssh-askpass.py
-7a0ba93427c9f6116ac46fe0c730d39fc03703203b27d387d530bb2fb5baeda5  ./install.sh
+889dc0f4f1f665526bc9d716ffcc98867f118e059ca5d011cfe3c20c78fbe115  ./install.sh
 cb6f459dff1ea3b787a702694c6deb72490e67e609d2ebf6ea099c72cf6b7194  ./manage.sh
 37a4106e8e076d9a4d6bd677861a66e64f79bba3bff41554d3825ae5a86bf04d  ./plugins/stack-execution-policy/__init__.py
 5544b17cc4cc7190d2c20ab35f5ec5336df7ab5211a5bdcfa61997236afed473  ./plugins/stack-execution-policy/plugin.yaml
@@ -110,6 +110,7 @@ f0095199301d001cf238abcdc4fd87b182c03f60237a4535a1b6e8c74015fa13  ./smart-router
 8bb74a64a646ec7ff7a235596d96513af1222a598f26214aaf3453e5d1f90c15  ./smart-router/README.md
 ff64e58b4899575a1222d872745ed1f36a30583f6ca44eefce972de0e014b059  ./smart-router/V0.5.9-RELEASE-NOTES.md
 0b197ac1fdda6a3c0a116bcb33f893bdbc658c40cb9f05cafacaf249aedde5be  ./smart-router/V0.6.0-RELEASE-NOTES.md
+d238914b47f672779e6995c7d94e2880c997b7a5622a5b550b1fc4c364ef3bd0  ./smart-router/V0.6.1-RELEASE-NOTES.md
 7cd91e86e04975031fe50f1e30e4a0334d7621a28db2f55006c344790372557f  ./smart-router/compose-ha-v0.5.1.example.yml
 147980c55d11f21d07d50135789fb140cb15649e4feb1fd9e2fdc89590c75efc  ./smart-router/compose-ha-v0.5.2.example.yml
 147980c55d11f21d07d50135789fb140cb15649e4feb1fd9e2fdc89590c75efc  ./smart-router/compose-ha-v0.5.3.example.yml
@@ -134,10 +135,10 @@ c587483d4f6c036d5342f5379d656e49f04ff9f539cd485255e1b601134570fc  ./smart-router
 6998c7a0784196ccdcae8c7ca4df8fc3a422ac7863143de194db0be2bdbcb446  ./smart-router/policy/calibrated.json
 fa3094194eeddbbc312879197cd6ae26c30174b57852490595f2b903940eb6a8  ./smart-router/policy/pricing-v0.5.1.example.json
 159937da52376e6328ddcb03d910603faf32b0f00f3ff166cf1d67524d1a6062  ./smart-router/policy/pricing-v0.5.example.json
-b944fb458c75069fa40c8ee5cc264ac0a0d330861257c2ab11264e0ce82cb051  ./smart-router/pyproject.toml
+85b7a2b5a3e1eb5caed0f7e62532e657c68ef07987bca706df03695b5a6c1f71  ./smart-router/pyproject.toml
 b2e7050cafbc65486180b8a9f2dae802b0bd65c615aa72effbb0d4371015e3bb  ./smart-router/requirements-dev.txt
 f2e82f30a9a0eb5406426afa15e3cc292575f99802691754cc21f6e7f71f3e3d  ./smart-router/requirements.txt
-7080f58cb9c2fef8f8f0680c37a61bd4503726c43de73366087991604f131616  ./smart-router/src/smart_router/__init__.py
+6da01c1232d260521e359179d6d38c980ff300c84df07bca69e97e514f91b9e7  ./smart-router/src/smart_router/__init__.py
 f09e926d63c4b7d49ac4c6dee4fa7e28236d759cdcd6a609184918f2f3717b50  ./smart-router/src/smart_router/acl_v52.py
 a7f2010c2f698e727bca309a4ec59247c519449691f2388e131d4e8f6034bb44  ./smart-router/src/smart_router/anthropic.py
 7e06c147b0f8a8aa0b30370b5060eae5e795f56ed5229f16b5037e07150045ce  ./smart-router/src/smart_router/asgi.py
@@ -164,7 +165,7 @@ af441e22db725d02f7790384464807245ab53ea6b8801892c1c1067b51a4cb7f  ./smart-router
 0351101e0fe030c57d7896d0ab2a7bcf587d9f9d4ee8bd4eac80d27659ed98cb  ./smart-router/src/smart_router/learned/model.py
 9f1a5db54274c44985fbf04f362e79376b8b9d8bf130ea75008c9bf6bce0cfac  ./smart-router/src/smart_router/learned/schema.py
 82ea7ca40cc2efb5c44416cb3694ea359b904b260696c9d9917483fbac71f071  ./smart-router/src/smart_router/learned/train.py
-37c092758251def7ed688683253ab9abdae06a5036bb14fec0c7b3dcec71a6ec  ./smart-router/src/smart_router/main.py
+a40ef39ca478ec8a434c103dd8763d0a8c20bbba8a077bdff386d55132b815b2  ./smart-router/src/smart_router/main.py
 10c89b87e0bcccfa47cc58c1bbdffdea3b8ae13722766d4382d2c785d898aefe  ./smart-router/src/smart_router/metrics.py
 35275c6abc87cc1c5b05332da81a3212954c2c1da28fee7191425b7faf27fa63  ./smart-router/src/smart_router/observations.py
 e1807a576835c778fd3f8b5bdd310c275267c0f3047be1ebfb0520be8ff4445e  ./smart-router/src/smart_router/oidc_v52.py
@@ -177,7 +178,7 @@ de5552e0edc691207e214934049e31360704905b634e6b660107541bc28db009  ./smart-router
 3692c0798f2a5fd5cf919a2f19e946b5a90d6a38e9d14ebe548960c096b35b15  ./smart-router/src/smart_router/privacy.py
 7748e58798cc9ef54318970de29f337dbdd390c8683e539fe7536a05590918fc  ./smart-router/src/smart_router/provider_health.py
 593406bbc4cf3ed79c91ac0b0c9594ac9be66a184ae723b653f12443f75a4ef9  ./smart-router/src/smart_router/provider_registry.py
-a8a8ed4aa8b177c9fe24e0c0069e0d19769f990267b431e5e8a40cbebd9af300  ./smart-router/src/smart_router/proxy.py
+bdf892a4fce9f1a84cf77cc2ad456f03ec5cff832fe8332276acbd8db7921b44  ./smart-router/src/smart_router/proxy.py
 f7c0bf2f717e779f21404079f81d0f1c4134ad0f226c4c1e5c72cda56c4b0f5d  ./smart-router/src/smart_router/responses.py
 7d65d78b3585d657d09f7b4f046f5d943a69330c07b54f4db46dfb78852d36e7  ./smart-router/src/smart_router/routing.py
 80f430cb4d6838bc51540169a8c06d7faaccd9d349d22f128f3b40d16eb9ebb3  ./smart-router/src/smart_router/secrets_v52.py
@@ -190,6 +191,7 @@ c452f00d86bf6787908f181107fc08abbaf098eb52c4db071badc9285d02b555  ./smart-router
 4b6a3706c4ef679251096d88f6c2c01ad38665e8296e49f98b4b1691b1d00fe6  ./smart-router/tests/test_api.py
 c23e060b487f56b04e758631323e80a0f9cea1ec04a219370593fed777d9f9f6  ./smart-router/tests/test_benchmark.py
 d05b4c491390fb808cefd350e2e66406a4c031c3962e9a3df660b84f33cb16e9  ./smart-router/tests/test_budget.py
+216ec14d8f2beec7530894d00b0b111ead2e0433fdf028dbd15c2c74a2a6764c  ./smart-router/tests/test_buffered_stream.py
 48eb17f69c3da764510bc764fe61f450cc6c7012cf7e39e4b8b70b797655a9b7  ./smart-router/tests/test_control_v51.py
 902df41fa1529af7bec1d065f07708b2324ef84fa1e98dc208a1a732ad4291a0  ./smart-router/tests/test_database.py
 95b9706cd586192a0d1caff9fcc9e90b49b311a09c6c53038f4d2571f474832a  ./smart-router/tests/test_eval_legacy.py
@@ -199,6 +201,7 @@ d05b4c491390fb808cefd350e2e66406a4c031c3962e9a3df660b84f33cb16e9  ./smart-router
 b127cce098b341215dc3391ed1a53455608846fef6a05f371a5c1aa23ccc53b4  ./smart-router/tests/test_report.py
 d79b9032fe3dd84dfb78197c1c04310af3578c7e1a161f003497dd79d6a74c92  ./smart-router/tests/test_responses.py
 156b65a5f67036e270e2b3eea48acd6eadc07273de21597bb90f5da8e1ac4295  ./smart-router/tests/test_routing.py
+7ea4a694d41e7ab29bb026a310ee371ee49e89bd2ed67657537786fed87977d6  ./smart-router/tests/test_tools_registry.py
 5648a048cbc4c38d51386a70566608016ea516fbb0e623ee341c702bdc476905  ./smart-router/tests/test_training_schema.py
 0b6900944cf26070827df36a6592172e714f1ac9b08f3657d789a002def6974e  ./smart-router/tests/test_v040_hardening.py
 0045680cbc980248c91620dd3745d9d91e4170afbf391f20a0ae089e4156e785  ./smart-router/tests/test_v050_costs.py
@@ -206,7 +209,7 @@ d79b9032fe3dd84dfb78197c1c04310af3578c7e1a161f003497dd79d6a74c92  ./smart-router
 fd46723130d25e84cd46ebf249e59a6a7adb0f558e4a04ba4cb3e849614618e4  ./smart-router/tests/test_v050_preference_data.py
 b16df7879b1d39f7dcd8e0dbb56b0ab8deda369d09e37cebe70026822d549072  ./smart-router/tests/test_v050_provider_registry.py
 1cee0447bbfad13249a57204ef5e5950aad3208eee771f9f116d19c6f77a9613  ./smart-router/tests/test_v052_hardening.py
-f2b6d58814171457826fa6e458d20948b5994c2edf086ac1e9293fd03058141a  ./smart-router/tests/test_v053_ux.py
+1470354c3febbecb7e477bec560bba2cba77bdc7ba825086025e606c7d21cac2  ./smart-router/tests/test_v053_ux.py
 bbadedddc3dc88552c6e443bddaaec1f2a7a193b2803a967441c39209be60f27  ./smart-router/tests/test_v054_rate_rag.py
 fde51a7a1a60321b7e9540de8ee4089fcb590f2a17744d4b23732e60307b647f  ./smart-router/tests/test_v055_operations.py
 cfd77e48ffb3278e4b14bf83d71692b244905f6671668d0c0c0c5a78ed60b2ee  ./smart-router/tests/test_v056_platform.py

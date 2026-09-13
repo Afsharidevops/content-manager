@@ -163,7 +163,7 @@ Notes for the Kubernetes deployment:
 | Value | Default | Purpose |
 | --- | --- | --- |
 | `replicaCount` | `2` | Smart Router replicas |
-| `image`, `imagePullSecrets` | `afsharidevops/hermes-smart-router:0.6.0` | Router image |
+| `image`, `imagePullSecrets` | `afsharidevops/hermes-smart-router:0.6.1` | Router image |
 | `upstream.baseUrl`, `upstream.healthUrl` | empty | Explicit upstream; empty derives from `upstreamServer` |
 | `upstreamServer.enabled`, `upstreamServer.backend` | `false`, `9router` | Deploy an in-cluster gateway |
 | `components.contentBot.*` | disabled | Bot image, PVC size, `existingSecret`, `policyConfigMap`, `env` |
@@ -210,14 +210,14 @@ echo "$GHCR_TOKEN" | helm registry login ghcr.io --username YOUR_USER --password
 
 ```bash
 helm package deploy/helm/hermes-linux-stack --destination dist
-helm push dist/hermes-linux-stack-0.6.0.tgz oci://ghcr.io/afsharidevops/charts
+helm push dist/hermes-linux-stack-0.6.1.tgz oci://ghcr.io/afsharidevops/charts
 ```
 
 Consumers install straight from the registry:
 
 ```bash
 helm install content-manager oci://ghcr.io/afsharidevops/charts/hermes-linux-stack \
-  --version 0.6.0 --namespace content-manager
+  --version 0.6.1 --namespace content-manager
 ```
 
 `.github/workflows/publish-helm-chart.yml` does this automatically for

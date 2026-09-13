@@ -1,6 +1,6 @@
 apiVersion: v2
 name: hermes-linux-stack
-version: 0.6.0
+version: 0.6.1
 appVersion: "0.5.9"
 description: Content Manager on the Hermes Linux Stack v0.5.9 platform - Smart Router HA core with PostgreSQL and Redis, an optional in-cluster 9router or OmniRoute gateway, and optional Content Manager components
 type: application
