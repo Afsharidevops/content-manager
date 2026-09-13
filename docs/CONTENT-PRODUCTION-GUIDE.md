@@ -303,16 +303,32 @@ routines:
 | --- | --- |
 | Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
 | Instagram | Official Meta Graph API: photos, carousels, and video; the long-lived token refreshes itself, `/instagram` reports the expiry, and the `ig-media` profile publishes the media directory at a public URL (`./manage.sh instagram-media-status`, a domain through Caddy, or a named tunnel); see `docs/INSTAGRAM-SETUP.md` |
-| YouTube / Aparat / LinkedIn | Optional copy-ready upload package (off by default); see "Manual upload platforms" |
+| YouTube / Aparat / LinkedIn | Optional copy-ready upload package (off by default); see "Extra platforms" |
+| Bale / Eitaa | Automatic channel publish through their bot APIs (needs a token and a chat id); see "Extra platforms" |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
 
-## Manual upload platforms
+## Extra platforms
 
 Telegram and Instagram publish through their APIs; this part of the bot is
-off by default and only appears when the manual upload packages are enabled
-with `CONTENT_PLATFORMS_ENABLED=true` (a live bot otherwise shows Approve and
-Reject, and nothing else). Once enabled, platforms that need a human upload
-step (YouTube, Aparat, LinkedIn) are reachable from the same previews:
+off by default and only appears when the extra platforms are enabled with
+`CONTENT_PLATFORMS_ENABLED=true` (a live bot otherwise shows Approve and
+Reject, and nothing else). Once enabled, every draft preview carries a
+**More platforms...** button with one entry per platform; picking one either
+publishes the draft immediately or hands over a copy-ready package, depending
+on what the platform supports:
+
+- **Automatic channels** publish the draft the moment you pick them, exactly
+  like Telegram. `Bale` speaks the Telegram Bot API
+  (`CONTENT_BALE_TOKEN` + `CONTENT_BALE_CHAT_ID`), and `Eitaa` goes through the
+  EitaaYar gateway (`CONTENT_EITAA_TOKEN` + `CONTENT_EITAA_CHAT_ID`). Each
+  channel is marked `(auto)` in the chooser, publishes the caption and the
+  attached media, and records the target on the draft so the same post is
+  never sent twice. A channel without a token is marked `(no token)` and falls
+  back to the package until you add one.
+- **Package platforms** keep the manual flow below: YouTube, Aparat,
+  LinkedIn, and any key you add yourself.
+
+The packages:
 
 1. Press **More platforms...** on the draft preview or a media preview.
 2. Pick the platform. The bot sends a copy-ready package with the title (cut

@@ -16,6 +16,7 @@ from content_bot import extract, fetch, state as state_mod, telegram as telegram
 from content_bot import instagram as instagram_mod
 from content_bot import mediastudio as media_mod, rtl as rtl_mod, search as search_mod
 from content_bot import instagram_token as instagram_token_mod
+from content_bot import channels as channels_mod
 from content_bot import panel_actions as panel_actions_mod
 from content_bot import platforms as platforms_mod
 from content_bot import workflow, writer as writer_mod
@@ -248,6 +249,7 @@ class ContentBot:
             )
         self.media = media
         self.state = store or state_mod.StateStore(Path(settings.data_dir) / "state.json")
+        self.channels = channels_mod.build_channels(settings)
         self.fetch_page = fetch_page or fetch.fetch_page
         self.fetch_feed = fetch_feed or fetch.fetch_feed
         self.search_topic = search_topic or search_mod.search_topic
@@ -1391,8 +1393,10 @@ class ContentBot:
         ]
         if self.settings.platforms_enabled:
             lines.append(
-                "More platforms... on a preview sends a copy-ready package for "
-                "YouTube, Aparat, or any platform added to editorial-policy.yaml."
+                "More platforms... on a preview publishes to the automatic "
+                "channels (Bale, Eitaa) and sends a copy-ready package for "
+                "YouTube, Aparat, LinkedIn, or any platform added to "
+                "editorial-policy.yaml."
             )
         if self._routines_summary() != "not configured":
             lines.append(
@@ -2452,7 +2456,7 @@ class ContentBot:
         if data.startswith("package:"):
             tokens = data.split(":", 2)
             if len(tokens) == 3 and tokens[2]:
-                self._send_platform_package(query_id, tokens[1], tokens[2])
+                self._platform_choice(query_id, tokens[1], tokens[2])
             else:
                 self.api.answer_callback_query(query_id, "Unknown platform action.")
             return
@@ -2596,17 +2600,137 @@ class ContentBot:
         if not profiles:
             self.api.answer_callback_query(
                 query_id,
-                "No manual platform is configured; add a platforms section to "
+                "No platform is configured; add a platforms section to "
                 "editorial-policy.yaml.",
             )
             return
-        pairs = [(key, profile.label) for key, profile in profiles.items()]
+        sent = set(record.get("published_targets") or [])
+        pairs = []
+        automatic = []
+        waiting = []
+        manual = []
+        for key, profile in profiles.items():
+            label = profile.label
+            if self._channel_for(profile) is not None:
+                automatic.append(profile.label)
+                label = f"{label} (auto)"
+            elif str(getattr(profile, "mode", "package")) == "auto":
+                waiting.append(profile.label)
+                label = f"{label} (no token)"
+            else:
+                manual.append(profile.label)
+            if key in sent:
+                label = f"{label} / sent"
+            pairs.append((key, label))
+        notes = []
+        if automatic:
+            notes.append("These publish right away: " + ", ".join(automatic) + ".")
+        if waiting:
+            notes.append(
+                "These publish automatically once their token is in .env: "
+                + ", ".join(waiting)
+                + "."
+            )
+        if manual:
+            notes.append(
+                "These hand over a copy-ready package: " + ", ".join(manual) + "."
+            )
         self.api.send_message(
             chat_id,
-            "Pick a platform for a copy-ready upload package:",
+            "Pick a platform. " + " ".join(notes),
             telegram_mod.platforms_keyboard(str(record.get("id") or ""), pairs),
         )
         self._safe_answer(query_id, "Choose a platform.")
+
+    def _channel_for(self, profile):
+        """Return the automatic channel for one profile, when it is live."""
+        if str(getattr(profile, "mode", "package")) != "auto":
+            return None
+        key = str(getattr(profile, "channel_key", "") or profile.key)
+        return self.channels.get(key)
+
+    def _platform_choice(self, query_id: str, key: str, draft_id: str) -> None:
+        """Publish to one platform, or hand over its package when it is manual."""
+        if not self.settings.platforms_enabled:
+            self.api.answer_callback_query(
+                query_id,
+                "Platform actions are turned off (CONTENT_PLATFORMS_ENABLED).",
+            )
+            return
+        record = self._package_record(draft_id)
+        if record is None:
+            self.api.answer_callback_query(query_id, "This draft is no longer active.")
+            return
+        policy = workflow.load_policy(self.settings.policy_dir)
+        profiles = platforms_mod.load_profiles(policy)
+        profile = profiles.get(str(key or "").strip().lower())
+        if profile is None:
+            self.api.answer_callback_query(query_id, "Unknown platform.")
+            return
+        channel = self._channel_for(profile)
+        if channel is None:
+            self._send_platform_package(query_id, key, draft_id)
+            return
+        self._publish_to_channel(query_id, record, profile, channel)
+
+    def _publish_to_channel(self, query_id: str, record: dict, profile, channel) -> None:
+        """Publish one draft through an automatic channel adapter."""
+        draft_id = str(record.get("id") or "")
+        already = list(record.get("published_targets") or [])
+        if profile.key in already:
+            self._safe_answer(query_id, f"Already published to {profile.label}.")
+            return
+        messages = _media_caption_messages(record)
+        media = record.get("media") or {}
+        kind = str(media.get("kind") or "")
+        files = list(media.get("files") or [])
+        local_path = str(media.get("local_path") or "")
+        try:
+            if kind == "image" and len(files) >= 2:
+                entries: list[tuple[str, bytes]] = []
+                for item in files:
+                    path = Path(str(item.get("local_path") or ""))
+                    if not path.is_file():
+                        raise channels_mod.ChannelError(
+                            "a media file is missing from storage"
+                        )
+                    entries.append((path.name, path.read_bytes()))
+                if not channel.send_album(entries, messages[0]):
+                    for name, payload in entries:
+                        channel.send_photo(name, payload, "")
+                    channel.send_text(messages[0])
+                for continuation in messages[1:]:
+                    channel.send_text(continuation)
+            elif kind in {"image", "video"} and local_path:
+                path = Path(local_path)
+                if not path.is_file():
+                    raise channels_mod.ChannelError(
+                        "the media file is missing from storage"
+                    )
+                payload = path.read_bytes()
+                if kind == "image":
+                    channel.send_photo(path.name, payload, messages[0])
+                else:
+                    channel.send_video(path.name, payload, messages[0])
+                for continuation in messages[1:]:
+                    channel.send_text(continuation)
+            else:
+                channel.send_text(self.channel_text(record))
+        except (channels_mod.ChannelError, OSError) as error:
+            log.warning("channel publish failed (%s): %s", profile.key, error)
+            self._safe_answer(query_id, f"{profile.label}: {error}")
+            return
+        if draft_id and self.state.get_draft(draft_id) is not None:
+            self.state.update_draft(
+                draft_id, {"published_targets": already + [profile.key]}
+            )
+        self._safe_answer(query_id, f"Published to {profile.label}.")
+        chat_id = record.get("chat_id")
+        if chat_id is not None:
+            try:
+                self.api.send_message(chat_id, f"Published to {profile.label}.")
+            except telegram_mod.TelegramError as error:
+                log.warning("channel confirmation failed: %s", error)
 
     def _send_platform_package(self, query_id: str, key: str, draft_id: str) -> None:
         """Send one platform package plus the stored media for a draft."""
@@ -2617,7 +2741,7 @@ class ContentBot:
                 "(CONTENT_PLATFORMS_ENABLED).",
             )
             return
-        record = self.state.get_draft(draft_id)
+        record = self._package_record(draft_id)
         if record is None:
             self.api.answer_callback_query(query_id, "This draft is no longer active.")
             return

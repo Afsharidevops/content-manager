@@ -1100,6 +1100,114 @@ class MediaFlowTestCase(unittest.TestCase):
         )
         self.assertIsNotNone(bot.state.get_draft(draft_id))
 
+    def test_selected_channel_publishes_automatically(self):
+        self.settings = replace(
+            self.settings,
+            platforms_enabled=True,
+            bale_token="bale-token",
+            bale_chat_id="@bale_channel",
+        )
+        bot = self.build_bot()
+        sent = []
+
+        class FakeChannel:
+            key = "bale"
+            label = "Bale"
+
+            def send_album(self, entries, caption):
+                sent.append(("album", len(entries), caption))
+                return True
+
+            def send_photo(self, filename, data, caption):
+                sent.append(("photo", filename, caption))
+
+            def send_video(self, filename, data, caption):
+                sent.append(("video", filename, caption))
+
+            def send_text(self, text):
+                sent.append(("text", text))
+
+        bot.channels = {"bale": FakeChannel()}
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        bot.handle_callback(
+            {
+                "id": "qbale",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"package:bale:{draft_id}",
+            }
+        )
+        self.assertTrue(sent)
+        self.assertEqual(sent[0][0], "photo")
+        record = bot.state.get_draft(draft_id)
+        self.assertIn("bale", record["published_targets"])
+        self.assertTrue(
+            any(
+                "Published to Bale." in str(m.get("text") or "")
+                for m in self.api.sent_messages
+            )
+        )
+
+        sent.clear()
+        bot.handle_callback(
+            {
+                "id": "qbale2",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"package:bale:{draft_id}",
+            }
+        )
+        self.assertEqual(sent, [])
+
+    def test_platform_chooser_marks_the_automatic_channels(self):
+        self.settings = replace(
+            self.settings,
+            platforms_enabled=True,
+            bale_token="bale-token",
+            bale_chat_id="@bale_channel",
+        )
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"platforms:{draft_id}",
+            }
+        )
+        choosers = [
+            message
+            for message in self.api.sent_messages
+            if message.get("reply_markup") and "Pick a platform" in str(message.get("text") or "")
+        ]
+        self.assertTrue(choosers)
+        labels = [
+            button["text"]
+            for row in choosers[-1]["reply_markup"]["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn("Bale (auto)", labels)
+        self.assertIn("LinkedIn", labels)
+        self.assertIn("publish right away", str(choosers[-1]["text"]))
+
     def test_published_draft_keeps_the_platform_packages_reachable(self):
         self.settings = replace(
             _media_settings(self.tmp.name, instagram=True),

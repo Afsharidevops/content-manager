@@ -75,6 +75,12 @@ class BotSettings:
     instagram_disable_refresh: bool = False
     instagram_auto_publish: bool = True
     platforms_enabled: bool = False
+    bale_token: str = ""
+    bale_chat_id: str = ""
+    bale_api_base: str = "https://tapi.bale.ai"
+    eitaa_token: str = ""
+    eitaa_chat_id: str = ""
+    eitaa_api_base: str = "https://eitaayar.ir/api"
 
     @classmethod
     def from_env(cls) -> "BotSettings":
@@ -122,6 +128,12 @@ class BotSettings:
             instagram_disable_refresh=_env_bool("INSTAGRAM_DISABLE_REFRESH", False),
             instagram_auto_publish=_env_bool("INSTAGRAM_AUTO_PUBLISH", True),
             platforms_enabled=_env_bool("CONTENT_PLATFORMS_ENABLED", False),
+            bale_token=_env("CONTENT_BALE_TOKEN"),
+            bale_chat_id=_env("CONTENT_BALE_CHAT_ID"),
+            bale_api_base=_env("CONTENT_BALE_API_BASE", "https://tapi.bale.ai"),
+            eitaa_token=_env("CONTENT_EITAA_TOKEN"),
+            eitaa_chat_id=_env("CONTENT_EITAA_CHAT_ID"),
+            eitaa_api_base=_env("CONTENT_EITAA_API_BASE", "https://eitaayar.ir/api"),
         )
 
     @property

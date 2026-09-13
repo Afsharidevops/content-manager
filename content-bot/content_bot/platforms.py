@@ -31,6 +31,8 @@ class PlatformProfile:
     note: str = ""
     hashtags: tuple[str, ...] = ()
     wants_video: bool = False
+    mode: str = "package"
+    channel_key: str = ""
 
 
 DEFAULT_PROFILES: dict[str, PlatformProfile] = {
@@ -51,6 +53,26 @@ DEFAULT_PROFILES: dict[str, PlatformProfile] = {
         description_limit=4000,
         note="Upload the video file and paste the title and description.",
         wants_video=True,
+    ),
+    "bale": PlatformProfile(
+        key="bale",
+        label="Bale",
+        upload_url="https://bale.ai/",
+        title_limit=100,
+        description_limit=4000,
+        note="Published automatically through the Bale bot API.",
+        mode="auto",
+        channel_key="bale",
+    ),
+    "eitaa": PlatformProfile(
+        key="eitaa",
+        label="Eitaa",
+        upload_url="https://eitaa.com/",
+        title_limit=100,
+        description_limit=4000,
+        note="Published automatically through the EitaaYar bot API.",
+        mode="auto",
+        channel_key="eitaa",
     ),
     "linkedin": PlatformProfile(
         key="linkedin",
@@ -127,6 +149,12 @@ def load_profiles(policy: dict) -> dict[str, PlatformProfile]:
             note=_text(raw.get("note"), base.note),
             hashtags=_hashtags(raw.get("hashtags"), base.hashtags),
             wants_video=bool(raw.get("wants_video", base.wants_video)),
+            mode=(
+                str(raw.get("mode") or "").strip().lower()
+                if str(raw.get("mode") or "").strip().lower() in {"auto", "package"}
+                else base.mode
+            ),
+            channel_key=_text(raw.get("channel"), base.channel_key),
         )
     return profiles
 

@@ -146,6 +146,24 @@ platforms:
     description_limit: 4000
     note: "Upload the video file and paste the title and description."
     hashtags: []
+  bale:
+    label: "Bale"
+    upload_url: "https://bale.ai/"
+    title_limit: 100
+    description_limit: 4000
+    note: "Published automatically through the Bale bot API when CONTENT_BALE_TOKEN and CONTENT_BALE_CHAT_ID are set."
+    mode: "auto"
+    channel: "bale"
+    hashtags: []
+  eitaa:
+    label: "Eitaa"
+    upload_url: "https://eitaa.com/"
+    title_limit: 100
+    description_limit: 4000
+    note: "Published automatically through the EitaaYar bot API when CONTENT_EITAA_TOKEN and CONTENT_EITAA_CHAT_ID are set."
+    mode: "auto"
+    channel: "eitaa"
+    hashtags: []
   linkedin:
     label: "LinkedIn"
     upload_url: "https://www.linkedin.com/feed/"

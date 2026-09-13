@@ -1,0 +1,212 @@
+"""Automatic publishers for the chat-style messengers of the stack.
+
+Telegram is the operator surface, so it has its own client. The channels in
+this module reach audiences on messengers that speak a Telegram-shaped Bot
+API (Bale) or the EitaaYar gateway (Eitaa). Instagram stays a manual package
+because its Graph API needs a review-gated business account.
+"""
+
+from __future__ import annotations
+
+import html
+import json
+import re
+from urllib.parse import urlencode
+
+from content_bot import telegram as telegram_mod
+from content_bot.http import HttpError, request_bytes, request_json, request_multipart
+
+_HTML_TAG = re.compile(r"<[^>]+>")
+
+
+def _error_note(body: bytes) -> str:
+    """Short, safe description out of one error response body."""
+    try:
+        payload = json.loads(body.decode("utf-8", "replace") or "{}")
+    except ValueError:
+        return ""
+    if isinstance(payload, dict):
+        return str(payload.get("description") or "").strip()
+    return ""
+
+
+class ChannelError(RuntimeError):
+    """Raised when a channel cannot publish one draft."""
+
+
+def _plain_text(text: str) -> str:
+    """Drop the HTML tags some chat APIs do not render."""
+    return html.unescape(_HTML_TAG.sub("", str(text or ""))).strip()
+
+
+class ChatChannel:
+    """Shared interface for one automatically published messenger channel."""
+
+    key = ""
+    label = ""
+
+    def __init__(self, key: str, label: str, token: str, chat_id: str, api_base: str):
+        self.key = key
+        self.label = label
+        self.token = str(token or "")
+        self.chat_id = str(chat_id or "")
+        self.api_base = str(api_base or "").rstrip("/")
+
+    @property
+    def configured(self) -> bool:
+        """True when the channel has both a token and a destination."""
+        return bool(self.token and self.chat_id)
+
+    def send_text(self, text: str) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
+
+    def send_photo(self, filename: str, data: bytes, caption: str) -> None:
+        raise NotImplementedError
+
+    def send_video(self, filename: str, data: bytes, caption: str) -> None:
+        raise NotImplementedError
+
+    def send_document(self, filename: str, data: bytes, caption: str) -> None:
+        raise NotImplementedError
+
+    def send_album(self, entries: list[tuple[str, bytes]], caption: str) -> bool:
+        """Send several photos in one post; False when unsupported."""
+        return False
+
+
+class TelegramLikeChannel(ChatChannel):
+    """A messenger that exposes the Telegram Bot API surface (Bale)."""
+
+    def __init__(self, key: str, label: str, token: str, chat_id: str, api_base: str):
+        super().__init__(key, label, token, chat_id, api_base)
+        self.api = telegram_mod.TelegramApi(self.token, self.api_base)
+
+    def _call(self, method: str, payload: dict) -> None:
+        try:
+            self.api._call(method, payload)  # noqa: SLF001 - shared client
+        except telegram_mod.TelegramError as error:
+            raise ChannelError(f"{self.label}: {error}") from error
+
+    def send_text(self, text: str) -> None:
+        self._call(
+            "sendMessage",
+            {
+                "chat_id": self.chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            },
+        )
+
+    def send_photo(self, filename: str, data: bytes, caption: str) -> None:
+        self._upload("sendPhoto", "photo", filename, data, caption)
+
+    def send_video(self, filename: str, data: bytes, caption: str) -> None:
+        self._upload("sendVideo", "video", filename, data, caption)
+
+    def send_document(self, filename: str, data: bytes, caption: str) -> None:
+        self._upload("sendDocument", "document", filename, data, caption)
+
+    def _upload(
+        self, method: str, field: str, filename: str, data: bytes, caption: str
+    ) -> None:
+        fields = {"chat_id": self.chat_id, "caption": caption, "parse_mode": "HTML"}
+        try:
+            self.api._upload(method, fields, file_field=field, filename=filename, file_bytes=data)  # noqa: SLF001
+        except telegram_mod.TelegramError as error:
+            raise ChannelError(f"{self.label}: {error}") from error
+
+    def send_album(self, entries: list[tuple[str, bytes]], caption: str) -> bool:
+        try:
+            self.api.send_media_group(
+                self.chat_id, entries, caption=caption, parse_mode="HTML"
+            )
+        except telegram_mod.TelegramError as error:
+            raise ChannelError(f"{self.label}: {error}") from error
+        return True
+
+
+class EitaaChannel(ChatChannel):
+    """Eitaa through the EitaaYar gateway (sendMessage / sendFile)."""
+
+    def _post(self, method: str, payload: dict) -> dict:
+        """Post one gateway call, retrying as form data when JSON is refused."""
+        url = f"{self.api_base}/{self.token}/{method}"
+        errors: list[str] = []
+        for as_form in (False, True):
+            try:
+                if as_form:
+                    status, body = request_bytes(
+                        url,
+                        raw_body=urlencode(payload).encode("utf-8"),
+                        content_type="application/x-www-form-urlencoded",
+                        timeout=60,
+                    )
+                    if status >= 400:
+                        errors.append(f"HTTP {status}")
+                        continue
+                    result = json.loads(body.decode("utf-8", "replace") or "{}")
+                else:
+                    result = request_json(url, payload=payload, timeout=60)
+            except HttpError as error:
+                errors.append(f"HTTP {error.status}")
+                continue
+            except (ConnectionError, ValueError) as error:
+                errors.append(str(error))
+                continue
+            if isinstance(result, dict) and result.get("ok") is False:
+                errors.append(str(result.get("description") or "request rejected"))
+                continue
+            return result if isinstance(result, dict) else {}
+        raise ChannelError(f"{self.label}: {errors[-1] if errors else 'publish failed'}")
+
+    def send_text(self, text: str) -> None:
+        self._post(
+            "sendMessage",
+            {
+                "chat_id": self.chat_id,
+                "text": _plain_text(text),
+                "disable_notification": False,
+            },
+        )
+
+    def _send_file(self, filename: str, data: bytes, caption: str) -> None:
+        url = f"{self.api_base}/{self.token}/sendFile"
+        try:
+            status, body = request_multipart(
+                url,
+                fields={"chat_id": self.chat_id, "caption": _plain_text(caption)},
+                file_field="file",
+                filename=filename,
+                file_bytes=data,
+                timeout=180,
+            )
+        except ConnectionError as error:
+            raise ChannelError(f"{self.label}: network error: {error}") from error
+        if status >= 400:
+            raise ChannelError(f"{self.label}: HTTP {status} {_error_note(body)}")
+
+    def send_photo(self, filename: str, data: bytes, caption: str) -> None:
+        self._send_file(filename, data, caption)
+
+    def send_video(self, filename: str, data: bytes, caption: str) -> None:
+        self._send_file(filename, data, caption)
+
+    def send_document(self, filename: str, data: bytes, caption: str) -> None:
+        self._send_file(filename, data, caption)
+
+
+def build_channels(settings) -> dict[str, ChatChannel]:
+    """Return every configured automatic channel keyed by its draft button."""
+    channels: dict[str, ChatChannel] = {}
+    bale = TelegramLikeChannel(
+        "bale", "Bale", settings.bale_token, settings.bale_chat_id, settings.bale_api_base
+    )
+    if bale.configured:
+        channels[bale.key] = bale
+    eitaa = EitaaChannel(
+        "eitaa", "Eitaa", settings.eitaa_token, settings.eitaa_chat_id, settings.eitaa_api_base
+    )
+    if eitaa.configured:
+        channels[eitaa.key] = eitaa
+    return channels

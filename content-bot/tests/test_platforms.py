@@ -22,11 +22,16 @@ def record(**overrides) -> dict:
 class ProfilePolicyTests(unittest.TestCase):
     def test_built_in_profiles_cover_the_manual_targets(self):
         profiles = platforms.load_profiles({})
-        self.assertEqual(set(profiles), {"youtube", "aparat", "linkedin"})
+        self.assertEqual(
+            set(profiles), {"youtube", "aparat", "linkedin", "bale", "eitaa"}
+        )
         self.assertTrue(profiles["youtube"].wants_video)
         self.assertTrue(profiles["aparat"].upload_url)
         self.assertTrue(profiles["linkedin"].upload_url)
         self.assertFalse(profiles["linkedin"].wants_video)
+        self.assertEqual(profiles["bale"].mode, "auto")
+        self.assertEqual(profiles["eitaa"].channel_key, "eitaa")
+        self.assertEqual(profiles["linkedin"].mode, "package")
 
     def test_policy_overrides_values_and_adds_platforms(self):
         policy = {

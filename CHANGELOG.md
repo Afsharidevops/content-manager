@@ -5,6 +5,20 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — Bale and Eitaa publish automatically (2026-09-13)
+
+- The per-draft platform chooser is no longer package-only. A platform whose
+  profile runs in `auto` mode is published the moment the operator picks it,
+  caption and media included: `Bale` uses the Telegram-shaped Bot API
+  (`https://tapi.bale.ai`) and `Eitaa` uses the EitaaYar gateway
+  (`https://eitaayar.ir/api`), each configured with a token plus a destination
+  chat id. Instagram keeps the manual package, and the package platforms
+  (YouTube, Aparat, LinkedIn) are unchanged.
+- Channels that are still missing a token are marked `(no token)` in the
+  chooser and fall back to the package, and every automatic publish records
+  its target on the draft so a post can never be sent to the same channel
+  twice.
+
 ### Features — Per-post upload packages for LinkedIn, YouTube, and Aparat (2026-09-13)
 
 - Every enabled manual platform is offered per draft under **More platforms...**,
