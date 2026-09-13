@@ -235,51 +235,143 @@ class PanelApp:
             )
         return rows
 
+    # ---------------------------------------------------------------- links
+
+    def public_url(self, key: str) -> str:
+        """Recorded public origin of one service, without a trailing slash.
+
+        A service published through a reverse proxy records its host name in
+        the matching ``*_PUBLIC_URL`` key, and the console links through that
+        host so the link keeps working from outside the LAN. Loopback values
+        are the shipped placeholders and resolve to an empty string, which
+        sends the caller back to the bind address instead.
+        """
+        value = self.env_value(key).strip().rstrip("/")
+        if not value:
+            return ""
+        host = value.split("//", 1)[-1].split("/", 1)[0]
+        if host.startswith("["):
+            host = host.split("]", 1)[0].strip("[")
+        else:
+            host = host.split(":", 1)[0]
+        if host.lower() in {"", "localhost", "127.0.0.1", "0.0.0.0", "::1", "::"}:
+            return ""
+        return value
+
     def links(self) -> list[dict]:
-        rows = []
-        router_host = self.env_value("SMART_ROUTER_BIND_IP", "127.0.0.1")
-        router_port = self.env_value("SMART_ROUTER_PORT", "8787")
-        if router_host in {"0.0.0.0", "::"}:
-            router_host = "127.0.0.1"
-        rows.append(
-            {
-                "label": "Smart Router dashboard",
-                "url": f"http://{router_host}:{router_port}/dashboard",
-                "note": "Flight deck: routing policies, telemetry, and traces.",
-            }
+        """Service links for the overview: public host first, bind address next.
+
+        Every row uses the recorded public origin when the operator published
+        the service through a reverse proxy, and falls back to the bind
+        address the browser reaches on the local network otherwise.
+        """
+        rows: list[dict] = []
+
+        def add(label: str, url: str, note: str) -> None:
+            rows.append({"label": label, "url": url, "note": note})
+
+        def bind_host(key: str, fallback_key: str = "") -> str:
+            host = self.env_value(key) or self.env_value(fallback_key) or "127.0.0.1"
+            return "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+
+        def bind_url(bind_key: str, port_key: str, default_port: str, path: str) -> str:
+            port = self.env_value(port_key, default_port) or default_port
+            return f"http://{bind_host(bind_key)}:{port}{path}"
+
+        def origin(public_key: str, bind_key: str, port_key: str, default_port: str, path: str) -> str:
+            public = self.public_url(public_key)
+            return f"{public}{path}" if public else bind_url(bind_key, port_key, default_port, path)
+
+        profiles = {
+            part.strip()
+            for part in self.env_value("COMPOSE_PROFILES").split(",")
+            if part.strip()
+        }
+
+        add(
+            "Operator panel",
+            origin("PANEL_PUBLIC_URL", "PANEL_BIND_IP", "PANEL_PORT", "8899", "/"),
+            "This console; the operator token is required to sign in.",
         )
-        nine_host = self.env_value("NINEROUTER_BIND_IP", "127.0.0.1")
-        nine_port = self.env_value("NINEROUTER_PORT", "20128")
-        if nine_host in {"0.0.0.0", "::"}:
-            nine_host = "127.0.0.1"
-        rows.append(
-            {
-                "label": "9router dashboard",
-                "url": f"http://{nine_host}:{nine_port}/",
-                "note": "Provider keys and upstream models.",
-            }
+        add(
+            "Smart Router dashboard",
+            origin(
+                "SMART_ROUTER_PUBLIC_URL",
+                "SMART_ROUTER_BIND_IP",
+                "SMART_ROUTER_PORT",
+                "8787",
+                "/dashboard",
+            ),
+            "Flight deck: routing policies, telemetry, and traces.",
         )
-        media_host = self.env_value("MEDIA_STUDIO_BIND_IP", "127.0.0.1")
-        media_port = self.env_value("MEDIA_STUDIO_PORT", "8850")
-        if media_host in {"0.0.0.0", "::"}:
-            media_host = "127.0.0.1"
-        rows.append(
-            {
-                "label": "Media Studio API",
-                "url": f"http://{media_host}:{media_port}/openapi.json",
-                "note": "Job API description (JSON).",
-            }
+        if "omniroute" in profiles and "9router" not in profiles:
+            add(
+                "OmniRoute dashboard",
+                origin(
+                    "OMNIROUTE_PUBLIC_BASE_URL",
+                    "OMNIROUTE_BIND_IP",
+                    "OMNIROUTE_PORT",
+                    "20128",
+                    "/",
+                ),
+                "Provider keys and upstream models.",
+            )
+        else:
+            add(
+                "9router dashboard",
+                origin(
+                    "NINEROUTER_PUBLIC_BASE_URL",
+                    "NINEROUTER_BIND_IP",
+                    "NINEROUTER_PORT",
+                    "20128",
+                    "/",
+                ),
+                "Provider keys and upstream models.",
+            )
+        add(
+            "Media Studio API",
+            origin(
+                "MEDIA_STUDIO_PUBLIC_URL",
+                "MEDIA_STUDIO_BIND_IP",
+                "MEDIA_STUDIO_PORT",
+                "8850",
+                "/openapi.json",
+            ),
+            "Job API description (JSON).",
         )
+        if "n8n" in profiles:
+            add(
+                "n8n editor",
+                origin("N8N_PUBLIC_URL", "N8N_BIND_IP", "N8N_PORT", "5678", "/"),
+                "Workflow editor and MCP endpoints.",
+            )
+        media_base = media_base_url(
+            self.root, self.env_value("INSTAGRAM_MEDIA_PUBLIC_BASE_URL")
+        )
+        if media_base:
+            add(
+                "Instagram media host",
+                media_base,
+                "Public address the Meta Graph API downloads media from.",
+            )
         rustfs_bind = self.env_value("RUSTFS_BIND_IP")
         if rustfs_bind:
-            rustfs_host = "127.0.0.1" if rustfs_bind in {"0.0.0.0", "::"} else rustfs_bind
-            rustfs_console_port = self.env_value("RUSTFS_CONSOLE_PORT", "9001")
-            rows.append(
-                {
-                    "label": "RustFS console",
-                    "url": f"http://{rustfs_host}:{rustfs_console_port}/rustfs/console/",
-                    "note": "Object-storage console; the S3 API listens on port 9000.",
-                }
+            # S3_PUBLIC_CONSOLE_URL records the console path as well, so the
+            # recorded value is the link and only the bind fallback needs the
+            # default "/rustfs/console/" path.
+            console_public = self.public_url("S3_PUBLIC_CONSOLE_URL")
+            console_port = self.env_value("RUSTFS_CONSOLE_PORT", "9001") or "9001"
+            console_url = console_public or (
+                "http://"
+                + bind_host("RUSTFS_CONSOLE_BIND_IP", "RUSTFS_BIND_IP")
+                + f":{console_port}/rustfs/console/"
+            )
+            if not console_url.endswith("/"):
+                console_url = f"{console_url}/"
+            add(
+                "RustFS console",
+                console_url,
+                "Object-storage console; the S3 API listens on port 9000.",
             )
         return rows
 

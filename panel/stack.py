@@ -137,6 +137,21 @@ def backup_sections(runner: "CommandRunner", root: Path) -> list[dict]:
     return _parse_section_rows(result.output)
 
 
+def _public_origin(value: str | None) -> str:
+    """A recorded public origin, or an empty string for a loopback placeholder."""
+    text = str(value or "").strip().rstrip("/")
+    if not text:
+        return ""
+    host = text.split("//", 1)[-1].split("/", 1)[0]
+    if host.startswith("["):
+        host = host.split("]", 1)[0].strip("[")
+    else:
+        host = host.split(":", 1)[0]
+    if host.lower() in {"", "localhost", "127.0.0.1", "0.0.0.0", "::1", "::"}:
+        return ""
+    return text
+
+
 class StackView:
     """Status and log views for one compose project."""
 
@@ -341,9 +356,16 @@ class StackView:
         port = env.get("RUSTFS_PORT") or "9000"
         console_host = env.get("RUSTFS_CONSOLE_BIND_IP") or "127.0.0.1"
         console_port = env.get("RUSTFS_CONSOLE_PORT") or "9001"
+        # A published origin wins over the bind address so the console link
+        # works from outside the LAN; the bind stays the fallback.
+        public_api = _public_origin(env.get("S3_PUBLIC_BASE_URL"))
+        public_console = _public_origin(env.get("S3_PUBLIC_CONSOLE_URL"))
+        console_url = public_console or f"http://{console_host}:{console_port}/rustfs/console/"
+        if not console_url.endswith("/"):
+            console_url = f"{console_url}/"
         return {
-            "api_url": f"http://{host}:{port}",
-            "console_url": f"http://{console_host}:{console_port}/rustfs/console/",
+            "api_url": public_api or f"http://{host}:{port}",
+            "console_url": console_url,
             "bind": host,
             "console_bind": console_host,
             "service": self._service_state("rustfs"),

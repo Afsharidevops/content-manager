@@ -220,6 +220,7 @@ async function renderOverview() {
           ...(links.links || []).map((link) =>
             h("div", null,
               h("a", { href: link.url, target: "_blank", rel: "noreferrer", text: link.label }),
+              h("div", { class: "muted small", text: link.url }),
               h("div", { class: "muted small", text: link.note }),
             ),
           ),
@@ -610,12 +611,40 @@ async function renderEnv() {
     );
   }
 
+  const newKey = h("input", { placeholder: "NEW_KEY_NAME", type: "text", autocomplete: "off" });
+  const newValue = h("input", { placeholder: "value", type: "text", autocomplete: "off" });
+  const addKey = h("button", {
+    class: "btn primary",
+    type: "button",
+    text: "Add key",
+    onclick: async () => {
+      const key = newKey.value.trim();
+      if (!key) {
+        notify("Enter a key name first, for example PANEL_PUBLIC_URL.", "error");
+        return;
+      }
+      try {
+        const result = await api(`/api/env/${encodeURIComponent(key)}`, {
+          method: "PUT",
+          body: { key, value: newValue.value },
+        });
+        notify(result.restart_hint || "Saved.");
+        renderEnv();
+      } catch (error) {
+        notify(String(error.message), "error");
+      }
+    },
+  });
+
   filter.addEventListener("input", paint);
   page.replaceChildren(
     card("Environment",
       h("div", { class: "spread" }, filter,
         h("span", { class: "chip", text: `${entries.length} keys` })),
       container,
+      h("div", { class: "row", style: "margin-top:12px" }, newKey, newValue, addKey),
+      h("div", { class: "muted small", style: "margin-top:6px" },
+        "Add key appends a new line, for example PANEL_PUBLIC_URL=https://panel.example.com."),
     ),
   );
   paint();

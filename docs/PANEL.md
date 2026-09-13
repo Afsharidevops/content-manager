@@ -69,7 +69,18 @@ needed when `COMPOSE_PROFILES` does not already include it.
   (token state, last automatic refresh, expiry, last error, and a **Refresh
   token now** button, plus whether automatic Instagram publishing is on or the
   stack is in manual **Post package** mode), Media Studio jobs, and warnings when an internal
-  endpoint (n8n/MCP, router dashboards) is published beyond loopback.
+  endpoint (n8n/MCP, router dashboards) is published beyond loopback. The
+  **Endpoints** card links every publishable service — this console, the Smart
+  Router dashboard, the active router backend, Media Studio, n8n, the Instagram
+  media host, and the RustFS console — through the public origin recorded in
+  `.env` (`PANEL_PUBLIC_URL`, `SMART_ROUTER_PUBLIC_URL`,
+  `MEDIA_STUDIO_PUBLIC_URL`, `N8N_PUBLIC_URL`,
+  `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, `S3_PUBLIC_BASE_URL`,
+  `S3_PUBLIC_CONSOLE_URL`) and falls back to the LAN bind address when a
+  service has no public URL yet. The panel reads `.env` on every request, so a
+  new value shows up on the next page load without a restart, and
+  `./manage.sh domains` prints the host suggestion, the `LAN:PORT` target, and
+  the reverse-proxy block for each of them.
 - **Pipeline state** - `data/content-bot/state.json` counters, the configured
   routines with their last run, and the most recent drafts with per-draft
   console actions (see below).
@@ -80,7 +91,10 @@ needed when `COMPOSE_PROFILES` does not already include it.
   and a file that has no working copy yet can be created from the shipped
   default in `content/config/` with **Create from shipped default**.
 - **Environment** - the `.env` keys with secret values masked. Editing a key
-  rewrites that line only and asks for **Apply changes** afterwards.
+  rewrites that line only and asks for **Apply changes** afterwards. **Add key**
+  appends a key that is not in `.env` yet, which is how a new public URL
+  (`PANEL_PUBLIC_URL`, `MEDIA_STUDIO_PUBLIC_URL`, ...) moves from the
+  `./manage.sh domains` checklist into the file the console reads.
 - **Platforms** - one card per publishing platform (Telegram, Bale, Eitaa,
   Instagram, the AI writer, Media Studio, the platform chooser, and the
   package-only YouTube/Aparat/LinkedIn entries) with the keys that platform

@@ -102,6 +102,7 @@ Operator panel:
   panel-token                 Print the operator token (creates one if missing)
   panel-rotate-token          Replace the operator token and restart the panel
   panel-build                 Build the panel image locally from panel/Dockerfile
+  domains                     Public host names, .env keys, LAN targets and proxy blocks
 
 Shared object storage (S3):
   s3-status                   Backend, endpoints, bucket and per-service state (no secrets)
@@ -1942,6 +1943,7 @@ panel_menu() {
     printf '%s\n' '5) Follow panel logs'
     printf '%s\n' '6) Build the panel image locally'
     printf '%s\n' '7) Disable and stop the panel'
+    printf '%s\n' '8) Public routes          Domains, LAN targets and proxy blocks for the console links'
     printf '%s\n' '0) Back'
     read -r -p 'Choose: ' choice
     case "$choice" in
@@ -1952,6 +1954,7 @@ panel_menu() {
       5) compose logs -f --tail=100 panel ;;
       6) panel_build; menu_pause ;;
       7) panel_disable; menu_pause ;;
+      8) domains; menu_pause ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -2443,6 +2446,96 @@ s3_guide() {
   printf '\nSecurity: keep the console off the public internet unless you accept the risk; the S3 API\n'
   printf 'must always sit behind strong credentials. ./manage.sh s3-keys --rotate replaces them.\n'
   printf 'External provider instead of RustFS: ./manage.sh s3-enable --external\n'
+}
+
+# One service in the public-routes checklist: the host name (recorded or
+# suggested), the .env key the operator console reads for its links, the LAN
+# bind the router proxy must reach, and a ready-to-paste proxy block.
+domain_route() {
+  local label="$1" key="$2" prefix="$3" record_path="$4" bind_key="$5" port_key="$6" default_port="$7" note="$8" kind="${9-}"
+  local recorded host host_status bind port proxy_host
+  recorded="$(env_value "$ENV_FILE" "$key")"
+  host="$(url_host "$recorded")"
+  if [[ -n "$host" ]]; then
+    host_status="recorded"
+  else
+    host="$prefix.$base_domain"
+    host_status="suggested"
+  fi
+  bind="$(env_value "$ENV_FILE" "$bind_key")"
+  bind="${bind:-127.0.0.1}"
+  port="$(env_value "$ENV_FILE" "$port_key")"
+  port="${port:-$default_port}"
+  printf '\n%s\n' "$label"
+  printf '  Host:   %s (%s)\n' "$host" "$host_status"
+  if [[ -n "$recorded" ]]; then
+    printf '  Record: %s=%s\n' "$key" "$recorded"
+  else
+    printf '  Record: %s=https://%s%s\n' "$key" "$host" "$record_path"
+  fi
+  printf '  Target: %s:%s\n' "$bind" "$port"
+  proxy_host="$bind"
+  if [[ "$bind" == "127.0.0.1" || "$bind" == "::1" ]]; then
+    proxy_host="${lan_ip:-<LAN-IP>}"
+    printf '  Bind:   %s is loopback, so the router proxy cannot reach it yet; set %s=%s in .env.\n' \
+      "$bind_key" "$bind_key" "$proxy_host"
+  fi
+  printf '  Caddy:\n'
+  printf '    %s {\n        encode zstd gzip\n' "$host"
+  if [[ "$kind" == console ]]; then
+    printf '        @console_root {\n            method GET\n            path /\n        }\n'
+    printf '        redir @console_root /rustfs/console/ 302\n'
+  fi
+  printf '        reverse_proxy %s:%s\n    }\n' "$proxy_host" "$port"
+  [[ -n "$note" ]] && printf '  Note:   %s\n' "$note"
+}
+
+# The console links (Overview -> Endpoints) follow the public URLs recorded
+# here: a service with a public host links through the domain from anywhere,
+# and a service without one falls back to the LAN bind address. Changing a
+# value needs no restart for the panel, which reads .env on every request.
+domains() {
+  local base_domain recorded_base
+  lan_ip="$(ip -4 route get 1.1.1.1 2>/dev/null \
+    | awk '{ for (i=1; i<=NF; i++) if ($i == "src") { print $(i+1); exit } }')"
+  recorded_base="$(env_value "$ENV_FILE" STACK_BASE_DOMAIN)"
+  [[ "$recorded_base" == "CHANGE_ME" ]] && recorded_base=""
+  base_domain="${recorded_base:-example.com}"
+  printf 'Public service routes (ArvanCloud DNS -> router reverse proxy -> this stack)\n'
+  if [[ -n "$recorded_base" ]]; then
+    printf 'Base domain: %s (STACK_BASE_DOMAIN)\n' "$base_domain"
+  else
+    printf 'Base domain: %s (placeholder; set STACK_BASE_DOMAIN in .env to name the services)\n' "$base_domain"
+  fi
+  printf 'The operator console links through these host names when a public URL is recorded\n'
+  printf 'and falls back to the LAN address otherwise.\n'
+  domain_route 'Operator panel' PANEL_PUBLIC_URL panel '' \
+    PANEL_BIND_IP PANEL_PORT 8899 \
+    'Set PANEL_COOKIE_SECURE=true in .env once the HTTPS hostname is in front; recreate the panel: docker compose up -d panel'
+  domain_route 'Smart Router dashboard' SMART_ROUTER_PUBLIC_URL sr '/dashboard' \
+    SMART_ROUTER_BIND_IP SMART_ROUTER_PORT 8787 \
+    'Keep the OpenAI-compatible API and /metrics private; publish only the dashboard if needed.'
+  domain_route 'Media Studio API' MEDIA_STUDIO_PUBLIC_URL studio '' \
+    MEDIA_STUDIO_BIND_IP MEDIA_STUDIO_PORT 8850 \
+    'Token-protected job API; publish it only for remote operators.'
+  domain_route 'n8n editor' N8N_PUBLIC_URL n8n '' \
+    N8N_BIND_IP N8N_PORT 5678 \
+    'Keep the MCP endpoints on loopback when only the editor is published.'
+  domain_route 'Instagram media host' INSTAGRAM_MEDIA_PUBLIC_BASE_URL media '' \
+    IG_MEDIA_BIND_IP IG_MEDIA_PORT 8099 \
+    'Instagram needs HTTPS; expose only /media/, and keep media-base-url.txt in sync for a stable hostname.'
+  domain_route 'S3 API' S3_PUBLIC_BASE_URL s3 '' \
+    RUSTFS_BIND_IP RUSTFS_PORT 9000 \
+    'Strong credentials are required before this host is public: ./manage.sh s3-keys --rotate'
+  domain_route 'RustFS console' S3_PUBLIC_CONSOLE_URL console '/rustfs/console' \
+    RUSTFS_CONSOLE_BIND_IP RUSTFS_CONSOLE_PORT 9001 \
+    'Keep the console off the public internet unless you accept the risk; the root redirect must stay GET-only because sign-in POSTs to /.' \
+    console
+  printf '\nPrivate by design: the router dashboards (NINEROUTER_PUBLIC_BASE_URL or\n'
+  printf 'OMNIROUTE_PUBLIC_BASE_URL), the Hermes dashboard, and the OpenAI-compatible API\n'
+  printf 'stay on the LAN or a VPN unless you add access control in front of them.\n'
+  printf 'Object storage details: ./manage.sh s3-guide (docs/S3-STORAGE.md)\n'
+  printf 'Panel links and reverse-proxy notes: docs/PANEL.md\n'
 }
 
 storage_menu() {
@@ -3294,6 +3387,7 @@ case "$command" in
   s3-verify) shift; s3_verify "$@" ;;
   s3-keys) shift; s3_keys "${1:-}" ;;
   s3-guide) s3_guide ;;
+  domains|public-routes) domains ;;
   execution|execution-menu) execution_menu ;;
   maintenance|maintenance-menu) maintenance_menu ;;
   security|security-menu) security_menu ;;

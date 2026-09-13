@@ -5,6 +5,30 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — Public service links in the operator console (2026-09-13)
+
+- The console **Overview -> Endpoints** card now links every publishable
+  service through the public origin recorded in `.env` (`PANEL_PUBLIC_URL`,
+  `SMART_ROUTER_PUBLIC_URL`, `MEDIA_STUDIO_PUBLIC_URL`, `N8N_PUBLIC_URL`,
+  `INSTAGRAM_MEDIA_PUBLIC_BASE_URL`, `S3_PUBLIC_BASE_URL`,
+  `S3_PUBLIC_CONSOLE_URL`) and falls back to the LAN bind address when a
+  service has no public URL yet, so one console works from the LAN and from
+  outside it. Loopback placeholders such as `NINEROUTER_PUBLIC_BASE_URL=
+  http://localhost:20128` count as "not published" and keep the bind fallback.
+  The object-storage view resolves `S3_PUBLIC_BASE_URL` and
+  `S3_PUBLIC_CONSOLE_URL` the same way, the row for the active router backend
+  follows `COMPOSE_PROFILES`, and the Environment editor gained **Add key** so
+  a key that is not in `.env` yet can be created from the browser.
+- `./manage.sh domains` (also in the panel menu) prints one block per service:
+  the recorded or suggested host name derived from `STACK_BASE_DOMAIN`, the
+  `.env` key and value to record, the LAN `bind:port` target, a warning when
+  the bind is still loopback, and the ready-to-paste Caddy block - including
+  the GET-only root redirect the RustFS console needs.
+- `install.sh` records `PANEL_PUBLIC_URL` when the operator publishes the
+  panel, points at `SMART_ROUTER_PUBLIC_URL` and `MEDIA_STUDIO_PUBLIC_URL` when
+  a base domain is known, and prints the `./manage.sh domains` checklist in the
+  final summary. Panel tests grew from 93 to 96.
+
 ### Features — Platforms view in the operator console (2026-09-13)
 
 - The console gained a **Platforms** section: one card per publishing platform

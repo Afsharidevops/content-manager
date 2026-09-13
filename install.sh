@@ -1444,6 +1444,9 @@ if [[ "$configure_smart_router" == true && "$install_smart_router" == true ]]; t
   fi
   info "Dashboard URL after start: http://$(service_url_host "$smart_router_bind"):$smart_router_port/dashboard"
   info "Operations Center URL after start: http://$(service_url_host "$smart_router_bind"):$smart_router_port/control/"
+  if [[ -n "${base_domain:-}" ]]; then
+    info "Optional public dashboard: proxy $(suggest_host sr) to this host, then record SMART_ROUTER_PUBLIC_URL=https://$(suggest_host sr) so the operator console links through the domain; ./manage.sh domains prints the block."
+  fi
 fi
 
 if [[ "$configure_n8n" == true && "$install_n8n" == true ]]; then
@@ -1989,6 +1992,11 @@ if [[ "$install_media" == true && "$configure_media" == true ]]; then
   else
     media_api_token=""
   fi
+  if [[ -n "${base_domain:-}" ]]; then
+    media_public_port="$(existing_env_value MEDIA_STUDIO_PORT)"
+    media_public_port="${media_public_port:-8850}"
+    info "Optional public studio API: proxy $(suggest_host studio) to this host (port $media_public_port), then record MEDIA_STUDIO_PUBLIC_URL=https://$(suggest_host studio) so the operator console links through the domain; ./manage.sh domains prints the block."
+  fi
 fi
 
 invoking_uid="${SUDO_UID:-$(id -u)}"
@@ -2318,6 +2326,11 @@ if [[ "$install_panel" == true ]]; then
   replace_env_value "$tmp_env" PANEL_DOCKER_GID "$panel_docker_gid"
   replace_env_value "$tmp_env" PANEL_BIND_IP "${panel_bind:-127.0.0.1}"
   replace_env_value "$tmp_env" PANEL_PORT "${panel_port:-8899}"
+  # The recorded origin is what the console links to instead of the bind
+  # address; an empty value keeps the LAN fallback.
+  if [[ -n "$panel_public_host" ]]; then
+    replace_env_value "$tmp_env" PANEL_PUBLIC_URL "https://$panel_public_host"
+  fi
   [[ "$panel_cookie_secure" == true ]] \
     && replace_env_value "$tmp_env" PANEL_COOKIE_SECURE true
 fi
@@ -2896,6 +2909,7 @@ printf '\n'
 ok "Installation complete."
 if [[ -n "${base_domain:-}" ]]; then
   printf '%s\n' "Public domain zone: $base_domain (services are named <service>.$base_domain)"
+  printf '%s\n' 'Public route checklist: ./manage.sh domains (host, .env key, LAN target and proxy block per service)'
 fi
 [[ "$install_nine" == true ]] && printf '9router dashboard: %s\n' "$nine_public_url"
 [[ "$install_omniroute" == true ]] && printf 'OmniRoute dashboard: %s\n' "$omni_public_url"

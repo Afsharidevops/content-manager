@@ -523,6 +523,7 @@ class StorageAndBackupViewTest(unittest.TestCase):
             "S3_BUCKET=locallab\n"
             "S3_REGION=us-east-1\n"
             "S3_PUBLIC_BASE_URL=https://s3.stack.example.com\n"
+            "S3_PUBLIC_CONSOLE_URL=https://rfs.stack.example.com/rustfs/console\n"
             "S3_FORCE_PATH_STYLE=true\n"
             "OPENWEBUI_STORAGE_PROVIDER=s3\n"
             "RUSTFS_BIND_IP=192.168.1.50\n"
@@ -541,8 +542,25 @@ class StorageAndBackupViewTest(unittest.TestCase):
         self.assertEqual(modes["open-webui"], "s3")
         self.assertEqual(modes["content-bot"], "local")
         self.assertEqual(modes["n8n"], "local")
-        self.assertEqual(payload["rustfs"]["api_url"], "http://192.168.1.50:9000")
+        self.assertEqual(payload["rustfs"]["api_url"], "https://s3.stack.example.com")
+        self.assertEqual(
+            payload["rustfs"]["console_url"],
+            "https://rfs.stack.example.com/rustfs/console/",
+        )
         self.assertEqual(payload["rustfs"]["service"], None)
+
+    def test_storage_falls_back_to_the_bind_addresses(self):
+        (self.root / ".env").write_text(
+            "S3_STORAGE_BACKEND=rustfs\n"
+            "RUSTFS_BIND_IP=192.168.1.50\n"
+            "RUSTFS_CONSOLE_BIND_IP=192.168.1.50\n"
+            "S3_PUBLIC_BASE_URL=http://localhost:9000\n"
+            "S3_PUBLIC_CONSOLE_URL=http://127.0.0.1:9001/rustfs/console\n",
+            encoding="utf-8",
+        )
+        rustfs = StackView(self.root).storage()["rustfs"]
+        self.assertEqual(rustfs["api_url"], "http://192.168.1.50:9000")
+        self.assertEqual(rustfs["console_url"], "http://192.168.1.50:9001/rustfs/console/")
 
     def test_storage_warns_when_openwebui_points_at_a_stopped_backend(self):
         (self.root / ".env").write_text(
@@ -614,6 +632,72 @@ class StorageAndBackupViewTest(unittest.TestCase):
         self.assertTrue(empty["ok"])
         self.assertFalse(empty["exists"])
         self.assertEqual(empty["entries"], [])
+
+
+class PanelLinksTest(unittest.TestCase):
+    """The overview links prefer a published host and fall back to the bind."""
+
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+
+    def links(self) -> dict:
+        return {
+            row["label"]: row["url"] for row in PanelApp(self.root, "token").links()
+        }
+
+    def test_links_fall_back_to_the_bind_addresses(self):
+        (self.root / ".env").write_text(
+            "COMPOSE_PROFILES=9router,smart-router,panel\n"
+            "PANEL_BIND_IP=192.168.1.50\n"
+            "SMART_ROUTER_BIND_IP=192.168.1.50\n"
+            "NINEROUTER_BIND_IP=192.168.1.50\n"
+            "NINEROUTER_PUBLIC_BASE_URL=http://localhost:20128\n"
+            "MEDIA_STUDIO_BIND_IP=192.168.1.50\n"
+            "RUSTFS_BIND_IP=192.168.1.50\n",
+            encoding="utf-8",
+        )
+        links = self.links()
+        self.assertEqual(links["Operator panel"], "http://192.168.1.50:8899/")
+        self.assertEqual(
+            links["Smart Router dashboard"], "http://192.168.1.50:8787/dashboard"
+        )
+        self.assertEqual(links["9router dashboard"], "http://192.168.1.50:20128/")
+        self.assertEqual(
+            links["Media Studio API"], "http://192.168.1.50:8850/openapi.json"
+        )
+        self.assertEqual(links["RustFS console"], "http://192.168.1.50:9001/rustfs/console/")
+        self.assertNotIn("n8n editor", links)
+        self.assertNotIn("Instagram media host", links)
+
+    def test_links_prefer_recorded_public_origins(self):
+        (self.root / ".env").write_text(
+            "COMPOSE_PROFILES=omniroute,smart-router,n8n\n"
+            "PANEL_PUBLIC_URL=https://panel.stack.example.com\n"
+            "SMART_ROUTER_PUBLIC_URL=https://sr.stack.example.com\n"
+            "OMNIROUTE_PUBLIC_BASE_URL=https://omni.stack.example.com\n"
+            "MEDIA_STUDIO_PUBLIC_URL=https://studio.stack.example.com\n"
+            "N8N_PUBLIC_URL=https://n8n.stack.example.com\n"
+            "RUSTFS_BIND_IP=192.168.1.50\n"
+            "S3_PUBLIC_CONSOLE_URL=https://rfs.stack.example.com/rustfs/console\n"
+            "INSTAGRAM_MEDIA_PUBLIC_BASE_URL=https://media.stack.example.com\n",
+            encoding="utf-8",
+        )
+        links = self.links()
+        self.assertEqual(links["Operator panel"], "https://panel.stack.example.com/")
+        self.assertEqual(
+            links["Smart Router dashboard"], "https://sr.stack.example.com/dashboard"
+        )
+        self.assertEqual(links["OmniRoute dashboard"], "https://omni.stack.example.com/")
+        self.assertNotIn("9router dashboard", links)
+        self.assertEqual(
+            links["Media Studio API"], "https://studio.stack.example.com/openapi.json"
+        )
+        self.assertEqual(links["n8n editor"], "https://n8n.stack.example.com/")
+        self.assertEqual(
+            links["RustFS console"], "https://rfs.stack.example.com/rustfs/console/"
+        )
+        self.assertEqual(links["Instagram media host"], "https://media.stack.example.com")
 
 
 class ActionWhitelistTest(unittest.TestCase):

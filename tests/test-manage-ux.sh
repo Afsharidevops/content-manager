@@ -28,6 +28,7 @@ grep -q 'instagram-media-status' <<<"$help"
 grep -q 'content-connect-bale' <<<"$help"
 grep -q 'content-connect-eitaa' <<<"$help"
 grep -q 'content-channels' <<<"$help"
+grep -q 'domains                     Public host names' <<<"$help"
 
 # Automatic channels: an empty environment reports both channels as waiting,
 # and the connect commands write the keys without touching the network.
@@ -87,5 +88,26 @@ if PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-enable --named >/dev/n
   printf 'instagram-media-enable --named must fail without IG_MEDIA_TUNNEL_TOKEN\n' >&2
   exit 1
 fi
+
+# Public routes: host names come from STACK_BASE_DOMAIN, a recorded public URL
+# is read back as recorded, and a loopback bind is called out with the LAN
+# target in the printed proxy block.
+printf 'STACK_BASE_DOMAIN=stack.example.com\nPANEL_BIND_IP=192.168.1.50\nPANEL_PORT=8899\n' >> "$tmp/.env"
+routes_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" domains)"
+grep -q 'Base domain: stack.example.com' <<<"$routes_out"
+grep -q 'panel.stack.example.com (suggested)' <<<"$routes_out"
+grep -q 'PANEL_PUBLIC_URL=https://panel.stack.example.com' <<<"$routes_out"
+grep -q 'reverse_proxy 192.168.1.50:8899' <<<"$routes_out"
+grep -q 'SMART_ROUTER_PUBLIC_URL=https://sr.stack.example.com' <<<"$routes_out"
+grep -q 'RUSTFS_CONSOLE_BIND_IP is loopback' <<<"$routes_out"
+if grep -q 'reverse_proxy 127.0.0.1:9001' <<<"$routes_out"; then
+  printf 'domains must print the LAN target for a loopback bind, not loopback\n' >&2
+  exit 1
+fi
+grep -q 'S3_PUBLIC_CONSOLE_URL=https://console.stack.example.com/rustfs/console' <<<"$routes_out"
+printf 'SMART_ROUTER_PUBLIC_URL=https://sr.stack.example.com\n' >> "$tmp/.env"
+routes_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" domains)"
+grep -q 'sr.stack.example.com (recorded)' <<<"$routes_out"
+grep -q 'SMART_ROUTER_PUBLIC_URL=https://sr.stack.example.com' <<<"$routes_out"
 
 printf 'manage UX tests passed.\n'
