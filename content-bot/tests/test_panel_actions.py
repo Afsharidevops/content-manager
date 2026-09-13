@@ -238,7 +238,7 @@ class PanelActionsTests(unittest.TestCase):
         panel_mod.drain(self.bot)
         self.assertEqual(self.results()[-1]["status"], "skipped")
 
-    def test_instagram_actions_are_skipped_while_auto_publish_is_off(self):
+    def test_manual_instagram_actions_send_the_package_instead_of_skipping(self):
         self.bot.settings = replace(
             self.settings,
             instagram_business_id="17841400000000000",
@@ -246,13 +246,25 @@ class PanelActionsTests(unittest.TestCase):
             instagram_auto_publish=False,
         )
         draft_id = self.add_draft("media_ready", media={"kind": "none"})
-        for action in ("publish_ig", "publish_both"):
-            self.queue(action)
-            panel_mod.drain(self.bot)
-            result = self.results()[-1]
-            self.assertEqual(result["status"], "skipped")
-            self.assertIn("INSTAGRAM_AUTO_PUBLISH", result["message"])
+        self.queue("publish_ig")
+        panel_mod.drain(self.bot)
+        result = self.results()[-1]
+        self.assertEqual(result["status"], "done")
+        self.assertIn("package", result["message"].lower())
         self.assertIsNotNone(self.bot.state.get_draft(draft_id))
+
+        self.queue("publish_both")
+        panel_mod.drain(self.bot)
+        result = self.results()[-1]
+        self.assertEqual(result["status"], "done")
+        self.assertIn("package", result["message"].lower())
+        self.assertIsNone(self.bot.state.get_draft(draft_id))
+        channel_sends = [
+            payload
+            for method, payload in self.api.calls
+            if method == "sendMessage" and payload.get("chat_id") == "@channel"
+        ]
+        self.assertTrue(channel_sends)
 
     def test_discard_action_removes_the_draft_and_its_messages(self):
         self.add_draft("awaiting_media", preview_message_id=103)

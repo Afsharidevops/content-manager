@@ -5,6 +5,19 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Fixes — Instagram manual mode hands over the post package (2026-09-13)
+
+- `INSTAGRAM_AUTO_PUBLISH=false` used to switch Instagram off instead of
+  switching it to manual: the Telegram buttons disappeared, and approving a
+  draft with Instagram as a target was refused outright, so the operator had no
+  way to collect a copy-ready package from the chat. The approval path now
+  treats the Instagram half as a hand-off: **Approve to Instagram** sends the
+  package, **Approve to Telegram + Instagram** publishes to the channel and
+  sends the package, and approving a media draft to Telegram alone sends the
+  package with the same step. Drafts carry an **Instagram package** button
+  whenever automatic publishing is off, and the console actions behave the same
+  way instead of reporting "skipped".
+
 ### Fixes — Smart Router image publishes on its own again (2026-09-12)
 
 - `.github/workflows/publish-smart-router.yml` only ran on

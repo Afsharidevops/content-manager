@@ -39,20 +39,34 @@ channel as a media group.
 
 ## Manual mode (post package)
 
-Set `INSTAGRAM_AUTO_PUBLISH=false` to keep the two Instagram buttons out of the
-Telegram keyboards and the operator console while the credentials stay in
-`/.env`. Nothing else changes: the caption builder, the media host, and the
-token refresh keep working, so flipping the switch back to `true` restores the
-API buttons.
+Set `INSTAGRAM_AUTO_PUBLISH=false` to hand every Instagram post to the operator
+while the credentials stay in `/.env`. The Graph API buttons disappear, but
+nothing else changes: the caption builder, the media host, and the token
+refresh keep working, so flipping the switch back to `true` restores the API
+buttons.
 
 Manual mode exists for accounts that cannot publish through the Graph API
 (Meta review, a disabled account, a revoked permission) but can still post from
-the Instagram app. The operator console then shows a **Post package** action
-for every publishable draft: the bot re-sends the stored media file as an
-untouched Telegram document and follows it with the exact caption inside a
-code block. Telegram renders that block with a **copy** button, so the
-operator copies the caption, saves the file, and posts both from the Instagram
-app. Text-only drafts get the caption package alone.
+the Instagram app. The bot re-sends the stored media file as an untouched
+Telegram document and follows it with the exact caption inside a code block.
+Telegram renders that block with a **copy** button, so the operator copies the
+caption, saves the file, and posts both from the Instagram app. Text-only
+drafts get the caption package alone.
+
+Where the package appears:
+
+- **Instagram package** button on every draft that carries media; it is offered
+  whenever automatic publishing is off, whether or not the Graph API
+  credentials are complete.
+- **Approve to Instagram** and **Approve to Telegram + Instagram**. Manual mode
+  no longer refuses these: the Instagram half is replaced by the package, and
+  the Telegram half still publishes to the channel. A refusal is impossible
+  while there is nothing to hand over, so the approval always answers with the
+  package result in the draft message.
+- **Approving a media draft to Telegram** also sends the package in the same
+  step, so a post that goes to the channel can be copied to Instagram without
+  opening the console.
+- **Post package** action in the operator console, unchanged.
 
 The same package is useful with a working API: use it when the post should go
 out by hand, for example with a first comment or a collaboration tag that the

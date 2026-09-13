@@ -1047,8 +1047,9 @@ class MediaFlowTestCase(unittest.TestCase):
         ]
         self.assertNotIn(f"approve_ig:{draft_id}", callbacks)
         self.assertNotIn(f"approve_both:{draft_id}", callbacks)
+        self.assertIn(f"post_package:{draft_id}", callbacks)
 
-    def test_auto_publish_switch_blocks_the_instagram_approve_path(self):
+    def test_manual_instagram_approval_sends_the_post_package(self):
         self.settings = replace(
             _media_settings(self.tmp.name, instagram=True),
             instagram_auto_publish=False,
@@ -1060,17 +1061,134 @@ class MediaFlowTestCase(unittest.TestCase):
                 "id": "q1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        self.api.uploads.clear()
+        bot.handle_callback(
+            {
+                "id": "qig",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
                 "data": f"approve_ig:{draft_id}",
             }
         )
-        answers = [
-            payload
-            for method, payload in self.api.calls
-            if method == "answerCallbackQuery"
+        documents = [
+            upload
+            for upload in self.api.uploads
+            if upload[0] == "sendDocument" and upload[1].get("chat_id") == 11
         ]
-        self.assertTrue(answers)
-        self.assertIn("INSTAGRAM_AUTO_PUBLISH", str(answers[-1].get("text")))
+        self.assertTrue(documents)
+        captions = [
+            message
+            for message in self.api.sent_messages
+            if "Instagram post package" in str(message.get("text") or "")
+        ]
+        self.assertTrue(captions)
+        self.assertEqual(
+            [upload for upload in self.api.uploads if upload[1].get("chat_id") == "@channel"],
+            [],
+        )
         self.assertIsNotNone(bot.state.get_draft(draft_id))
+
+    def test_plain_approval_hands_over_the_package_in_manual_mode(self):
+        self.settings = replace(
+            _media_settings(self.tmp.name, instagram=True),
+            instagram_auto_publish=False,
+        )
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        self.api.uploads.clear()
+        bot.handle_callback(
+            {
+                "id": "qapprove",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        self.assertTrue(
+            [upload for upload in self.api.uploads if upload[1].get("chat_id") == "@channel"]
+        )
+        self.assertTrue(
+            [
+                upload
+                for upload in self.api.uploads
+                if upload[0] == "sendDocument" and upload[1].get("chat_id") == 11
+            ]
+        )
+        self.assertIsNone(bot.state.get_draft(draft_id))
+
+    def test_manual_instagram_keeps_publishing_to_telegram(self):
+        self.settings = replace(
+            _media_settings(self.tmp.name, instagram=True),
+            instagram_auto_publish=False,
+        )
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        self.api.uploads.clear()
+        bot.handle_callback(
+            {
+                "id": "qboth",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"approve_both:{draft_id}",
+            }
+        )
+        self.assertTrue(
+            [upload for upload in self.api.uploads if upload[1].get("chat_id") == "@channel"]
+        )
+        self.assertTrue(
+            [
+                upload
+                for upload in self.api.uploads
+                if upload[0] == "sendDocument" and upload[1].get("chat_id") == 11
+            ]
+        )
+        self.assertIsNone(bot.state.get_draft(draft_id))
 
     def test_instagram_publish_needs_credentials_and_the_switch(self):
         configured = replace(
@@ -2081,8 +2199,12 @@ class MultiPhotoAndInstagramTests(BotTestCase):
                 "data": f"approve_ig:{draft_id}",
             }
         )
-        answers = [payload for method, payload in self.api.calls if method == "answerCallbackQuery"]
-        self.assertTrue(any("Instagram is not configured" in a.get("text", "") for a in answers))
+        captions = [
+            message
+            for message in self.api.sent_messages
+            if "Instagram post package" in str(message.get("text") or "")
+        ]
+        self.assertTrue(captions)
         self.assertIsNotNone(self.bot.state.get_draft(draft_id))
 
     def test_draft_preview_hides_manual_platforms_by_default(self):

@@ -354,7 +354,12 @@ class TelegramApi:
         return body
 
 
-def approval_keyboard(draft_id: str, *, platforms: bool = False) -> dict:
+def approval_keyboard(
+    draft_id: str,
+    *,
+    platforms: bool = False,
+    manual_package: bool = False,
+) -> dict:
     """Inline keyboard for one draft proposal."""
     rows = [
         [
@@ -362,6 +367,8 @@ def approval_keyboard(draft_id: str, *, platforms: bool = False) -> dict:
             {"text": "Reject", "callback_data": f"reject:{draft_id}"},
         ]
     ]
+    if manual_package:
+        rows.append(instagram_package_row(draft_id))
     if platforms:
         rows.append(platform_choice_row(draft_id))
     return {"inline_keyboard": rows}
@@ -466,6 +473,13 @@ def platforms_keyboard(draft_id: str, profiles: list[tuple[str, str]]) -> dict:
     return {"inline_keyboard": rows}
 
 
+def instagram_package_row(draft_id: str) -> list[dict]:
+    """Manual-upload hand-off offered while automatic publishing is off."""
+    return [
+        {"text": "Instagram package", "callback_data": f"post_package:{draft_id}"}
+    ]
+
+
 def instagram_approval_row(draft_id: str) -> list[dict]:
     """Publish targets for one media draft when Instagram is configured."""
     return [
@@ -486,6 +500,7 @@ def user_media_preview_keyboard(
     instagram: bool = False,
     collecting: bool = False,
     platforms: bool = False,
+    manual_package: bool = False,
 ) -> dict:
     """Approve/Reject plus text-only fallback for an operator-uploaded file."""
     rows = [
@@ -503,6 +518,8 @@ def user_media_preview_keyboard(
     rows.append(actions)
     if instagram:
         rows.append(instagram_approval_row(draft_id))
+    if manual_package:
+        rows.append(instagram_package_row(draft_id))
     if platforms:
         rows.append(platform_choice_row(draft_id))
     return {"inline_keyboard": rows}
@@ -564,7 +581,11 @@ def media_action_keyboard(draft_id: str) -> dict:
 
 
 def media_preview_keyboard(
-    draft_id: str, *, instagram: bool = False, platforms: bool = False
+    draft_id: str,
+    *,
+    instagram: bool = False,
+    platforms: bool = False,
+    manual_package: bool = False,
 ) -> dict:
     """Approve/Reject plus media actions on one generated preview message."""
     rows = [
@@ -579,6 +600,8 @@ def media_preview_keyboard(
     ]
     if instagram:
         rows.append(instagram_approval_row(draft_id))
+    if manual_package:
+        rows.append(instagram_package_row(draft_id))
     if platforms:
         rows.append(platform_choice_row(draft_id))
     return {"inline_keyboard": rows}

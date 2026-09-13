@@ -11,7 +11,7 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 6502bb5def3d7527e476588fa8a0e67701c3364afb9050a55b7bffe46d449fb3  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-f774d9c3927e2cb8344acf3374b2a676a8fe968e4d40ca32eb5863903d04c816  ./CHANGELOG.md
+28973bc2a32f52dfeed06fd0c53a68b9503cadd5c2c2ab69c2064142db89b9e3  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
 e4ef08dbadbb1fcaa8b818f8a97851e371044d97a8bcc9d0d5c51b0ec649311b  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md

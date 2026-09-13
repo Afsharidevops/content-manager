@@ -299,13 +299,28 @@ def _apply(bot, request: dict) -> tuple[str, str]:
             return "done", "Published to Telegram."
         return "error", "Publish did not complete; check the bot log."
 
-    if action in {"publish_both", "publish_ig"} and not getattr(
+    manual_instagram = not getattr(
         bot.settings, "instagram_publish_enabled", False
-    ):
-        return "skipped", (
-            "Automatic Instagram publishing is off (INSTAGRAM_AUTO_PUBLISH); "
-            "use Post package for a manual Instagram post."
+    )
+
+    if action == "publish_ig" and manual_instagram:
+        if status not in PUBLISH_STATUSES:
+            return "skipped", f"A post package is not available while the draft is {status}."
+        return send_post_package(bot, record)
+
+    if action == "publish_both" and manual_instagram:
+        if status not in PUBLISH_STATUSES:
+            return "skipped", f"Publishing is not available while the draft is {status}."
+        bot._approve(
+            "",
+            record,
+            record.get("chat_id"),
+            record.get("message_id"),
+            targets=("telegram", "instagram"),
         )
+        if bot.state.get_draft(draft_id) is None:
+            return "done", "Published to Telegram and sent the Instagram package."
+        return "error", "Publish did not complete; check the bot log."
 
     if action == "publish_both":
         if status not in PUBLISH_STATUSES:

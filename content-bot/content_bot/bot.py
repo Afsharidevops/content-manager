@@ -2084,11 +2084,20 @@ class ContentBot:
         if not self._send_media_preview(draft_id):
             self._media_failed(draft_id, "Media preview could not be sent.")
 
+    def _manual_package_enabled(self) -> bool:
+        """True while Instagram posts are handed over for a manual upload.
+
+        Automatic publishing is off, so every draft that may need Instagram
+        offers a copy-ready package instead of the Graph API buttons.
+        """
+        return not self.settings.instagram_publish_enabled
+
     def _approval_keyboard(self, draft_id: str) -> dict:
         """Draft buttons with the publishing options this deployment enables."""
         return telegram_mod.approval_keyboard(
             draft_id,
             platforms=self.settings.platforms_enabled,
+            manual_package=self._manual_package_enabled(),
         )
 
     def _preview_keyboard(
@@ -2098,6 +2107,7 @@ class ContentBot:
         options = {
             "instagram": self.settings.instagram_publish_enabled,
             "platforms": self.settings.platforms_enabled,
+            "manual_package": self._manual_package_enabled(),
         }
         if collecting:
             try:
@@ -2442,6 +2452,10 @@ class ContentBot:
         if action == "approve":
             self._approve(query_id, record, chat_id, message_id, targets=("telegram",))
             return
+        if action == "post_package":
+            _status, detail = panel_actions_mod.send_post_package(self, record)
+            self._safe_answer(query_id, detail)
+            return
         if action in {"approve_ig", "approve_both"}:
             targets = (
                 ("instagram",)
@@ -2685,19 +2699,23 @@ class ContentBot:
                 "No publish channel is configured (CONTENT_TELEGRAM_CHANNEL).",
             )
             return False
+        manual_package = False
         if "instagram" in targets and not self.settings.instagram_publish_enabled:
-            if not self.settings.instagram_enabled:
-                reason = (
-                    "Instagram is not configured; set INSTAGRAM_BUSINESS_ID and "
-                    "INSTAGRAM_ACCESS_TOKEN."
-                )
-            else:
-                reason = (
-                    "Instagram automatic publishing is off; set "
-                    "INSTAGRAM_AUTO_PUBLISH=true to enable it."
-                )
-            self._safe_answer(query_id, reason)
-            return False
+            # Manual mode: the operator posts through the Instagram app, so the
+            # approval hands over a copy-ready package instead of failing the
+            # whole request.
+            targets = tuple(item for item in targets if item != "instagram")
+            if not targets:
+                _status, detail = panel_actions_mod.send_post_package(self, record)
+                self._safe_answer(query_id, detail)
+                return False
+            manual_package = True
+        if not manual_package and not self.settings.instagram_publish_enabled:
+            # Instagram stays manual in this deployment, so an approval that
+            # carries media also hands over the Instagram package.
+            media = record.get("media") or {}
+            if media.get("files") or str(media.get("kind") or "") in {"image", "video"}:
+                manual_package = True
         policy = workflow.load_policy(self.settings.policy_dir)
         zone = _policy_zone(policy)
         day = self.now_fn().astimezone(zone).date().isoformat()
@@ -2766,6 +2784,9 @@ class ContentBot:
                 errors.append(f"Telegram: {tg_error}")
             self._safe_answer(query_id, "Publish had errors: " + "; ".join(errors))
             return False
+        package_detail = ""
+        if manual_package:
+            _status, package_detail = panel_actions_mod.send_post_package(self, record)
         self.state.remember_published(
             str(record.get("content_hash") or ""),
             str(record.get("category") or ""),
@@ -2783,6 +2804,11 @@ class ContentBot:
         if "instagram" in targets:
             destinations.append("Instagram")
         summary = f"Published to {' + '.join(destinations)}."
+        if manual_package:
+            summary += (
+                "\nInstagram is manual: "
+                + (package_detail or "the post package was sent to your chat.")
+            )
         if chat_id is not None and message_id is not None:
             try:
                 self.api.edit_message_text(
