@@ -20,11 +20,13 @@ def record(**overrides) -> dict:
 
 
 class ProfilePolicyTests(unittest.TestCase):
-    def test_built_in_profiles_cover_youtube_and_aparat(self):
+    def test_built_in_profiles_cover_the_manual_targets(self):
         profiles = platforms.load_profiles({})
-        self.assertEqual(set(profiles), {"youtube", "aparat"})
+        self.assertEqual(set(profiles), {"youtube", "aparat", "linkedin"})
         self.assertTrue(profiles["youtube"].wants_video)
         self.assertTrue(profiles["aparat"].upload_url)
+        self.assertTrue(profiles["linkedin"].upload_url)
+        self.assertFalse(profiles["linkedin"].wants_video)
 
     def test_policy_overrides_values_and_adds_platforms(self):
         policy = {
@@ -119,6 +121,13 @@ class PackageTests(unittest.TestCase):
         profile = self.profile("youtube", {"title_limit": 10})
         text = platforms.package_text(record(title="A very long title indeed"), profile)
         self.assertIn("Text was shortened to fit the platform limits.", text)
+
+    def test_linkedin_package_is_copy_ready(self):
+        profile = platforms.load_profiles({})["linkedin"]
+        text = platforms.package_text(record(), profile)
+        self.assertIn("LinkedIn upload package", text)
+        self.assertIn("Container layers explained", text)
+        self.assertIn("https://example.com/layers", text)
 
     def test_stored_media_reads_albums_and_single_files(self):
         album = record(

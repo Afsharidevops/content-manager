@@ -459,6 +459,11 @@ def platform_choice_row(draft_id: str) -> list[dict]:
     ]
 
 
+def packages_keyboard(draft_id: str) -> dict:
+    """Keep the upload packages reachable from the post-publish message."""
+    return {"inline_keyboard": [platform_choice_row(draft_id)]}
+
+
 def platforms_keyboard(draft_id: str, profiles: list[tuple[str, str]]) -> dict:
     """Chooser for platforms that receive a copy-ready upload package."""
     rows: list[list[dict]] = []

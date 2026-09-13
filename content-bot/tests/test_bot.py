@@ -1100,6 +1100,76 @@ class MediaFlowTestCase(unittest.TestCase):
         )
         self.assertIsNotNone(bot.state.get_draft(draft_id))
 
+    def test_published_draft_keeps_the_platform_packages_reachable(self):
+        self.settings = replace(
+            _media_settings(self.tmp.name, instagram=True),
+            instagram_auto_publish=False,
+            platforms_enabled=True,
+        )
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:user_image:{draft_id}",
+            }
+        )
+        bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "photo": [
+                    {"file_id": "big", "file_size": 500, "width": 100, "height": 100}
+                ],
+            }
+        )
+        self.api.calls.clear()
+        bot.handle_callback(
+            {
+                "id": "qapprove",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"approve:{draft_id}",
+            }
+        )
+        self.assertIsNone(bot.state.get_draft(draft_id))
+        summaries = [
+            payload
+            for method, payload in self.api.calls
+            if method == "editMessageText" and payload.get("reply_markup")
+        ]
+        self.assertTrue(summaries)
+        callbacks = [
+            button["callback_data"]
+            for row in summaries[-1]["reply_markup"]["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"platforms:{draft_id}", callbacks)
+
+        self.api.sent_messages.clear()
+        bot.handle_callback(
+            {
+                "id": "qpkg",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"platforms:{draft_id}",
+            }
+        )
+        choosers = [
+            message
+            for message in self.api.sent_messages
+            if message.get("reply_markup") and "Pick a platform" in str(message.get("text") or "")
+        ]
+        self.assertTrue(choosers)
+        package_callbacks = [
+            button["callback_data"]
+            for row in choosers[-1]["reply_markup"]["inline_keyboard"]
+            for button in row
+        ]
+        self.assertIn(f"package:linkedin:{draft_id}", package_callbacks)
+
     def test_plain_approval_hands_over_the_package_in_manual_mode(self):
         self.settings = replace(
             _media_settings(self.tmp.name, instagram=True),

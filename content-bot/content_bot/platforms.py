@@ -52,6 +52,17 @@ DEFAULT_PROFILES: dict[str, PlatformProfile] = {
         note="Upload the video file and paste the title and description.",
         wants_video=True,
     ),
+    "linkedin": PlatformProfile(
+        key="linkedin",
+        label="LinkedIn",
+        upload_url="https://www.linkedin.com/feed/",
+        title_limit=120,
+        description_limit=2900,
+        note=(
+            "LinkedIn has no separate title field: paste the description as the "
+            "post text and use the title as the first line when it helps."
+        ),
+    ),
 }
 
 

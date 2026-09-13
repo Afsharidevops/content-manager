@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from content_bot.state import StateStore
+from content_bot.state import PACKAGE_ARCHIVE_LIMIT, StateStore
 
 
 class StateStoreTest(unittest.TestCase):
@@ -29,6 +29,16 @@ class StateStoreTest(unittest.TestCase):
         self.store.reset_day("2026-09-08")
         self.assertEqual(self.store.load()["published_today"], 0)
         self.assertEqual(self.store.load()["last_categories"], ["ai_tools"])
+
+    def test_package_archive_keeps_the_latest_records(self):
+        limit = PACKAGE_ARCHIVE_LIMIT
+        for index in range(limit + 2):
+            self.store.archive_package(
+                {"id": f"d{index}", "title": f"T{index}", "body": "B"}
+            )
+        self.assertIsNone(self.store.get_archived_package("d0"))
+        latest = self.store.get_archived_package(f"d{limit + 1}")
+        self.assertEqual(latest["title"], f"T{limit + 1}")
 
     def test_state_survives_reload(self):
         self.store.add_draft("d2", {"title": "Persisted"})

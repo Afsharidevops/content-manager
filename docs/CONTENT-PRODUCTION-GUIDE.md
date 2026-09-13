@@ -303,7 +303,7 @@ routines:
 | --- | --- |
 | Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
 | Instagram | Official Meta Graph API: photos, carousels, and video; the long-lived token refreshes itself, `/instagram` reports the expiry, and the `ig-media` profile publishes the media directory at a public URL (`./manage.sh instagram-media-status`, a domain through Caddy, or a named tunnel); see `docs/INSTAGRAM-SETUP.md` |
-| YouTube / Aparat | Optional copy-ready upload package (off by default); see "Manual upload platforms" |
+| YouTube / Aparat / LinkedIn | Optional copy-ready upload package (off by default); see "Manual upload platforms" |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
 
 ## Manual upload platforms
@@ -312,7 +312,7 @@ Telegram and Instagram publish through their APIs; this part of the bot is
 off by default and only appears when the manual upload packages are enabled
 with `CONTENT_PLATFORMS_ENABLED=true` (a live bot otherwise shows Approve and
 Reject, and nothing else). Once enabled, platforms that need a human upload
-step (YouTube, Aparat) are reachable from the same previews:
+step (YouTube, Aparat, LinkedIn) are reachable from the same previews:
 
 1. Press **More platforms...** on the draft preview or a media preview.
 2. Pick the platform. The bot sends a copy-ready package with the title (cut
@@ -323,7 +323,10 @@ step (YouTube, Aparat) are reachable from the same previews:
 
 A package never publishes anything by itself, never consumes the draft, and
 never counts toward the daily limit; **Approve** and **Reject** keep working
-as before. The package content is driven by the `platforms:` section of
+as before. The published message keeps a **More platforms...** button, so the
+packages of a post stay reachable for a while after it went out: the bot keeps
+a slim copy of the last few published drafts (title, body, source link, media
+reference) for exactly this hand-off. The package content is driven by the `platforms:` section of
 `editorial-policy.yaml`: override the label, upload URL, title and description
 limits, note, or hashtags, add your own platform keys, or set a key to `null`
 to hide its button. Telegram and Instagram are not listed there because they

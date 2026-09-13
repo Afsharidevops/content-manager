@@ -5,6 +5,17 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — Per-post upload packages for LinkedIn, YouTube, and Aparat (2026-09-13)
+
+- Every enabled manual platform is offered per draft under **More platforms...**,
+  so a post that suits LinkedIn or Shorts can be handed over without touching
+  the others. LinkedIn joins the built-in profiles with its own title and
+  description limits, and all of them stay overridable in the `platforms:`
+  section of `editorial-policy.yaml`.
+- Published drafts are archived in a small bounded copy, and the post-publish
+  message keeps the **More platforms...** button, so a package can still be
+  requested after the post went out instead of only before the approval.
+
 ### Fixes — Instagram manual mode hands over the post package (2026-09-13)
 
 - `INSTAGRAM_AUTO_PUBLISH=false` used to switch Instagram off instead of

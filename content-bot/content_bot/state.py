@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 PUBLISHED_HISTORY_LIMIT = 300
+PACKAGE_ARCHIVE_LIMIT = 25
 CATEGORY_HISTORY_LIMIT = 20
 MEMORY_LESSONS_LIMIT = 30
 
@@ -109,6 +110,35 @@ class StateStore:
         if draft_id in drafts:
             del drafts[draft_id]
             self.save()
+
+    def archive_package(self, record: dict) -> None:
+        """Keep a slim copy of one published draft for later upload packages."""
+        draft_id = str(record.get("id") or "")
+        if not draft_id:
+            return
+        data = self.load()
+        archive = data.setdefault("package_archive", {})
+        archive.pop(draft_id, None)
+        archive[draft_id] = {
+            "id": draft_id,
+            "chat_id": record.get("chat_id"),
+            "title": record.get("title") or "",
+            "body": record.get("body") or "",
+            "source_url": record.get("source_url") or "",
+            "category": record.get("category") or "",
+            "kind": record.get("kind") or "",
+            "media": record.get("media") or {},
+            "published_at": record.get("published_at") or "",
+        }
+        while len(archive) > PACKAGE_ARCHIVE_LIMIT:
+            oldest = next(iter(archive))
+            archive.pop(oldest, None)
+        self.save()
+
+    def get_archived_package(self, draft_id: str) -> dict | None:
+        """Return the archived copy kept for a published draft, if any."""
+        item = (self.load().get("package_archive") or {}).get(str(draft_id or ""))
+        return dict(item) if isinstance(item, dict) else None
 
     def is_known(self, content_hash: str) -> bool:
         return content_hash in set(self.load().get("published") or [])

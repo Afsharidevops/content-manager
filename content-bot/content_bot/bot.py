@@ -2084,6 +2084,14 @@ class ContentBot:
         if not self._send_media_preview(draft_id):
             self._media_failed(draft_id, "Media preview could not be sent.")
 
+    def _package_record(self, draft_id: str) -> dict | None:
+        """Return the live draft or the copy archived after publishing."""
+        draft_id = str(draft_id or "")
+        record = self.state.get_draft(draft_id)
+        if record is not None:
+            return record
+        return self.state.get_archived_package(draft_id)
+
     def _manual_package_enabled(self) -> bool:
         """True while Instagram posts are handed over for a manual upload.
 
@@ -2426,11 +2434,20 @@ class ContentBot:
             return
         if data.startswith("platforms:"):
             draft_id = data.split(":", 1)[1]
-            record = self.state.get_draft(draft_id)
+            record = self._package_record(draft_id)
             if record is None:
                 self.api.answer_callback_query(query_id, "This draft is no longer active.")
                 return
             self._offer_platforms(query_id, record)
+            return
+        if data.startswith("post_package:"):
+            draft_id = data.split(":", 1)[1]
+            record = self._package_record(draft_id)
+            if record is None:
+                self.api.answer_callback_query(query_id, "This draft is no longer active.")
+                return
+            _status, detail = panel_actions_mod.send_post_package(self, record)
+            self._safe_answer(query_id, detail)
             return
         if data.startswith("package:"):
             tokens = data.split(":", 2)
@@ -2451,10 +2468,6 @@ class ContentBot:
         message_id = record.get("message_id")
         if action == "approve":
             self._approve(query_id, record, chat_id, message_id, targets=("telegram",))
-            return
-        if action == "post_package":
-            _status, detail = panel_actions_mod.send_post_package(self, record)
-            self._safe_answer(query_id, detail)
             return
         if action in {"approve_ig", "approve_both"}:
             targets = (
@@ -2794,6 +2807,7 @@ class ContentBot:
             count_toward_limit=subject_to_limit,
         )
         draft_id = str(record.get("id") or "")
+        self.state.archive_package(record)
         self.state.drop_draft(draft_id)
         self._delete_safe(chat_id, record.get("ask_message_id"))
         self._delete_safe(chat_id, record.get("preview_message_id"))
@@ -2810,11 +2824,17 @@ class ContentBot:
                 + (package_detail or "the post package was sent to your chat.")
             )
         if chat_id is not None and message_id is not None:
+            markup = (
+                telegram_mod.packages_keyboard(draft_id)
+                if self.settings.platforms_enabled
+                else None
+            )
             try:
                 self.api.edit_message_text(
                     chat_id,
                     int(message_id),
                     summary,
+                    reply_markup=markup,
                 )
             except telegram_mod.TelegramError:
                 pass
