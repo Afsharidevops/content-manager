@@ -16,6 +16,7 @@ from panel import __version__
 from panel.actions import ActionError, ActionRunner
 from panel import drafts as drafts_mod
 from panel.editors import ConfigStore, EditError, EnvStore
+from panel.platforms import PlatformStore, platform_for
 from panel.server import PanelApp, PanelHandler
 from panel.stack import StackView
 
@@ -309,6 +310,178 @@ class EnvStoreTest(unittest.TestCase):
             self.store.set("PANEL_TOKEN", "line1\nline2")
         with self.assertRaisesRegex(EditError, "environment keys"):
             self.store.set("panel-token", "value")
+
+
+class PlatformStoreTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        (self.root / ".env").write_text(
+            "CONTENT_BOT_TOKEN=super-secret-value\n"
+            "CONTENT_TELEGRAM_CHANNEL=-100123\n"
+            "CONTENT_BALE_TOKEN=123456:abc\n"
+            "CONTENT_BALE_CHAT_ID=@locallab\n"
+            "CONTENT_BALE_API_BASE=https://tapi.bale.ai\n"
+            "CONTENT_PLATFORMS_ENABLED=true\n",
+            encoding="utf-8",
+        )
+        self.store = PlatformStore(self.root)
+
+    def card(self, key):
+        return next(row for row in self.store.view()["platforms"] if row["key"] == key)
+
+    def field(self, card, key):
+        return next(row for row in card["fields"] if row["key"] == key)
+
+    def test_the_view_groups_the_stack_into_named_platforms(self):
+        keys = [row["key"] for row in self.store.view()["platforms"]]
+        self.assertEqual(
+            keys,
+            ["telegram", "bale", "eitaa", "instagram", "writer", "media", "chooser", "youtube", "aparat", "linkedin"],
+        )
+
+    def test_secrets_are_reported_as_stored_but_never_returned(self):
+        card = self.card("bale")
+        self.assertEqual(card["state"], "ready")
+        token = self.field(card, "CONTENT_BALE_TOKEN")
+        self.assertTrue(token["secret"])
+        self.assertTrue(token["set"])
+        self.assertIsNone(token["value"])
+        chat = self.field(card, "CONTENT_BALE_CHAT_ID")
+        self.assertFalse(chat["secret"])
+        self.assertEqual(chat["value"], "@locallab")
+
+    def test_states_cover_ready_partial_empty_package_and_flags(self):
+        self.assertEqual(self.card("telegram")["state"], "ready")
+        self.assertEqual(self.card("eitaa")["state"], "empty")
+        self.assertEqual(self.card("instagram")["state"], "package")
+        self.assertEqual(self.card("chooser")["state"], "on")
+        self.assertEqual(self.card("youtube")["state"], "package")
+        self.assertEqual(self.card("writer")["state"], "empty")
+
+    def test_instagram_requires_credentials_only_when_auto_publish_is_on(self):
+        text = (self.root / ".env").read_text(encoding="utf-8")
+        (self.root / ".env").write_text(
+            text + "INSTAGRAM_AUTO_PUBLISH=true\n", encoding="utf-8"
+        )
+        card = self.card("instagram")
+        self.assertEqual(card["state"], "partial")
+        self.assertTrue(self.field(card, "INSTAGRAM_BUSINESS_ID")["required"])
+
+    def test_every_field_carries_the_api_base_urls(self):
+        urls = {
+            self.field(self.card(key), env_key)["kind"]
+            for key, env_key in (
+                ("telegram", "CONTENT_TELEGRAM_API_BASE"),
+                ("bale", "CONTENT_BALE_API_BASE"),
+                ("eitaa", "CONTENT_EITAA_API_BASE"),
+                ("instagram", "INSTAGRAM_API_BASE"),
+                ("writer", "CONTENT_WRITER_BASE_URL"),
+                ("media", "CONTENT_MEDIA_STUDIO_URL"),
+            )
+        }
+        self.assertEqual(urls, {"url"})
+
+    def test_update_writes_the_env_and_reports_the_consuming_service(self):
+        result = self.store.update("bale", {"CONTENT_BALE_CHAT_ID": "@new_channel"})
+        self.assertEqual(result["changed"], ["CONTENT_BALE_CHAT_ID"])
+        self.assertEqual(result["service"], "content-bot")
+        env = (self.root / ".env").read_text(encoding="utf-8")
+        self.assertIn("CONTENT_BALE_CHAT_ID=@new_channel", env)
+        self.assertIn("CONTENT_BALE_TOKEN=123456:abc", env)
+
+    def test_update_validates_keys_urls_and_flags(self):
+        with self.assertRaises(EditError):
+            self.store.update("bale", {"CONTENT_BOT_TOKEN": "wrong-platform"})
+        with self.assertRaises(EditError):
+            self.store.update("bale", {"CONTENT_BALE_API_BASE": "tapi.bale.ai"})
+        with self.assertRaises(EditError):
+            self.store.update("chooser", {"CONTENT_PLATFORMS_ENABLED": "maybe"})
+        with self.assertRaises(EditError):
+            self.store.update("nope", {"CONTENT_BALE_TOKEN": "x"})
+        self.assertIn(
+            "CONTENT_BALE_API_BASE=https://tapi.bale.ai",
+            (self.root / ".env").read_text(encoding="utf-8"),
+        )
+
+    def test_update_clears_a_value_with_an_empty_string(self):
+        self.store.update("bale", {"CONTENT_BALE_CHAT_ID": ""})
+        self.assertEqual(self.card("bale")["state"], "partial")
+
+    def test_test_calls_the_provider_and_keeps_the_token_out_of_the_answer(self):
+        payload = '{"ok": true, "result": {"username": "locallab_bot"}}'
+        with mock.patch("panel.platforms._fetch", return_value=(200, payload, "")) as fetch:
+            result = self.store.test("bale", {"CONTENT_BALE_TOKEN": "999:typed"})
+        self.assertTrue(result["ok"])
+        self.assertIn("locallab_bot", result["detail"])
+        self.assertNotIn("999:typed", result["detail"])
+        self.assertIn("999:typed", fetch.call_args[0][0])
+
+    def test_a_typed_secret_wins_but_an_empty_box_keeps_the_stored_one(self):
+        with mock.patch("panel.platforms._fetch", return_value=(0, "", "boom")) as fetch:
+            self.store.test("bale", {"CONTENT_BALE_TOKEN": ""})
+        self.assertIn("123456:abc", fetch.call_args[0][0])
+        with mock.patch("panel.platforms._fetch", return_value=(0, "", "boom")) as fetch:
+            self.store.test("eitaa", {"CONTENT_EITAA_TOKEN": "42:new", "CONTENT_EITAA_API_BASE": "https://eitaa.example/api"})
+        self.assertIn("https://eitaa.example/api/42:new/getMe", fetch.call_args[0][0])
+
+    def test_a_provider_error_is_reported_without_the_token(self):
+        body = '{"ok": false, "description": "Unauthorized"}'
+        with mock.patch("panel.platforms._fetch", return_value=(403, body, "")):
+            result = self.store.test("bale", {})
+        self.assertFalse(result["ok"])
+        self.assertIn("Unauthorized", result["detail"])
+
+    def test_writer_and_media_tests_probe_their_service_endpoints(self):
+        (self.root / ".env").write_text(
+            "CONTENT_WRITER_BASE_URL=http://smart-router:8080/v1\n"
+            "CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850\n",
+            encoding="utf-8",
+        )
+        seen = []
+
+        def fake_fetch(url, headers=None):
+            seen.append(url)
+            if url.endswith("/models"):
+                return 200, '{"data": [{"id": "auto"}]}', ""
+            if url.endswith("/healthz"):
+                return 200, '{"ok": true, "jobs": 3}', ""
+            return 404, "", ""
+
+        with mock.patch("panel.platforms._fetch", side_effect=fake_fetch):
+            writer = self.store.test("writer", {})
+            media = self.store.test("media", {})
+        self.assertTrue(writer["ok"])
+        self.assertIn("1 models", writer["detail"])
+        self.assertTrue(media["ok"])
+        self.assertIn("3 jobs", media["detail"])
+        self.assertEqual(seen, ["http://smart-router:8080/v1/models", "http://media-studio:8850/healthz"])
+
+    def test_the_writer_falls_back_to_the_health_route(self):
+        (self.root / ".env").write_text(
+            "CONTENT_WRITER_BASE_URL=http://gateway.local:9000\n", encoding="utf-8"
+        )
+
+        def fake_fetch(url, headers=None):
+            if url.endswith("/health"):
+                return 200, "{}", ""
+            return 404, "{}", ""
+
+        with mock.patch("panel.platforms._fetch", side_effect=fake_fetch):
+            result = self.store.test("writer", {})
+        self.assertTrue(result["ok"])
+
+    def test_package_platforms_have_nothing_to_test(self):
+        with self.assertRaises(EditError):
+            self.store.test("youtube", {})
+        self.assertIsNotNone(platform_for("linkedin"))
+
+    def test_env_store_exposes_single_values_and_secret_detection(self):
+        store = EnvStore(self.root)
+        self.assertEqual(store.value("CONTENT_BALE_CHAT_ID"), "@locallab")
+        self.assertEqual(store.value("MISSING_KEY", "fallback"), "fallback")
+        self.assertTrue(store.is_secret("CONTENT_BALE_TOKEN"))
+        self.assertFalse(store.is_secret("CONTENT_BALE_CHAT_ID"))
 
 
 class StackExposureTest(unittest.TestCase):
@@ -745,6 +918,115 @@ class PanelHttpTest(unittest.TestCase):
         self.assertIn("unknown backup section: secrets", body)
 
 
+class PanelPlatformApiTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        (self.root / ".env").write_text(
+            "CONTENT_BOT_TOKEN=super-secret-value\n"
+            "CONTENT_BALE_TOKEN=123456:abc\n"
+            "CONTENT_BALE_CHAT_ID=@locallab\n"
+            "CONTENT_BALE_API_BASE=https://tapi.bale.ai\n",
+            encoding="utf-8",
+        )
+        self.app = PanelApp(self.root, "token-value")
+        PanelHandler.app = self.app
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), PanelHandler)
+        self.server.app = self.app
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.server.server_close)
+        self.port = self.server.server_address[1]
+        self.cookie = ""
+
+    def request(self, method, path, payload=None, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        body = json.dumps(payload) if payload is not None else None
+        request_headers = dict(headers or {})
+        if body is not None:
+            request_headers["Content-Type"] = "application/json"
+        if self.cookie:
+            request_headers["Cookie"] = self.cookie
+        connection.request(method, path, body=body, headers=request_headers)
+        response = connection.getresponse()
+        raw = response.read().decode("utf-8")
+        set_cookie = response.getheader("Set-Cookie") or ""
+        connection.close()
+        if set_cookie.startswith("panel_session="):
+            self.cookie = set_cookie.split(";", 1)[0]
+        return response.status, raw
+
+    def login(self):
+        return self.request("POST", "/api/login", {"token": "token-value"})
+
+    def test_platforms_api_requires_authentication(self):
+        status, _ = self.request("GET", "/api/platforms")
+        self.assertEqual(status, 401)
+
+    def test_platforms_payload_masks_secrets_and_includes_base_urls(self):
+        self.login()
+        status, body = self.request("GET", "/api/platforms")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        bale = next(row for row in payload["platforms"] if row["key"] == "bale")
+        token = next(row for row in bale["fields"] if row["key"] == "CONTENT_BALE_TOKEN")
+        self.assertIsNone(token["value"])
+        self.assertTrue(token["set"])
+        base = next(row for row in bale["fields"] if row["key"] == "CONTENT_BALE_API_BASE")
+        self.assertEqual(base["value"], "https://tapi.bale.ai")
+        self.assertEqual(bale["state"], "ready")
+        self.assertNotIn("123456:abc", body)
+
+    def test_saving_a_platform_writes_env_and_needs_the_csrf_header(self):
+        self.login()
+        status, _ = self.request(
+            "PUT",
+            "/api/platforms/bale",
+            {"values": {"CONTENT_BALE_CHAT_ID": "@changed"}},
+        )
+        self.assertEqual(status, 403)
+        status, body = self.request(
+            "PUT",
+            "/api/platforms/bale",
+            {"values": {"CONTENT_BALE_CHAT_ID": "@changed"}},
+            headers={"X-Panel-Csrf": "1"},
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertEqual(payload["changed"], ["CONTENT_BALE_CHAT_ID"])
+        self.assertIn("Apply changes", payload["restart_hint"])
+        self.assertIn(
+            "CONTENT_BALE_CHAT_ID=@changed",
+            (self.root / ".env").read_text(encoding="utf-8"),
+        )
+
+    def test_saving_an_unknown_platform_field_is_rejected(self):
+        self.login()
+        status, body = self.request(
+            "PUT",
+            "/api/platforms/bale",
+            {"values": {"CONTENT_BOT_TOKEN": "x"}},
+            headers={"X-Panel-Csrf": "1"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("not a field", body)
+
+    def test_the_test_endpoint_answers_with_the_provider_result(self):
+        self.login()
+        payload = '{"ok": true, "result": {"username": "locallab_bot"}}'
+        with mock.patch("panel.platforms._fetch", return_value=(200, payload, "")):
+            status, body = self.request(
+                "POST",
+                "/api/platforms/bale/test",
+                {"values": {}},
+                headers={"X-Panel-Csrf": "1"},
+            )
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertTrue(result["ok"])
+        self.assertIn("locallab_bot", result["detail"])
+
+
 class PanelStorageApiTest(unittest.TestCase):
     def setUp(self):
         self.root = make_root()
@@ -1016,7 +1298,7 @@ class StaticAssetTest(unittest.TestCase):
         self.assertIn("/static/app.js", index)
         self.assertIn("/static/style.css", index)
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram", "/api/storage", "/api/backups"):
+        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram", "/api/storage", "/api/backups", "/api/platforms"):
             self.assertIn(endpoint, script)
         self.assertIn("X-Panel-Csrf", script)
 

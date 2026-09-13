@@ -76,6 +76,21 @@ docker compose --profile panel up -d panel
   default in `content/config/` with **Create from shipped default**.
 - **Environment** - the `.env` keys with secret values masked. Editing a key
   rewrites that line only and asks for **Apply changes** afterwards.
+- **Platforms** - one card per publishing platform (Telegram, Bale, Eitaa,
+  Instagram, the AI writer, Media Studio, the platform chooser, and the
+  package-only YouTube/Aparat/LinkedIn entries) with the keys that platform
+  needs: bot tokens, channel or business ids, and the API **base URL** each
+  client dials. A card shows its state at a glance (`ready`, `incomplete`,
+  `not configured`, `package handover`, or `on`/`off` for the chooser switch),
+  marks the fields that are required before it can publish, and keeps stored
+  secrets masked - the browser never receives a token, only whether one is
+  set. **Save** writes only the edited lines of `.env` through the same
+  line-preserving editor as the Environment view, **Test connection** asks the
+  provider with the value currently in the form (so a token can be checked
+  before it is saved), and **Apply changes** recreates the containers so
+  `content-bot` reads the new values. Tests cover `getMe` for Telegram, Bale,
+  and Eitaa, the Instagram Graph node lookup, `/v1/models` (with a `/health`
+  fallback) for the writer, and `/healthz` for Media Studio.
 - **Logs** - `docker compose logs` tails per service with an optional
   auto-refresh.
 - **Object storage** - the shared S3 block every consumer reads:

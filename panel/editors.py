@@ -403,6 +403,22 @@ class EnvStore:
         rows.sort(key=lambda item: item["key"])
         return rows
 
+    def value(self, key: str, default: str = "") -> str:
+        """Return one raw value without exposing it as a table row."""
+        text = self._read()
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            found, value = stripped.split("=", 1)
+            if found.strip() == str(key or ""):
+                return _unquote(value.strip())
+        return default
+
+    def is_secret(self, key: str) -> bool:
+        """True when the key name marks the value as a credential."""
+        return bool(SECRET_KEY_RE.search(str(key or "")))
+
     def set(self, key: str, value) -> dict:
         key = str(key or "").strip()
         if not ENV_KEY_RE.match(key):

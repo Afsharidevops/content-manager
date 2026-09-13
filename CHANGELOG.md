@@ -5,6 +5,26 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — Platforms view in the operator console (2026-09-13)
+
+- The console gained a **Platforms** section: one card per publishing platform
+  (Telegram, Bale, Eitaa, Instagram, the AI writer, Media Studio, the platform
+  chooser, and the package-only YouTube/Aparat/LinkedIn entries). Each card
+  lists the bot token, the channel or business id, and the API **base URL**
+  that client dials, marks the required fields, and reports the platform state
+  (`ready`, `incomplete`, `not configured`, `package handover`, or `on`/`off`
+  for the chooser switch) without ever returning a stored secret to the
+  browser.
+- **Test connection** asks the provider with the values currently in the form,
+  so a token can be validated before it is saved: `getMe` for Telegram, Bale,
+  and Eitaa, the Graph node lookup for Instagram, `/v1/models` with a
+  `/health` fallback for the writer, and `/healthz` for Media Studio. **Save**
+  writes only the edited `.env` lines through the line-preserving editor, and
+  **Apply changes** recreates the containers so `content-bot` reads them.
+- `panel/platforms.py` holds the registry, the validation, and the tests;
+  `EnvStore` gained `value()`/`is_secret()` for single-key reads. Panel tests
+  grew from 73 to 93.
+
 ### Features — manage.sh channel setup for Bale and Eitaa (2026-09-13)
 
 - `./manage.sh content-connect-bale` and `./manage.sh content-connect-eitaa`

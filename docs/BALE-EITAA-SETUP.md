@@ -69,6 +69,10 @@ the values by recreating `content-bot` afterwards. Use `--no-apply` to write
 the values without touching the containers, or run the command with no flags
 to be prompted.
 
+The same token, channel id, and API base URL can be edited in the operator
+console: **Platforms -> Bale/Eitaa**, then **Test connection** and **Apply
+changes**. `docs/PANEL.md` describes that view.
+
 The same values can be written by hand:
 
 ```bash

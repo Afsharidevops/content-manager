@@ -41,6 +41,7 @@ from panel.drafts import (
     results as draft_results,
 )
 from panel.editors import ConfigStore, EditError, EnvStore
+from panel.platforms import PlatformStore
 from panel.stack import CommandError, StackView
 
 SESSION_COOKIE = "panel_session"
@@ -81,6 +82,7 @@ class PanelApp:
         self.stack = StackView(self.root)
         self.config = ConfigStore(self.root)
         self.env = EnvStore(self.root)
+        self.platforms = PlatformStore(self.root, self.env)
         self.actions = ActionRunner(self.root, enabled=self.actions_enabled)
         self.started_at = time.time()
 
@@ -529,6 +531,24 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._read_body()
             request_instagram_refresh(self.app.root)
             self._send_json(HTTPStatus.OK, {"queued": True})
+            return
+        if method == "GET" and parts == ["platforms"]:
+            self._send_json(HTTPStatus.OK, self.app.platforms.view())
+            return
+        if len(parts) == 2 and parts[0] == "platforms" and method == "PUT":
+            self._require_csrf()
+            body = self._read_body()
+            result = self.app.platforms.update(parts[1], body.get("values") or {})
+            result["restart_hint"] = (
+                f"Saved to .env. Run Apply changes (docker compose up -d) so "
+                f"{result.get('service') or 'the containers'} reads the new values."
+            )
+            self._send_json(HTTPStatus.OK, result)
+            return
+        if len(parts) == 3 and parts[0] == "platforms" and parts[2] == "test" and method == "POST":
+            self._require_csrf()
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.platforms.test(parts[1], body.get("values") or {}))
             return
         if method == "GET" and parts == ["env"]:
             self._send_json(HTTPStatus.OK, {"entries": self.app.env.entries()})

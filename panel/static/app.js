@@ -4,6 +4,7 @@
 const VIEWS = [
   { id: "overview", label: "Overview", title: "Stack status", hint: "Containers, disk, published ports and the content pipeline at a glance." },
   { id: "state", label: "Pipeline state", title: "Pipeline state", hint: "Draft counters, scheduled routines and the most recent drafts." },
+  { id: "platforms", label: "Platforms", title: "Publishing platforms", hint: "Tokens, ids and API base URLs per channel. Secrets stay masked; every save is written to .env." },
   { id: "config", label: "Configuration", title: "Configuration files", hint: "Validated YAML/JSON editors with automatic backups before every save." },
   { id: "env", label: "Environment", title: "Environment (.env)", hint: "Secret values stay masked; edited keys apply after Apply changes." },
   { id: "storage", label: "Storage", title: "Object storage (S3)", hint: "Shared S3 block, RustFS state and the per-service storage matrix." },
@@ -155,6 +156,7 @@ async function loadView() {
   try {
     if (currentView === "overview") await renderOverview();
     else if (currentView === "state") await renderState();
+    else if (currentView === "platforms") await renderPlatforms();
     else if (currentView === "config") await renderConfig();
     else if (currentView === "env") await renderEnv();
     else if (currentView === "storage") await renderStorage();
@@ -617,6 +619,174 @@ async function renderEnv() {
     ),
   );
   paint();
+}
+
+/* -------------------------------------------------------------- platforms */
+
+const PLATFORM_STATES = {
+  ready: ["ok", "ready"],
+  partial: ["warn", "incomplete"],
+  empty: ["warn", "not configured"],
+  package: ["", "package handover"],
+  on: ["ok", "on"],
+  off: ["warn", "off"],
+};
+
+function platformStateChip(state, mode) {
+  const [kind, text] = PLATFORM_STATES[state] || ["", state || "unknown"];
+  const chip = h("span", { class: "chip" + (kind ? " " + kind : ""), text });
+  if (mode === "auto" && state === "ready") chip.title = "Publishes right away when picked on a draft";
+  if (mode === "package") chip.title = "Hands over a copy-ready package instead of publishing";
+  return chip;
+}
+
+function platformCard(platform, replaceCard) {
+  const inputs = new Map();
+  const dirty = new Set();
+  const result = h("div", { class: "small muted" });
+
+  const rows = (platform.fields || []).map((field) => {
+    const input = h("input", {
+      type: field.secret ? "password" : "text",
+      autocomplete: "off",
+      spellcheck: "false",
+      placeholder: field.secret
+        ? (field.set ? "stored - type to replace" : "not set")
+        : field.placeholder || "",
+      oninput: () => {
+        dirty.add(field.key);
+      },
+    });
+    if (!field.secret && field.value) input.value = field.value;
+    inputs.set(field.key, input);
+    return h(
+      "label",
+      { class: "pfield" },
+      h(
+        "div",
+        { class: "pfield-head" },
+        h("span", { class: "pfield-label", text: field.label }),
+        field.required ? h("span", { class: "chip warn", text: "needed" }) : null,
+        field.secret && field.set ? h("span", { class: "chip", text: "stored" }) : null,
+      ),
+      input,
+      field.help ? h("div", { class: "muted small", text: field.help }) : null,
+      h("code", { class: "pkey", text: field.key }),
+    );
+  });
+
+  function collect(all) {
+    const values = {};
+    for (const [key, input] of inputs) {
+      if (!all && !dirty.has(key)) continue;
+      values[key] = input.value;
+    }
+    return values;
+  }
+
+  async function save() {
+    const values = collect(false);
+    if (!Object.keys(values).length) {
+      notify(`${platform.label}: nothing changed.`);
+      return;
+    }
+    try {
+      const payload = await api(`/api/platforms/${encodeURIComponent(platform.key)}`, {
+        method: "PUT",
+        body: { values },
+      });
+      notify(`${platform.label}: saved ${payload.changed.length} value(s). ${payload.restart_hint || ""}`);
+      replaceCard(payload.platform);
+    } catch (error) {
+      notify(String(error.message), "error");
+    }
+  }
+
+  async function check() {
+    result.className = "small muted";
+    result.textContent = "Checking the credential...";
+    try {
+      const payload = await api(`/api/platforms/${encodeURIComponent(platform.key)}/test`, {
+        method: "POST",
+        body: { values: collect(true) },
+      });
+      result.className = "small " + (payload.ok ? "oktext" : "error");
+      result.textContent = `${payload.ok ? "OK" : "Failed"}: ${payload.detail}`;
+    } catch (error) {
+      result.className = "small error";
+      result.textContent = String(error.message);
+    }
+  }
+
+  return h(
+    "section",
+    { class: "card platform" },
+    h(
+      "div",
+      { class: "spread" },
+      h("div", null,
+        h("h3", { text: platform.label }),
+        h("div", { class: "muted small", text: platform.summary })),
+      h("div", { class: "row" }, platformStateChip(platform.state, platform.mode), h("span", { class: "chip", text: platform.mode })),
+    ),
+    rows.length ? h("div", { class: "pfields" }, ...rows) : null,
+    h(
+      "div",
+      { class: "row actions" },
+      rows.length ? h("button", { class: "btn primary small", type: "button", text: "Save", onclick: save }) : null,
+      platform.test ? h("button", { class: "btn small", type: "button", text: "Test connection", onclick: check }) : null,
+      platform.docs ? h("code", { class: "pkey", text: platform.docs }) : null,
+    ),
+    result,
+  );
+}
+
+async function renderPlatforms() {
+  const payload = await api("/api/platforms");
+  const wrap = h("div", { class: "grid platform-grid" });
+  const applyNote = h("div", { class: "muted small" });
+
+  function paint(platforms) {
+    wrap.replaceChildren(
+      ...platforms.map((platform, index) =>
+        platformCard(platform, (updated) => {
+          const next = platforms.slice();
+          next[index] = updated;
+          paint(next);
+        }),
+      ),
+    );
+  }
+  paint(payload.platforms || []);
+
+  async function applyChanges(event) {
+    const button = event.currentTarget;
+    button.disabled = true;
+    applyNote.textContent = "Applying: docker compose up -d ...";
+    try {
+      const result = await api("/api/actions/stack-up", { method: "POST", body: {} });
+      applyNote.textContent = `${result.label}: ${result.ok ? "ok" : "failed"} (exit ${result.returncode}).`;
+      notify(`${result.label}: ${result.ok ? "ok" : "failed"}`, result.ok ? "" : "error");
+    } catch (error) {
+      applyNote.textContent = String(error.message);
+      notify(String(error.message), "error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  page.replaceChildren(
+    card(
+      "Platforms",
+      h("div", { class: "muted small" },
+        "Secrets are never sent back to the browser: a stored token shows as masked. Saving writes .env, then Apply changes recreates the containers so content-bot reads the new values. Test connection runs from the panel and only reports whether the provider accepted the credential."),
+      h("div", { class: "row actions" },
+        h("button", { class: "btn primary", type: "button", text: "Apply changes", onclick: applyChanges }),
+      ),
+      applyNote,
+    ),
+    wrap,
+  );
 }
 
 async function renderLogs() {
