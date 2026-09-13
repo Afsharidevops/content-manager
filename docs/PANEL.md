@@ -57,6 +57,11 @@ With the profile enabled, the same result through Compose is:
 docker compose --profile panel up -d panel
 ```
 
+The Compose **service** is `panel`; `content-panel` is only the container name.
+Commands that take a service - `docker compose pull panel`,
+`docker compose restart panel` - therefore use `panel`, and the profile flag is
+needed when `COMPOSE_PROFILES` does not already include it.
+
 ## What the console shows
 
 - **Overview** - containers, health, image tags, published host ports, disk
