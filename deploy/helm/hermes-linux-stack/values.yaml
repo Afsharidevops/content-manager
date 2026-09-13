@@ -3,7 +3,7 @@ replicaCount: 2
 
 image:
   repository: afsharidevops/hermes-smart-router
-  tag: "0.5.9"
+  tag: "0.6.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -231,6 +231,13 @@ router:
   fastModel: combo-fast
   standardModel: combo-standard
   strongModel: combo-strong
+  orchestrator:
+    # auto: the planner flag, dangerous command patterns and unregistered or
+    # high-risk tools require an approve/reject decision. always: every step
+    # waits for a decision. never: no approval gate, trusted lab deployments only.
+    approvalMode: auto
+    plannerTier: standard
+    reviewerTier: strong
 
 secrets:
   # Create this Secret before install. Required keys:

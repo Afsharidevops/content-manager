@@ -45,6 +45,9 @@ spec:
             - {name: SMART_ROUTER_FAST_MODEL, value: {{ .Values.router.fastModel | quote }}}
             - {name: SMART_ROUTER_STANDARD_MODEL, value: {{ .Values.router.standardModel | quote }}}
             - {name: SMART_ROUTER_STRONG_MODEL, value: {{ .Values.router.strongModel | quote }}}
+            - {name: SMART_ROUTER_ORCHESTRATOR_APPROVAL_MODE, value: {{ .Values.router.orchestrator.approvalMode | quote }}}
+            - {name: SMART_ROUTER_ORCHESTRATOR_PLANNER_TIER, value: {{ .Values.router.orchestrator.plannerTier | quote }}}
+            - {name: SMART_ROUTER_ORCHESTRATOR_REVIEWER_TIER, value: {{ .Values.router.orchestrator.reviewerTier | quote }}}
             - {name: SMART_ROUTER_HA_MODE, value: "true"}
             - {name: SMART_ROUTER_STICKY_BACKEND, value: {{ .Values.router.stickyBackend | quote }}}
             - name: SMART_ROUTER_HMAC_SECRET

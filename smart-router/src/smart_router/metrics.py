@@ -25,3 +25,5 @@ PROVIDER_FALLBACKS = Counter("smart_router_provider_fallbacks_total", "Fallbacks
 ACL_DENIES = Counter("smart_router_acl_denies_total", "Fine-grained ACL denials", ["resource_type", "permission"])
 SSO_LOGINS = Counter("smart_router_sso_logins_total", "SSO login attempts", ["provider", "status"])
 REDIS_READINESS = Gauge("smart_router_redis_readiness", "Redis shared-state readiness")
+ORCHESTRATION_RUNS = Counter("smart_router_orchestration_runs_total", "Multi-agent orchestration runs", ["status"])
+ORCHESTRATION_STEPS = Counter("smart_router_orchestration_steps_total", "Multi-agent orchestration steps", ["status"])

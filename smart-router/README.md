@@ -214,3 +214,21 @@ Use the current Operations Center guide and release notes for supported behavior
 ## v0.5.1 control plane
 
 v0.5.1 adds dynamic `fast`/`standard`/`strong`/`coding`/`vision` profiles, the `/control/` operations panel, RBAC, virtual keys and quotas, scoped budgets, policies, knowledge/RAG, persistent memory, agents and teams, plugin registry, audit telemetry, PostgreSQL-ready shared state and a v0.5.1 benchmark reporter. See `../docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md` for the current control-plane/operator guide.
+
+## v0.6.0 multi-agent orchestration
+
+v0.6.0 adds the **Orchestrator** to the Operations Center. One operator task becomes a validated machine-readable plan: the planner decomposes the work and assigns each step to an active agent, the supervisor executes the steps in order and carries earlier results forward, a sensitive step pauses the run for an approve/reject decision, and a reviewer pass stores a verdict with an optional rollback suggestion. The planner reuses recent completed runs as history, runs and steps persist in `v60_agent_runs` and `v60_agent_run_steps`, and the console follows the Content Console design language. See `../docs/ORCHESTRATION.md` and `V0.6.0-RELEASE-NOTES.md`.
+
+The console itself adopts the Content Console design language - the LocalLab
+palette, gradient accents, glass surfaces, and the LocalLab mark on the login
+and sidebar brand:
+
+| Operations Center | Orchestrator |
+| --- | --- |
+| [![Operations Center overview](../docs-site/assets/smart-router-console-v0.6.0.png)](../docs-site/assets/smart-router-console-v0.6.0.png) | [![Orchestrator runs](../docs-site/assets/smart-router-orchestrator-v0.6.0.png)](../docs-site/assets/smart-router-orchestrator-v0.6.0.png) |
+| Routing posture, measured cost, provider health, and recent routes. | One row per run with its goal, step progress, review status, and the Approve/Reject actions. |
+
+| Approval gate | Reviewer verdict |
+| --- | --- |
+| [![Run waiting for approval](../docs-site/assets/smart-router-run-approval-v0.6.0.png)](../docs-site/assets/smart-router-run-approval-v0.6.0.png) | [![Reviewer verdict](../docs-site/assets/smart-router-run-review-v0.6.0.png)](../docs-site/assets/smart-router-run-review-v0.6.0.png) |
+| A sensitive step stops the run with its agent, declared tools, and attempt count visible before you approve or reject it. | After the last step the reviewer records success, failure, or uncertainty with findings and a rollback suggestion. |

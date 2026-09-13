@@ -5,6 +5,36 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — Multi-agent Orchestrator and the LocalLab router console (2026-09-14)
+
+- The Operations Center gained an **Orchestrator** page and the matching
+  `/api/orchestrations` API. A planner turns one operator task into a validated
+  machine-readable plan, the supervisor executes the steps through the
+  registered agents, a sensitive step pauses the run in `awaiting_approval`
+  until an operator approves or rejects it, and a reviewer pass records a
+  verdict with an optional rollback suggestion. The planner reuses the recent
+  completed runs as history, so repeating a task stays consistent with what was
+  done before. Runs and steps persist in the existing Operations DB
+  (`v60_agent_runs`, `v60_agent_run_steps`); the compatibility filename
+  `control-v0.5.2.sqlite3` is unchanged and the in-place schema marker moves to
+  `0.6.0`.
+- Approval gating is deterministic: the planner flag, a dangerous-operation
+  pattern (`kubectl delete`/`drain`, `terraform destroy`/`apply`, `iptables`,
+  `DROP TABLE`/`DATABASE`, `TRUNCATE`, `docker rm`/`rmi`/`volume rm`/`system prune`,
+  `systemctl stop`/`disable`/`mask`, `mkfs`, `dd if=`, `chmod 777`, `fdisk`,
+  `userdel`, `kill -9`, `git push --force`, `DELETE FROM`, `shutdown`/`reboot`),
+  or a step tool that is registered as high risk or missing from the plugin
+  registry. Tool names stay declarative: the run record and the audit log show
+  the intent, and execution remains with the Execution Broker.
+- `SMART_ROUTER_ORCHESTRATOR_APPROVAL_MODE` (`auto`), `SMART_ROUTER_ORCHESTRATOR_PLANNER_TIER`
+  (`standard`), and `SMART_ROUTER_ORCHESTRATOR_REVIEWER_TIER` (`strong`) control
+  the flow in `.env` and in `deploy/helm/hermes-linux-stack`. See
+  [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md).
+- The Smart Router Operations Center now shares the Content Console design
+  language: the LocalLab gradient palette, glass surfaces, gradient accents,
+  and the LocalLab mark on the login and sidebar brand.
+- Smart Router release: `afsharidevops/hermes-smart-router:0.6.0`.
+
 ### Features — Public service links in the operator console (2026-09-13)
 
 - The console **Overview -> Endpoints** card now links every publishable

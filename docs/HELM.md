@@ -163,7 +163,7 @@ Notes for the Kubernetes deployment:
 | Value | Default | Purpose |
 | --- | --- | --- |
 | `replicaCount` | `2` | Smart Router replicas |
-| `image`, `imagePullSecrets` | `afsharidevops/hermes-smart-router:0.5.9` | Router image |
+| `image`, `imagePullSecrets` | `afsharidevops/hermes-smart-router:0.6.0` | Router image |
 | `upstream.baseUrl`, `upstream.healthUrl` | empty | Explicit upstream; empty derives from `upstreamServer` |
 | `upstreamServer.enabled`, `upstreamServer.backend` | `false`, `9router` | Deploy an in-cluster gateway |
 | `components.contentBot.*` | disabled | Bot image, PVC size, `existingSecret`, `policyConfigMap`, `env` |

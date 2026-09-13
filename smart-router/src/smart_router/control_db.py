@@ -305,6 +305,49 @@ class AgentGraph(Base):
     updated_at: Mapped[str] = mapped_column(String(40), default=utcnow)
 
 
+class AgentRun(Base):
+    __tablename__ = "v60_agent_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    actor: Mapped[str] = mapped_column(String(160), default="", index=True)
+    role: Mapped[str] = mapped_column(String(40), default="")
+    team: Mapped[str] = mapped_column(String(120), default="default")
+    goal: Mapped[str] = mapped_column(Text, default="")
+    task: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="planned", index=True)
+    approval_mode: Mapped[str] = mapped_column(String(20), default="auto")
+    planner_agent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    planner_profile: Mapped[str] = mapped_column(String(30), default="")
+    reviewer_profile: Mapped[str] = mapped_column(String(30), default="")
+    plan_json: Mapped[str] = mapped_column(Text, default="{}")
+    input_json: Mapped[str] = mapped_column(Text, default="{}")
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+    updated_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+
+
+class AgentRunStep(Base):
+    __tablename__ = "v60_agent_run_steps"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(Integer, index=True)
+    idx: Mapped[int] = mapped_column(Integer, default=0)
+    agent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    agent_name: Mapped[str] = mapped_column(String(160), default="")
+    title: Mapped[str] = mapped_column(String(400), default="")
+    action: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    approval_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    approval_reason: Mapped[str] = mapped_column(Text, default="")
+    approved_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=2)
+    tools_json: Mapped[str] = mapped_column(Text, default="[]")
+    output: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    finished_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
 class Team(Base):
     __tablename__ = "v51_agent_teams"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -446,9 +489,9 @@ class ControlDB:
         with Session(self.engine) as session:
             row = session.get(SchemaVersion, "smart-router-control")
             if row is None:
-                session.add(SchemaVersion(component="smart-router-control", version="0.5.9"))
+                session.add(SchemaVersion(component="smart-router-control", version="0.6.0"))
             else:
-                row.version = "0.5.9"
+                row.version = "0.6.0"
                 row.updated_at = utcnow()
             session.commit()
 

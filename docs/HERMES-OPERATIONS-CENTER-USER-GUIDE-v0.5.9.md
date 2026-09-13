@@ -5,7 +5,7 @@
 v0.5.9 groups the Operations Center around operator intent:
 
 - **Observe** — overview, traces, provider health, audit.
-- **Build** — workflows, agents, knowledge pipelines, knowledge, memory, teams, prompts, evaluations, publish/monitor.
+- **Build** — workflows, agents, knowledge pipelines, knowledge, memory, teams, orchestration, prompts, evaluations, publish/monitor.
 - **Tools** — skills, plugins, marketplace.
 - **Routing** — routes, router pipelines, providers, model catalog, policies, guardrails, budgets.
 - **Access** — users/keys, groups, ACLs, identity.
@@ -20,6 +20,23 @@ v0.5.9 groups the Operations Center around operator intent:
 **Router Pipeline Studio** presents validated routing stages as a visible lane. Stage JSON is still available in the inspector for precise configuration.
 
 **Knowledge Pipeline Studio** stores reusable ingestion/indexing graph definitions including data source, extract, transform, chunk, embedding, index, Knowledge base, Q&A, and output nodes. It does not silently ingest external content or execute untrusted code merely by browsing/editing the graph.
+
+## Orchestrator
+
+**Orchestrator** (Build group) supervises one task across several agents. Enter
+the task, optionally restrict the agents it may use, then create the run: the
+planner returns a machine-readable plan, the supervisor executes the steps in
+order, and a reviewer pass stores a verdict with an optional rollback
+suggestion. Each step shows its agent, action, declared tools, attempt count,
+and output.
+
+A step whose planner flag, text, or declared tool is sensitive stops the run in
+`awaiting_approval`. Approve resumes from that step; Reject marks it rejected
+and skips the rest. The planner reads the recent completed runs as history, so
+repeating a task stays consistent with earlier decisions. Tool names are
+declarative metadata for the plan and the audit trail; they are not executed by
+the router. See `docs/ORCHESTRATION.md` for the API and the full approval
+policy.
 
 ## Execution & Approvals connection
 
@@ -41,7 +58,7 @@ Light mode now uses dedicated semantic surfaces, text, borders, inputs, tables, 
 
 ## Upgrade note
 
-The control schema advances in place to `0.5.9`; the compatibility SQLite filename may remain `control-v0.5.2.sqlite3`. Back up and preserve `data/smart-router/` and `data/stack-secrets/` during normal upgrades.
+The control schema advances in place to `0.6.0` (v0.5.9 before the Orchestrator release); the compatibility SQLite filename may remain `control-v0.5.2.sqlite3`. Back up and preserve `data/smart-router/` and `data/stack-secrets/` during normal upgrades.
 
 ## Execution Admin network layout
 

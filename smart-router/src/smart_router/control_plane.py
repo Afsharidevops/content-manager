@@ -64,6 +64,7 @@ from .policy_v51 import PolicyEngine, TIER_ORDER
 from .security_v51 import Identity, ROLE_PERMISSIONS, SecurityManager, bearer
 from .guardrails_v56 import GuardrailEngine
 from .graph_v59 import normalize_graph, router_graph_plan
+from . import orchestrator_v60
 
 
 @dataclass
@@ -492,6 +493,12 @@ class ControlPlane:
             Route("/api/teams", self.teams_api, methods=["GET", "POST"]),
             Route("/api/teams/{team_id:int}", self.team_api, methods=["PUT", "DELETE"]),
             Route("/api/teams/{team_id:int}/run", self.team_run_api, methods=["POST"]),
+            Route("/api/orchestrations", self.orchestrations_api, methods=["GET", "POST"]),
+            Route("/api/orchestrations/plan", self.orchestration_plan_api, methods=["POST"]),
+            Route("/api/orchestrations/{run_id:int}", self.orchestration_api, methods=["GET", "DELETE"]),
+            Route("/api/orchestrations/{run_id:int}/execute", self.orchestration_execute_api, methods=["POST"]),
+            Route("/api/orchestrations/{run_id:int}/approve", self.orchestration_approve_api, methods=["POST"]),
+            Route("/api/orchestrations/{run_id:int}/reject", self.orchestration_reject_api, methods=["POST"]),
             Route("/api/plugins", self.plugins_api, methods=["GET", "POST"]),
             Route("/api/plugins/catalog", self.plugin_catalog_api, methods=["GET"]),
             Route("/api/plugins/install", self.plugin_install_api, methods=["POST"]),
@@ -1104,6 +1111,95 @@ class ControlPlane:
         if isinstance(result, Response): return result
         self.db.audit(identity.actor, identity.role, "agent.run", str(request.path_params["agent_id"]))
         return JSONResponse(result)
+
+    async def orchestrations_api(self, request: Request) -> Response:
+        identity = self._admin_identity(request, "agents.run" if request.method == "POST" else "panel.read")
+        if isinstance(identity, Response): return identity
+        if request.method == "POST":
+            d = await _json(request)
+            try:
+                snapshot = await orchestrator_v60.create_run(
+                    self,
+                    identity,
+                    task=str(d.get("task", "")),
+                    agent_ids=_int_list(d.get("agent_ids")),
+                    planner_agent_id=_optional_int(d.get("planner_agent_id")),
+                    max_steps=d.get("max_steps"),
+                    approval_mode=str(d.get("approval_mode", "") or ""),
+                    planner_profile=str(d.get("planner_profile", "") or ""),
+                    include_history=bool(d.get("include_history", True)),
+                    auto_execute=bool(d.get("auto_execute", True)),
+                )
+            except orchestrator_v60.OrchestratorError as exc:
+                return _error(exc.message, exc.code, exc.status, exc.details)
+            return JSONResponse(snapshot, status_code=201)
+        limit = int(request.query_params.get("limit", "100") or 100)
+        status = str(request.query_params.get("status", "") or "")
+        return JSONResponse(orchestrator_v60.list_runs(self, limit=limit, status=status))
+
+    async def orchestration_plan_api(self, request: Request) -> Response:
+        identity = self._admin_identity(request, "agents.run")
+        if isinstance(identity, Response): return identity
+        d = await _json(request)
+        try:
+            plan = await orchestrator_v60.build_plan(
+                self,
+                task=str(d.get("task", "")),
+                agent_ids=_int_list(d.get("agent_ids")),
+                planner_agent_id=_optional_int(d.get("planner_agent_id")),
+                max_steps=d.get("max_steps"),
+                planner_profile=str(d.get("planner_profile", "") or ""),
+                include_history=bool(d.get("include_history", True)),
+            )
+        except orchestrator_v60.OrchestratorError as exc:
+            return _error(exc.message, exc.code, exc.status, exc.details)
+        self.db.audit(identity.actor, identity.role, "orchestration.plan", detail={"goal": plan.get("goal", ""), "steps": len(plan.get("steps", []))})
+        return JSONResponse(plan)
+
+    async def orchestration_api(self, request: Request) -> Response:
+        run_id = int(request.path_params["run_id"])
+        if request.method == "DELETE":
+            identity = self._admin_identity(request, "agents.manage")
+            if isinstance(identity, Response): return identity
+            try:
+                orchestrator_v60.delete_run(self, run_id)
+            except orchestrator_v60.OrchestratorError as exc:
+                return _error(exc.message, exc.code, exc.status, exc.details)
+            self.db.audit(identity.actor, identity.role, "orchestration.delete", str(run_id))
+            return JSONResponse({"ok": True})
+        identity = self._admin_identity(request, "panel.read")
+        if isinstance(identity, Response): return identity
+        try:
+            return JSONResponse(orchestrator_v60.snapshot(self, run_id))
+        except orchestrator_v60.OrchestratorError as exc:
+            return _error(exc.message, exc.code, exc.status, exc.details)
+
+    async def orchestration_execute_api(self, request: Request) -> Response:
+        identity = self._admin_identity(request, "agents.run")
+        if isinstance(identity, Response): return identity
+        run_id = int(request.path_params["run_id"])
+        try:
+            snapshot = await orchestrator_v60.advance(self, run_id)
+        except orchestrator_v60.OrchestratorError as exc:
+            return _error(exc.message, exc.code, exc.status, exc.details)
+        self.db.audit(identity.actor, identity.role, "orchestration.execute", str(run_id), detail={"status": snapshot.get("status", "")})
+        return JSONResponse(snapshot)
+
+    async def orchestration_approve_api(self, request: Request) -> Response:
+        return await self._orchestration_decision(request, approve=True)
+
+    async def orchestration_reject_api(self, request: Request) -> Response:
+        return await self._orchestration_decision(request, approve=False)
+
+    async def _orchestration_decision(self, request: Request, *, approve: bool) -> Response:
+        identity = self._admin_identity(request, "agents.run")
+        if isinstance(identity, Response): return identity
+        run_id = int(request.path_params["run_id"])
+        try:
+            snapshot = await orchestrator_v60.decide(self, identity, run_id, approve=approve)
+        except orchestrator_v60.OrchestratorError as exc:
+            return _error(exc.message, exc.code, exc.status, exc.details)
+        return JSONResponse(snapshot)
 
     async def teams_api(self, request: Request) -> Response:
         identity = self._admin_identity(request, "agents.manage" if request.method == "POST" else "panel.read")
@@ -2229,6 +2325,25 @@ def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None: return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _int_list(value: Any) -> list[int]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    items: list[int] = []
+    for item in value:
+        try:
+            items.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return items
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 async def _json(request: Request) -> dict[str, Any]:

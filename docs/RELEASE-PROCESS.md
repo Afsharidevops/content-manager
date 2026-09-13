@@ -32,7 +32,7 @@ Do not bump `VERSION`, Smart Router package/image versions, or Execution Broker 
 Current release state:
 
 - stack/runtime release: `v0.5.9`
-- Smart Router image: `afsharidevops/hermes-smart-router:0.5.9`
+- Smart Router image: `afsharidevops/hermes-smart-router:0.6.0`
 - Smart Router mutable current tag: `afsharidevops/hermes-smart-router:latest`
 - Execution Broker image: `afsharidevops/hermes-execution-broker:0.1.3`
 

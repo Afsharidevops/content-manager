@@ -35,8 +35,8 @@ def _headers():
 
 def test_control_schema_upgrades_in_place(tmp_path):
     db = ControlDB(f"sqlite:///{tmp_path/'control-v0.5.2.sqlite3'}")
-    assert db.schema_version() == "0.5.9"
-    # v0.5.5, v0.5.8, and v0.5.9 tables are created without changing the compatibility filename.
+    assert db.schema_version() == "0.6.0"
+    # v0.5.5, v0.5.8, v0.5.9, and v0.6.0 tables are created without changing the compatibility filename.
     tables = set(db.engine.dialect.get_table_names(db.engine.connect()))
     assert {"v55_runtime_settings", "v55_access_groups", "v55_skills", "v55_agent_skills", "v56_request_traces", "v56_knowledge_embeddings", "v58_knowledge_pipelines"} <= tables
 

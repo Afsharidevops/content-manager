@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Content Bot: 0.3.0   Media Studio: 0.3.0   Panel: 0.3.0
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.0   Content Bot: 0.3.0   Media Studio: 0.3.0   Panel: 0.3.0
 ```
 
 ## Screenshots
@@ -125,7 +125,7 @@ The pipeline has four cooperating parts:
 
 ```text
 Hermes Agent / Open WebUI / n8n ─┐
-Content Bot (writer calls) ──────┼──► Smart Router v0.5.9 ──► 9router/OmniRoute ──► Providers
+Content Bot (writer calls) ──────┼──► Smart Router v0.6.0 ──► 9router/OmniRoute ──► Providers
 Telegram polling (Hermes + bot) ─┘
 ```
 
@@ -272,7 +272,7 @@ Servers pull it; they never build it. To move a server to the newest build, set
 | --- | --- | --- |
 | 9router | Provider/model gateway with API keys (profile `9router`) | `127.0.0.1:20128` |
 | OmniRoute | Dashboard + OpenAI-compatible API (profile `omniroute`) | `127.0.0.1:20128` / `20129` |
-| Hermes Smart Router | Capability routing, aliases, dashboard | `127.0.0.1:8787` |
+| Hermes Smart Router | Capability routing, aliases, dashboard, multi-agent Orchestrator | `127.0.0.1:8787` |
 | Hermes Agent | Telegram/agent runtime, dashboard/API | `127.0.0.1:9119` / `8642` |
 | Open WebUI | Chat UI | `127.0.0.1:3000` |
 | n8n (optional) | Workflow automation + MCP | `127.0.0.1:5678` |
@@ -335,6 +335,7 @@ bash tests/test-manage-ux.sh
 - [Object storage](docs/S3-STORAGE.md) - bundled RustFS or an external S3 endpoint for stack services
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing
 - [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
+- [Multi-agent orchestration](docs/ORCHESTRATION.md) - plan, approve/reject, review
 - [Operations](docs/OPERATIONS.md) and [release process](docs/RELEASE-PROCESS.md)
 - [Changelog](CHANGELOG.md)
 
