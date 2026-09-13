@@ -318,6 +318,7 @@ publishes the draft immediately or hands over a copy-ready package, depending
 on what the platform supports:
 
 - **Automatic channels** publish the draft the moment you pick them, exactly
+  (setup: `docs/BALE-EITAA-SETUP.md`)
   like Telegram. `Bale` speaks the Telegram Bot API
   (`CONTENT_BALE_TOKEN` + `CONTENT_BALE_CHAT_ID`), and `Eitaa` goes through the
   EitaaYar gateway (`CONTENT_EITAA_TOKEN` + `CONTENT_EITAA_CHAT_ID`). Each

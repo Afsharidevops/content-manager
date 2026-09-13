@@ -72,7 +72,8 @@ check object storage, and take backups. The captures use demonstration data.
 | --- | --- |
 | Telegram | Live: link/topic drafts, daily proposals, image/video attach, Approve/Reject, channel publish |
 | Instagram | Official Meta Graph API: photos, carousels, and video via approve buttons; see `docs/INSTAGRAM-SETUP.md` |
-| Aparat / YouTube | Planned: not implemented yet |
+| Bale / Eitaa | Automatic publish through their bot APIs from the draft preview; see `docs/BALE-EITAA-SETUP.md` |
+| Aparat / YouTube / LinkedIn | Copy-ready upload packages handed over from the same preview |
 | Media assets | Optional: `media-studio` worker (API images now; Google Flow/Gemini via browser session) |
 
 ## Architecture
@@ -329,6 +330,7 @@ bash tests/test-manage-ux.sh
 - [Content layer](content/README.md) - package layout, policy schema, scoring
 - [Content production guide](docs/CONTENT-PRODUCTION-GUIDE.md) - bot flows and operations
 - [Instagram/Meta setup](docs/INSTAGRAM-SETUP.md) - official Graph API publishing
+- [Bale and Eitaa setup](docs/BALE-EITAA-SETUP.md) - bot tokens, channel ids, and automatic publishing
 - [Operator panel](docs/PANEL.md) - optional web console for status, config, logs, actions
 - [Object storage](docs/S3-STORAGE.md) - bundled RustFS or an external S3 endpoint for stack services
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing

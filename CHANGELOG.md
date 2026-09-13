@@ -5,6 +5,14 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Docs — Bale and Eitaa setup guide (2026-09-13)
+
+- `docs/BALE-EITAA-SETUP.md` walks through creating the bot with Bale's
+  BotFather, preparing the channel, verifying the token with `getMe` and
+  `sendMessage` before touching the stack, the EitaaYar equivalent, the `.env`
+  keys, and the failure modes worth knowing (wrong token, wrong channel id, a
+  bot that is not an administrator, oversized media).
+
 ### Features — Bale and Eitaa publish automatically (2026-09-13)
 
 - The per-draft platform chooser is no longer package-only. A platform whose
