@@ -25,6 +25,34 @@ grep -q 'Object storage (S3)' <<<"$out"
 
 grep -q 'instagram-media-enable' <<<"$help"
 grep -q 'instagram-media-status' <<<"$help"
+grep -q 'content-connect-bale' <<<"$help"
+grep -q 'content-connect-eitaa' <<<"$help"
+grep -q 'content-channels' <<<"$help"
+
+# Automatic channels: an empty environment reports both channels as waiting,
+# and the connect commands write the keys without touching the network.
+channels_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-channels)"
+grep -q 'Bale: not configured' <<<"$channels_out"
+grep -q 'Eitaa: not configured' <<<"$channels_out"
+connect_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-connect-bale 2>&1 || true)"
+grep -q 'CONTENT_BALE_TOKEN' <<<"$connect_out"
+PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-connect-bale \
+  --token '123:abc' --chat-id '@test_channel' --no-apply >/dev/null
+grep -q '^CONTENT_BALE_TOKEN=123:abc$' "$tmp/.env"
+grep -q '^CONTENT_BALE_CHAT_ID=@test_channel$' "$tmp/.env"
+grep -q '^CONTENT_BALE_API_BASE=https://tapi.bale.ai$' "$tmp/.env"
+channels_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-channels)"
+grep -q 'Bale: automatic publishing ready' <<<"$channels_out"
+# content-status prints the same lines beside the rest of the configuration.
+status_root="$tmp/status-env"
+mkdir -p "$status_root"
+cp "$ROOT_DIR/manage.sh" "$status_root/manage.sh"
+printf 'COMPOSE_PROFILES=content\n' > "$status_root/.env"
+mkdir -p "$status_root/data/content-manager/config"
+printf 'daily_proposal_time: "08:00"\n' \
+  > "$status_root/data/content-manager/config/editorial-policy.yaml"
+status_out="$(PATH="$tmp/bin:$PATH" "$status_root/manage.sh" content-status)"
+grep -q 'Eitaa: not configured' <<<"$status_out"
 
 # The media host status resolves the public URL the same way the bot does:
 # a pinned file first, then a stable environment value, then the tunnel log.

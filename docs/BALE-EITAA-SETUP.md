@@ -58,6 +58,20 @@ found` means the channel id is wrong or the bot is not an administrator.
 ### 4. Configure the stack
 
 ```bash
+./manage.sh content-connect-bale \
+  --token '123456789:abcdIuZmK5qNEm2A1BhUaAg7MPJv1O9KCcBQB2ro' \
+  --chat-id '@your_channel' --verify --test
+```
+
+`--verify` calls `getMe` from the host before anything is applied, `--test`
+publishes one short message through the running bot, and the command applies
+the values by recreating `content-bot` afterwards. Use `--no-apply` to write
+the values without touching the containers, or run the command with no flags
+to be prompted.
+
+The same values can be written by hand:
+
+```bash
 CONTENT_BALE_TOKEN=123456789:abcdIuZmK5qNEm2A1BhUaAg7MPJv1O9KCcBQB2ro
 CONTENT_BALE_CHAT_ID=@your_channel
 CONTENT_BALE_API_BASE=https://tapi.bale.ai
@@ -96,6 +110,16 @@ as form data automatically, so the same configuration covers both behaviours.
 ### 3. Configure the stack
 
 ```bash
+./manage.sh content-connect-eitaa \
+  --token '123456:abcdefghijklmnopqrstuvwxyz' \
+  --chat-id '@your_channel' --test
+```
+
+The EitaaYar gateway does not document `getMe`, so the token check is skipped
+for this channel; `--test` is the reliable verification because it publishes
+through the adapter the stack uses. The same values by hand:
+
+```bash
 CONTENT_EITAA_TOKEN=123456:abcdefghijklmnopqrstuvwxyz
 CONTENT_EITAA_CHAT_ID=@your_channel
 CONTENT_EITAA_API_BASE=https://eitaayar.ir/api
@@ -103,12 +127,18 @@ CONTENT_EITAA_API_BASE=https://eitaayar.ir/api
 
 ## Apply and check
 
+`./manage.sh content-connect-bale` and `./manage.sh content-connect-eitaa`
+apply the values themselves. Applying by hand is the same two steps:
+
 ```bash
 cd /root/content-manager
 docker compose up -d content-bot
-docker exec content-bot sh -c 'echo $CONTENT_BALE_CHAT_ID $CONTENT_EITAA_CHAT_ID'
-docker logs content-bot --tail 20
+./manage.sh content-channels
 ```
+
+`content-channels` reports the stored token and destination of every channel
+without printing the token, and `./manage.sh content-status` prints the same
+lines next to the rest of the bot configuration.
 
 Open a draft in Telegram: **More platforms...** now shows `Bale (auto)` and
 `Eitaa (auto)`. Picking one publishes the post and answers `Published to
@@ -119,7 +149,8 @@ Bale.` / `Published to Eitaa.`; the draft records the target, shows it as
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Button reads `Bale (no token)` | Token or chat id is empty in the running container | Set both variables, `docker compose up -d content-bot` |
+| Button reads `Bale (no token)` | Token or chat id is empty in the running container | `./manage.sh content-connect-bale --token ... --chat-id ...` (it recreates the bot) |
+| Button reads `Eitaa (no token)` | Token or chat id is empty in the running container | `./manage.sh content-connect-eitaa --token ... --chat-id ...` |
 | `403` on `getMe` | Wrong or revoked token | Re-issue the token with the bot's owner account |
 | `400 chat not found` | Wrong channel id, or the bot is not a member | Use `@username`, add the bot as an administrator |
 | `HTTP 401` on Eitaa | Token not activated in the EitaaYar panel | Finish the bot setup there and copy the token again |

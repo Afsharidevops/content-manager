@@ -17,6 +17,7 @@ jobs:
           bash -n install.sh manage.sh
           bash -n scripts/stack-ops.sh scripts/helm-publish.sh
           bash -n tests/test-stack-ops.sh tests/test-helm-chart.sh tests/test-s3-storage.sh
+          bash -n tests/test-manage-ux.sh
       - name: Check provisioning script syntax
         run: |
           node --check scripts/bootstrap-openwebui.mjs
@@ -38,6 +39,7 @@ jobs:
           node --test tests/test-verify-n8n.mjs
           node --test tests/test-flow-unlock-patch.mjs
           tests/test-manage-n8n.sh
+          tests/test-manage-ux.sh
           tests/test-stack-ops.sh
           tests/test-s3-storage.sh
           tests/test-flow-unlock-rules.sh

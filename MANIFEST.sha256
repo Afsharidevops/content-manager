@@ -9,9 +9,9 @@ ce5aa4bb673ec9c5480a0d27eb58b5e32231e4a6d12903dd0eee419ebb48176a  ./.github/work
 b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/workflows/security-v0.5.9.yml
 7b57572d20c0a6db0268720b1d48584514b16280e55c84d75a265849e03dc50c  ./.github/workflows/smart-router-ci.yml
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
-6502bb5def3d7527e476588fa8a0e67701c3364afb9050a55b7bffe46d449fb3  ./.github/workflows/validate.yml
+54a2894246012da9011c7e56e1635594af7341374b3602253a17b84b6222e035  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-6ad269b6a6db6c878fe9d0696b88c4bd017886265b756a092bad5483e458425d  ./CHANGELOG.md
+b874c9bfd8ff59b8483ef199980feceea6dae3e9a6cde726c508845f0b09dd2c  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
 9ec33c3771be8cea883ab6a53a20400336f526d1177c0b0bf9c98706ac3eb7c4  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
@@ -77,7 +77,7 @@ a3f25da07bbd442da7699f8de1a01d3cbd7b2742f855c64cf6e5f7b21f1f21f5  ./execution-br
 6b7ea776e22ebe10e6c40491d1aac4cda271f6c19afe4617cad978e9d8fc8724  ./execution-broker/src/broker/store.py
 66211081a60ab4390bf2073b09461e0798f924f3552383dff7bcd06cf45e7575  ./execution-broker/ssh-askpass.py
 647e72d003e6959bc15e2ea52ce6200384602e4ba1cd8f52d6026a7ac022a703  ./install.sh
-371b5d584cdf1abc6e46b36e163202a103cb94df41657c7b891e44b037236590  ./manage.sh
+6562aed243fa75eb9ab71918e2320d37100c1307d541fb626916432b2c431c16  ./manage.sh
 37a4106e8e076d9a4d6bd677861a66e64f79bba3bff41554d3825ae5a86bf04d  ./plugins/stack-execution-policy/__init__.py
 5544b17cc4cc7190d2c20ab35f5ec5336df7ab5211a5bdcfa61997236afed473  ./plugins/stack-execution-policy/plugin.yaml
 12a26259dfa56408d072f7b65f32a1bac0f4545fc3d4e0808321017bcb4ebd38  ./plugins/stack-package-policy/__init__.py
@@ -211,7 +211,7 @@ bc2eb29aff1e4b058e48d824365a0eda826a56505ae21a919efb1916875cf06a  ./smart-router
 0edbcf7a74465f0206487501f79548478e37b530dec72b603c86a2c083d0d767  ./tests/smoke.sh
 0d9cf7bd26abc5978066da72d084f5120798a3c34d06d49d875323ead9ad61e3  ./tests/test-bootstrap-n8n.mjs
 75216df5a22558a70a26a258871a165087d09458fd5a17e55d3ee6e0bac17e77  ./tests/test-manage-n8n.sh
-0b20166e3c84f250e7ae2437f0d45df56f9d0489513efb50e58115bf20fcd86f  ./tests/test-manage-ux.sh
+0ede061658ee58678fcec8c2c134c10f3f580894756837dbebeac32ac6645b38  ./tests/test-manage-ux.sh
 799f04ff73e1a2647fa8566310f518a148addec919678de84d1511777181d10c  ./tests/test-ssh-profiles.sh
 a962c10c4a45cc4ae524ba41213db22129b737dd13a83164879a90fc5e12e4e0  ./tests/test-stack-ops.sh
 3aa99a5bdf4bb71afc2a568eb544698fe41486f8886c3f9845434d39632c21bf  ./tests/test-verify-n8n.mjs

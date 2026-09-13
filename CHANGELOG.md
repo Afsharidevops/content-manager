@@ -5,6 +5,18 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — manage.sh channel setup for Bale and Eitaa (2026-09-13)
+
+- `./manage.sh content-connect-bale` and `./manage.sh content-connect-eitaa`
+  store the token, the destination, and the API base in `.env`, optionally
+  check the token with `getMe` (`--verify`), publish one test message through
+  the running adapter (`--test`), and recreate `content-bot` so the draft
+  chooser flips from `(no token)` to `(auto)` in one command. Running either
+  command without flags prompts for the values.
+- `./manage.sh content-channels` reports the state of both channels without
+  printing a token, and `content-status` prints the same lines. `manage.sh
+  content` gained the matching menu entries.
+
 ### Docs — Bale and Eitaa setup guide (2026-09-13)
 
 - `docs/BALE-EITAA-SETUP.md` walks through creating the bot with Bale's

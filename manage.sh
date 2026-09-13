@@ -90,6 +90,9 @@ n8n automation:
 Content Bot automation:
   content-status              Content Bot configuration summary (no secrets)
   content-connect-instagram   Print the pending Instagram/Meta setup checklist
+  content-connect-bale        Store and verify the Bale bot token and channel
+  content-connect-eitaa       Store and verify the Eitaa bot token and channel
+  content-channels            Show the automatic channel (Bale/Eitaa) state
   content-configure           Reconfigure Content Bot settings (installer wizard)
 
 Operator panel:
@@ -1152,6 +1155,9 @@ content_status() {
       printf '  Instagram auto publish: on\n'
       ;;
   esac
+  printf '  Automatic channels:\n'
+  printf '    %s\n' "$(content_channel_state bale)"
+  printf '    %s\n' "$(content_channel_state eitaa)"
   printf '  Editorial policy: data/content-manager/config/editorial-policy.yaml\n'
   printf '  Discovery sources: data/content-manager/config/sources.yaml\n'
   printf '  Guide: docs/CONTENT-PRODUCTION-GUIDE.md\n'
@@ -1177,6 +1183,199 @@ content_configure() {
   exec "$ROOT_DIR/install.sh" --content-reconfigure
 }
 
+content_container_running() {
+  [[ "$("${DOCKER[@]}" inspect -f '{{.State.Running}}' content-bot 2>/dev/null)" == true ]]
+}
+
+content_channel_keys() {
+  # Emits: <token key> <chat key> <api base key> <label> <default api base>
+  case "${1:-}" in
+    bale)
+      printf '%s\n' 'CONTENT_BALE_TOKEN CONTENT_BALE_CHAT_ID CONTENT_BALE_API_BASE Bale https://tapi.bale.ai'
+      ;;
+    eitaa)
+      printf '%s\n' 'CONTENT_EITAA_TOKEN CONTENT_EITAA_CHAT_ID CONTENT_EITAA_API_BASE Eitaa https://eitaayar.ir/api'
+      ;;
+    *)
+      printf 'Unknown channel: %s\n' "${1:-}" >&2
+      return 2
+      ;;
+  esac
+}
+
+content_channel_state() {
+  # One line describing whether a channel can publish right now (no secrets).
+  local kind="$1" token_key chat_key base_key label base_default token chat
+  read -r token_key chat_key base_key label base_default <<<"$(content_channel_keys "$kind")"
+  token="$(env_value "$ENV_FILE" "$token_key")"
+  chat="$(env_value "$ENV_FILE" "$chat_key")"
+  if [[ -n "$token" && -n "$chat" ]]; then
+    printf '%s: automatic publishing ready (chat %s)' "$label" "$chat"
+  elif [[ -n "$token" ]]; then
+    printf '%s: token stored, %s is still empty' "$label" "$chat_key"
+  elif [[ -n "$chat" ]]; then
+    printf '%s: chat id stored, %s is still empty' "$label" "$token_key"
+  else
+    printf '%s: not configured (%s and %s are empty)' "$label" "$token_key" "$chat_key"
+  fi
+}
+
+content_channels_status() {
+  printf 'Automatic channels (tokens are never printed)\n'
+  printf '  - %s\n' "$(content_channel_state bale)"
+  printf '  - %s\n' "$(content_channel_state eitaa)"
+  printf '  A configured channel appears as "<name> (auto)" on a draft; uploads\n'
+  printf '  publish the moment it is picked. Guide: docs/BALE-EITAA-SETUP.md\n'
+}
+
+content_channel_get_me() {
+  # Token check against the provider. Bale keeps the bot prefix, Eitaa does not.
+  local kind="$1" base="$2" token="$3" url
+  if [[ "$kind" == bale ]]; then
+    url="$base/bot$token/getMe"
+  else
+    url="$base/$token/getMe"
+  fi
+  python3 - "$url" <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+
+url = sys.argv[1]
+try:
+    with urllib.request.urlopen(url, timeout=20) as response:
+        status = response.status
+        body = response.read().decode("utf-8", "replace")
+except urllib.error.HTTPError as error:
+    status = error.code
+    body = error.read().decode("utf-8", "replace")
+except Exception as error:  # noqa: BLE001 - any transport failure is reported
+    print(f"unreachable ({error})")
+    raise SystemExit(1)
+try:
+    payload = json.loads(body)
+except ValueError:
+    print(f"HTTP {status}: {body[:160]}")
+    raise SystemExit(1)
+result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+name = result.get("username") or result.get("first_name") or ""
+ok = payload.get("ok")
+print(f"HTTP {status}: ok={ok}{f' ({name})' if name else ''}")
+if not ok:
+    raise SystemExit(1)
+PY
+}
+
+content_channel_test_message() {
+  # Publishes one line through the exact code path the bot uses.
+  local kind="$1"
+  "${DOCKER[@]}" exec -i content-bot python - "$kind" <<'PY'
+import sys
+
+from content_bot.channels import build_channels
+from content_bot.config import BotSettings
+
+kind = sys.argv[1]
+channel = build_channels(BotSettings.from_env()).get(kind)
+if channel is None:
+    print(f"No token or chat id is stored for {kind} inside the container.")
+    raise SystemExit(1)
+try:
+    channel.send_text("Locallab Content Manager test message.")
+except Exception as error:  # noqa: BLE001 - surface the provider message
+    print(f"Publish failed: {error}")
+    raise SystemExit(1)
+print(f"Published to {channel.label}.")
+PY
+}
+
+content_connect_channel() {
+  local kind="$1"; shift
+  local token_key chat_key base_key label base_default token chat base
+  local token_arg="" chat_arg="" verify=false run_test=false apply=true arg answer
+  read -r token_key chat_key base_key label base_default <<<"$(content_channel_keys "$kind")"
+  local usage="Usage: ./manage.sh content-connect-$kind [--token TOKEN] [--chat-id @channel] [--verify] [--test] [--no-apply]"
+  while (($#)); do
+    arg="$1"; shift
+    case "$arg" in
+      --token)
+        (($#)) || { printf '%s\n' "$usage" >&2; return 2; }
+        token_arg="$1"; shift ;;
+      --chat-id|--chat|--channel)
+        (($#)) || { printf '%s\n' "$usage" >&2; return 2; }
+        chat_arg="$1"; shift ;;
+      --verify) verify=true ;;
+      --test) run_test=true ;;
+      --no-apply) apply=false ;;
+      -h|--help) printf '%s\n' "$usage"; return 0 ;;
+      *) printf 'Unknown option: %s\n%s\n' "$arg" "$usage" >&2; return 2 ;;
+    esac
+  done
+  token="$(env_value "$ENV_FILE" "$token_key")"
+  chat="$(env_value "$ENV_FILE" "$chat_key")"
+  base="$(env_value "$ENV_FILE" "$base_key")"
+  printf '%s setup (automatic publishing)\n' "$label"
+  printf '  1. Create the bot with the provider and copy its token.\n'
+  printf '  2. Add the bot to the channel and make it an administrator.\n'
+  printf '  3. Use the channel @username (the public link) or its numeric id.\n'
+  printf '  Guide: docs/BALE-EITAA-SETUP.md\n'
+  [[ -n "$token_arg" ]] && token="$token_arg"
+  [[ -n "$chat_arg" ]] && chat="$chat_arg"
+  if [[ -z "$token_arg" && -z "$chat_arg" && -t 0 ]]; then
+    printf 'Leave an answer empty to keep the stored value.\n'
+    read -r -s -p "$label bot token: " answer
+    printf '\n'
+    [[ -n "$answer" ]] && token="$answer"
+    read -r -p "$label channel id (for example @locallab): " answer
+    [[ -n "$answer" ]] && chat="$answer"
+  fi
+  if [[ -z "$token" || -z "$chat" ]]; then
+    printf '  Current state: %s\n' "$(content_channel_state "$kind")"
+    printf 'Nothing stored yet. Run one of:\n'
+    printf '  ./manage.sh content-connect-%s --token <TOKEN> --chat-id @<channel>\n' "$kind"
+    printf '  ./manage.sh content-connect-%s --token <TOKEN> --chat-id @<channel> --verify --test\n' "$kind"
+    return 1
+  fi
+  if [[ -z "$base" ]]; then
+    base="$base_default"
+    replace_env_value "$ENV_FILE" "$base_key" "$base"
+  fi
+  replace_env_value "$ENV_FILE" "$token_key" "$token"
+  replace_env_value "$ENV_FILE" "$chat_key" "$chat"
+  printf 'Stored %s, %s, and %s in .env.\n' "$token_key" "$chat_key" "$base_key"
+  printf '  Current state: %s\n' "$(content_channel_state "$kind")"
+  if [[ "$verify" == true ]]; then
+    printf 'Token check: '
+    content_channel_get_me "$kind" "$base" "$token" \
+      || printf 'The check did not pass; run it again with --test to see the provider error.\n'
+  fi
+  if [[ "$apply" == true ]]; then
+    if content_container_running; then
+      printf 'Applying the configuration to content-bot...\n'
+      compose up -d content-bot >/dev/null
+      local waited=0
+      while ((waited < 30)) && ! content_container_running; do
+        sleep 2
+        waited=$((waited + 2))
+      done
+    else
+      printf 'content-bot is not running; it reads the new values on its next start.\n'
+    fi
+  fi
+  if [[ "$run_test" == true ]]; then
+    if content_container_running; then
+      printf 'Publishing a test message through the stack...\n'
+      content_channel_test_message "$kind" || true
+    else
+      printf 'Start the stack first (./manage.sh start) to run --test.\n' >&2
+    fi
+  fi
+  printf 'Open a draft in Telegram: "More platforms..." shows %s (auto) once the\n' "$label"
+  printf 'bot restarted with the new values. Check with ./manage.sh content-channels\n'
+}
+
+
 content_menu() {
   local choice
   while true; do
@@ -1188,6 +1387,9 @@ content_menu() {
     printf '%s\n' '4) Reconfigure Content Bot settings'
     printf '%s\n' '5) Instagram media host status'
     printf '%s\n' '6) Enable the Instagram media host'
+    printf '%s\n' '7) Automatic channel status (Bale, Eitaa)'
+    printf '%s\n' '8) Bale channel setup'
+    printf '%s\n' '9) Eitaa channel setup'
     printf '%s\n' '0) Back'
     read -r -p 'Choose: ' choice
     case "$choice" in
@@ -1197,6 +1399,9 @@ content_menu() {
       4) content_configure ;;
       5) ig_media_status || true ;;
       6) ig_media_enable || true ;;
+      7) content_channels_status || true ;;
+      8) content_connect_channel bale || true ;;
+      9) content_connect_channel eitaa || true ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -3095,6 +3300,9 @@ case "$command" in
   n8n-status) n8n_status ;;
   content-status) content_status ;;
   content-connect-instagram) content_connect_instagram ;;
+  content-connect-bale) shift; content_connect_channel bale "$@" ;;
+  content-connect-eitaa) shift; content_connect_channel eitaa "$@" ;;
+  content-channels) content_channels_status ;;
   instagram-media-status) ig_media_status ;;
   instagram-media-enable) shift; ig_media_enable "${1:-}" ;;
   instagram-media-disable) ig_media_disable ;;
