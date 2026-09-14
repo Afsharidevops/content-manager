@@ -12,11 +12,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 from panel import __version__
 from panel.actions import ActionError, ActionRunner
 from panel import drafts as drafts_mod
 from panel.editors import ConfigStore, EditError, EnvStore
-from panel.platforms import PlatformStore, _linkedin_author, platform_for
+from panel.platforms import PLATFORMS, PlatformStore, _linkedin_author, platform_for
 from panel.server import PanelApp, PanelHandler
 from panel.stack import StackView
 
@@ -1673,6 +1675,20 @@ class ComposeWiringTest(unittest.TestCase):
         self.assertIn("${PANEL_STACK_PATH:-${PWD}}:${PANEL_STACK_PATH:-${PWD}}", self.compose)
         self.assertIn("/var/run/docker.sock:/var/run/docker.sock", self.compose)
         self.assertIn("${PANEL_STACK_PATH:-${PWD}}-backups:${PANEL_STACK_PATH:-${PWD}}-backups", self.compose)
+
+    def test_every_platform_field_reaches_its_service(self):
+        compose = yaml.safe_load(self.compose)
+        for platform in PLATFORMS:
+            environment = compose["services"][platform.service]["environment"]
+            if isinstance(environment, list):
+                environment = {entry.split("=", 1)[0]: "" for entry in environment}
+            for field in platform.fields:
+                self.assertIn(
+                    field.key,
+                    environment,
+                    f"{platform.key} writes {field.key} but {platform.service} "
+                    "does not receive it",
+                )
 
     def test_manage_script_exposes_the_panel_commands(self):
         script = (REPO_ROOT / "manage.sh").read_text(encoding="utf-8")

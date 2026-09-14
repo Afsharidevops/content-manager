@@ -11,7 +11,7 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 54a2894246012da9011c7e56e1635594af7341374b3602253a17b84b6222e035  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-563d6a06e2b4f3f14b9e70683efd5a1edbf24df13f1c7847e5e998866e62921c  ./CHANGELOG.md
+dbcbfb13883afb7b15acf58ab3b491ba1fc8f5a6dc81eec0cde081aaf0bb076e  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
 511a11e68ff74b99a0f724dae94582e98da7a91acaff9df584f6638c6141111c  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
@@ -37,7 +37,7 @@ fe5ebbc8aed343cfb068cb026856456fdd542b6d2fdc40346907c70bed1dfaa4  ./deploy/helm/
 07475e8ba9f9c36c96456d0c801ec6d170c953a8cbe123672f5363a987fe6c45  ./deploy/helm/hermes-linux-stack/templates/router.yaml
 f123278b4c0cb59bcf3bd2294bac94b497a98ee9fde6dbf703137e3cc89be5e7  ./deploy/helm/hermes-linux-stack/templates/serviceaccount.yaml
 8975fa5f68cc1220b80ac9b494b02f86e6602fe1ec4e5abfc51af37b4728a553  ./deploy/helm/hermes-linux-stack/values.yaml
-b34da89c248d90dd1f7a5c23445a64857b9b7ec66b10bb287fdb0adcb81ecb5d  ./docker-compose.yml
+2b5675cedbc10fd3d8074189e8720b53828b2edd4d9c191a6d8693c5f3df9e32  ./docker-compose.yml
 7027090985c6b7cef4bd12666014abde4cf194b8c945b067ea5b1de11d3bb522  ./docs-site/assets/flight-deck-v0.5.6.png
 02f9a764b15b9c21db2c800c2826aee5fc2519c6a3160f27e7a6c823424a5d1a  ./docs-site/assets/operations-center-v0.5.6.png
 2b294d692f2997980a721b510e8d1c868f7bd6647f0fae96581c22cf9ffc610e  ./docs-site/assets/smart-router-console-v0.6.0.png

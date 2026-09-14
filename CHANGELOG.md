@@ -43,6 +43,10 @@ The current runtime release is **v0.5.9**.
   the panel gained an Aparat card with a session test, and
   `./manage.sh content-aparat-check` probes the stored session without
   uploading anything.
+- The content-bot container now receives every `CONTENT_APARAT_*` key from the
+  stack `.env` file, so a session stored by the panel (or by hand) reaches the
+  bot after the container is recreated; a panel regression test keeps every
+  platform-card key wired to its service.
 
 ### Fixes — Buffered chat clients and streaming upstreams (2026-09-14)
 

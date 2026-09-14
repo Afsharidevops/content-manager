@@ -62,7 +62,8 @@ Either use the operator panel, or edit `.env` and restart the bot.
 Open **Platforms -> Aparat** and fill in **Session token** (or **Session
 cookie**). The card reports `ready` as soon as one of the two is stored, and
 its **Test** button proves the session against Aparat before you publish
-anything.
+anything. Saving only writes `.env`; run **Apply changes** afterwards so the
+container is recreated with the new value and the bot can see it.
 
 ### .env
 
@@ -72,11 +73,15 @@ CONTENT_APARAT_TOKEN=jwt-value-from-the-browser
 # CONTENT_APARAT_COOKIE=AuthV1=...; AFCN=...; m_id=...
 ```
 
-Then apply it:
+Then apply it so the container is recreated with the new value:
 
 ```bash
-./manage.sh start                # or: ./manage.sh content-aparat-check
+./manage.sh start
 ```
+
+A plain `./manage.sh restart content` is not enough here: restarting keeps the
+environment the container was created with, so the new session reaches the bot
+only when the container is recreated.
 
 `CONTENT_PLATFORMS_ENABLED=true` is required for the **More platforms...**
 button to appear on a draft at all - that switch is shared with every extra
