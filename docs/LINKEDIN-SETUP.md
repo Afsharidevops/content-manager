@@ -46,24 +46,48 @@ refresh token. Expect to repeat this step when the token expires; the account
 file's `expires_at` field is informational and can hold the date you minted
 it.
 
-1. Open this URL in a browser (line breaks are only for readability), sign in
-   as the member who should own the post - or as an admin of the page - and
-   approve the app:
+1. Build the authorization URL with your Client ID and open it in a browser.
+   The URL is the endpoint below; every value in it has to be URL-encoded, so
+   replace `<CLIENT_ID>` in this one line and paste it into the address bar:
 
-```bash
-CLIENT_ID='...'
-REDIRECT_URI='https://localhost:8765/callback'
-STATE='stack-linkedin-setup'
-SCOPES='openid profile w_member_social'
-
-https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&state=${STATE}&scope=${SCOPES// /%20}
+```text
+https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=<CLIENT_ID>&redirect_uri=https%3A%2F%2Flocalhost%3A8765%2Fcallback&state=stack-linkedin-setup&scope=openid%20profile%20w_member_social
 ```
 
-For a company page request `w_organization_social` as well (or instead):
-`SCOPES='openid profile w_member_social w_organization_social'`.
+   For a company page add `%20w_organization_social` to the `scope` value
+   (`...%20w_member_social%20w_organization_social`).
 
-2. LinkedIn redirects to the redirect URL with `?code=...`. Copy the code
-   quickly: it is single-use and short-lived.
+   To print the same link instead of editing it by hand - useful when the
+   redirect URL is not localhost - fill in the values and run this in any
+   terminal:
+
+```bash
+python3 - <<'PY'
+import urllib.parse
+
+query = urllib.parse.urlencode(
+    {
+        "response_type": "code",
+        "client_id": "YOUR_CLIENT_ID",
+        "redirect_uri": "https://localhost:8765/callback",
+        "state": "stack-linkedin-setup",
+        "scope": "openid profile w_member_social",
+    },
+    quote_via=urllib.parse.quote,
+)
+print(f"https://www.linkedin.com/oauth/v2/authorization?{query}")
+PY
+```
+
+   The redirect URL must match one registered on the app's **Auth** tab. The
+   localhost value above works for a one-time mint and nothing has to listen
+   on it: the browser shows the `code` in the address bar even when the page
+   itself cannot load. If LinkedIn refuses localhost for your app, register
+   any HTTPS URL you control instead.
+
+2. Sign in as the member who should own the post - or as an admin of the page -
+   and approve the app. LinkedIn then redirects to the redirect URL with
+   `?code=...`. Copy the code quickly: it is single-use and short-lived.
 3. Exchange the code for the token:
 
 ```bash
