@@ -450,17 +450,38 @@ class AparatClient:
     # ------------------------------------------------------------- upload
 
     def upload_config(self) -> dict:
-        """Return the upload configuration, including the upload server."""
+        """Return the upload configuration, including the upload server.
+
+        Aparat nests the answer the same way the rest of the API does
+        (``data.attributes``) and repeats ``server`` at the top level on some
+        deployments, so both places are read and the flat keys are returned.
+        """
         payload = self._json(
             "upload config", "GET", self._url("/video/upload/upload_config")
         )
         data = payload.get("data")
-        if not isinstance(data, dict) or not data.get("server"):
+        if not isinstance(data, dict):
             raise AparatError(
                 "Aparat did not return an upload server; the session is not a "
                 "signed-in account"
             )
-        return data
+        attributes = data.get("attributes")
+        merged = dict(data)
+        if isinstance(attributes, dict):
+            merged.update(attributes)
+        server = str(merged.get("server") or "").strip()
+        if not server:
+            raise AparatError(
+                "Aparat did not return an upload server; the session is not a "
+                "signed-in account"
+            )
+        merged["server"] = server
+        log.debug(
+            "aparat upload config: server=%s uploadSize=%s",
+            server,
+            merged.get("uploadSize") or "-",
+        )
+        return merged
 
     def reserve(self, upload_id: str, server: str) -> dict:
         """Reserve one resumable upload and return its token and id."""
@@ -586,13 +607,17 @@ class AparatClient:
         video_pass: str = "",
         duration="",
         thumbnail: str = "",
+        upload_base_url: str = "",
+        video: str = "",
     ) -> dict:
         """Send the metadata that publishes the finished upload.
 
         The body and the headers mirror the request the Aparat uploader itself
         makes, so a change on the site side can be compared field by field.
         ``duration`` and ``thumbnail`` are optional: without them Aparat reads
-        both from the file it just received.
+        both from the file it just received. ``upload_base_url`` and ``video``
+        are what the uploader form adds right before it submits; the endpoint
+        answers 400 without them.
         """
         credentials = self.credentials
         payload = {
@@ -607,6 +632,9 @@ class AparatClient:
             "tags": "-".join(tags),
             "subtitle": [],
             "publish_date": None,
+            "upload_base_url": str(upload_base_url),
+            "uploadId": str(upload_id),
+            "video": str(video),
         }
         seconds = normalize_duration(duration)
         if seconds:
@@ -681,6 +709,8 @@ class AparatClient:
             category=category,
             duration=duration,
             thumbnail=thumbnail_url,
+            upload_base_url=server,
+            video=video,
         )
         result = UploadResult(
             upload_id=upload_id,

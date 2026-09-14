@@ -196,7 +196,9 @@ attempt. A `4xx` rejection fails at once, because repeating it would only
 repeat the refusal.
 
 Step 4 carries the fields the Aparat uploader itself sends, `watermark_bool`,
-`subtitle`, and `publish_date` among them. The duration (seconds) and the
+`subtitle`, and `publish_date` among them, plus the `upload_base_url`,
+`uploadId`, and `video` values the uploader form adds right before it submits;
+the endpoint answers 400 without them. The duration (seconds) and the
 thumbnail (a `data:image/jpeg;base64,...` URL) are attached when the caller has
 them: a clip Media Studio generated carries the duration it was asked for, and
 any other upload lets Aparat pick a frame and read the duration from the file.

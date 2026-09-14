@@ -54,9 +54,17 @@ The current runtime release is **v0.5.9**.
   headers the Aparat web uploader sends: `video_pass` as a number, `watermark`
   with `watermark_bool`, `subtitle` as a list, `publish_date` as null, optional
   `duration` and `thumbnail`, and the `isNext`/`jsonType`/`domain`/`currentUrl`/
-  `isRedesign` headers. The fields only the older body carried (`uploadId`,
-  `upload_base_url`, `video`, and the empty playlist entries) are gone, so a
-  change on the site side can be compared field by field.
+  `isRedesign` headers. The uploader form also adds `upload_base_url`,
+  `uploadId`, and `video` right before it submits, and the endpoint answers
+  400 (`upload_base_url: ...`) without them, so the client carries them too.
+- The upload server is read from the nested `data.attributes` object Aparat
+  returns; the flat `data.server` key the code read before does not exist, so
+  an upload stopped right after `upload_config`. A 3 s private upload now runs
+  end to end against the live service with the stored session.
+- `request_multipart` and `request_multipart_many` return the `(status, body)`
+  pair their callers unpack again; they leaked the internal
+  `(status, body, headers)` triple, so every Aparat chunk and every Telegram
+  file send (photo, video, document) failed with "too many values to unpack".
 - A refused chunk is uploaded again up to three times with a 1 s, 2 s, 4 s
   backoff, the `chunksdone` close of the upload is retried the same way, and a
   `4xx` rejection fails on the first answer. `AparatClient.publish` takes a

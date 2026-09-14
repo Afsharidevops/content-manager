@@ -120,7 +120,7 @@ def request_multipart(
     )
     parts.append(file_bytes)
     parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
-    return _request(
+    status, body, _headers = _request(
         url,
         data=b"".join(parts),
         headers=headers,
@@ -129,6 +129,7 @@ def request_multipart(
         timeout=timeout,
         max_bytes=max_bytes,
     )
+    return status, body
 
 
 def request_multipart_many(
@@ -162,7 +163,7 @@ def request_multipart_many(
         parts.append(file_bytes)
         parts.append(b"\r\n")
     parts.append(f"--{boundary}--\r\n".encode("utf-8"))
-    return _request(
+    status, body, _headers = _request(
         url,
         data=b"".join(parts),
         headers=headers,
@@ -171,6 +172,7 @@ def request_multipart_many(
         timeout=timeout,
         max_bytes=max_bytes,
     )
+    return status, body
 
 
 def _request(

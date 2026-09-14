@@ -233,6 +233,9 @@ class UploadTests(unittest.TestCase):
                 "tags",
                 "subtitle",
                 "publish_date",
+                "upload_base_url",
+                "uploadId",
+                "video",
             },
             set(metadata),
         )
@@ -241,6 +244,11 @@ class UploadTests(unittest.TestCase):
         self.assertIs(True, metadata["watermark_bool"])
         self.assertEqual([], metadata["subtitle"])
         self.assertIsNone(metadata["publish_date"])
+        # The uploader form adds these three right before it submits; the
+        # endpoint rejects the call without them.
+        self.assertEqual("https://upload.aparat.test", metadata["upload_base_url"])
+        self.assertEqual("987", metadata["uploadId"])
+        self.assertEqual(result.video, metadata["video"])
 
     def test_the_metadata_call_carries_the_uploader_headers(self):
         client = self.client()
@@ -477,6 +485,30 @@ class FailureTests(UploadTests):
             with self.assertRaises(aparat.AparatError) as caught:
                 client.upload_config()
         self.assertIn("upload server", str(caught.exception))
+
+    def test_the_upload_server_is_read_from_the_nested_attributes(self):
+        client = self.client()
+        with mock.patch(
+            "content_bot.aparat.request_bytes",
+            return_value=(
+                200,
+                json.dumps(
+                    {
+                        "data": {
+                            "type": "upload_config",
+                            "id": 7,
+                            "attributes": {
+                                "server": "https://uc3.aparat.com",
+                                "uploadSize": 3000,
+                            },
+                        }
+                    }
+                ).encode(),
+            ),
+        ):
+            config = client.upload_config()
+        self.assertEqual("https://uc3.aparat.com", config["server"])
+        self.assertEqual(3000, config["uploadSize"])
 
 
 class SettingsTests(unittest.TestCase):
