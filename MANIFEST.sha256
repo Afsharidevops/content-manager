@@ -1,4 +1,4 @@
-d83d4a71ab32f183b35207ed9e8b06f1bad81c2c4506d835b3f0ce3a62ff98aa  ./.env.example
+c7630f685022f32007931b60702e780963ef3e4932ccbcbd2e607bbd382cdb4d  ./.env.example
 8ed5a6b036e51998d5729c0cd495bfef86acc4373b2c999b41dd9e828b3725eb  ./.github/workflows/platform-v0.5.6.yml
 5910cc997d369c252d987d720ad7dff4159fb08182e2b8188baf8f9a62d93a8f  ./.github/workflows/platform-v0.5.7.yml
 a7a6b25ceb9a098d816ce4f35662e2bb5204af2eaaf09da566eeeb825b41f893  ./.github/workflows/platform-v0.5.9.yml
@@ -11,9 +11,9 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 54a2894246012da9011c7e56e1635594af7341374b3602253a17b84b6222e035  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-dbcbfb13883afb7b15acf58ab3b491ba1fc8f5a6dc81eec0cde081aaf0bb076e  ./CHANGELOG.md
+a310b5559fbae64f909d91322a5d8eb660f73e6411299b60bfb66f0e4da25049  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
-511a11e68ff74b99a0f724dae94582e98da7a91acaff9df584f6638c6141111c  ./README.md
+70abf767fda670ca482f71dc300827407f028d186e60005fef83cace2ea84d62  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
 14f902162772401747f01f771b13eddb86c3552404be449c4db34b66bda2ea41  ./VERSION
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./data/9router/.gitkeep
@@ -27,7 +27,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./data/stack-s
 4bf37a3d035f52ab0fa5bdb14400ffed58c1e02bc416f73d1b03a80148036baf  ./deploy/demo/docker-compose.v0.5.7.yml
 b1fc208b59878a012048e6d973a8ad20e3b29158c7c9abdc627db42a3e51b3e5  ./deploy/demo/docker-compose.v0.5.8.yml
 fbb45b39eb617e22646dcbb9d75409981fff115b5a8b1124d59ed96e017d1e86  ./deploy/demo/docker-compose.v0.5.9.yml
-e1e57ee6ba5235dc930be515d37fe8f703e2606caeea6c0f3cd31744371090f6  ./deploy/helm/hermes-linux-stack/Chart.yaml
+4adb7e6db352fc7308d553e18e03ac0ee6b597f2c28b0adedf0c5839c97281b7  ./deploy/helm/hermes-linux-stack/Chart.yaml
 11a430fdf4591bc497e2d9f1e521c0fd355307832c8e95fa29d092617e7c8f24  ./deploy/helm/hermes-linux-stack/README.md
 edec3bbac60251f6a3fbb49870318167234288488d1568ac5fa89c1af3f2ebaa  ./deploy/helm/hermes-linux-stack/templates/_helpers.tpl
 22579dfc0d58fb0edaf803df8632d4c337697fff3c8da99b921f06025b4c4dd9  ./deploy/helm/hermes-linux-stack/templates/hpa.yaml
@@ -36,8 +36,8 @@ edec3bbac60251f6a3fbb49870318167234288488d1568ac5fa89c1af3f2ebaa  ./deploy/helm/
 fe5ebbc8aed343cfb068cb026856456fdd542b6d2fdc40346907c70bed1dfaa4  ./deploy/helm/hermes-linux-stack/templates/redis.yaml
 07475e8ba9f9c36c96456d0c801ec6d170c953a8cbe123672f5363a987fe6c45  ./deploy/helm/hermes-linux-stack/templates/router.yaml
 f123278b4c0cb59bcf3bd2294bac94b497a98ee9fde6dbf703137e3cc89be5e7  ./deploy/helm/hermes-linux-stack/templates/serviceaccount.yaml
-8975fa5f68cc1220b80ac9b494b02f86e6602fe1ec4e5abfc51af37b4728a553  ./deploy/helm/hermes-linux-stack/values.yaml
-2b5675cedbc10fd3d8074189e8720b53828b2edd4d9c191a6d8693c5f3df9e32  ./docker-compose.yml
+75c8908919822480be58d11fb0f0b715ddcd5c1536d25e13f9baa3518a88a2ba  ./deploy/helm/hermes-linux-stack/values.yaml
+53be4f87d220ceec23aa61172507202659c6221b85ab87e8e8003d62706bf210  ./docker-compose.yml
 7027090985c6b7cef4bd12666014abde4cf194b8c945b067ea5b1de11d3bb522  ./docs-site/assets/flight-deck-v0.5.6.png
 02f9a764b15b9c21db2c800c2826aee5fc2519c6a3160f27e7a6c823424a5d1a  ./docs-site/assets/operations-center-v0.5.6.png
 2b294d692f2997980a721b510e8d1c868f7bd6647f0fae96581c22cf9ffc610e  ./docs-site/assets/smart-router-console-v0.6.0.png
@@ -49,7 +49,7 @@ e6807f578f70ba5b15936e7a3e0ffd0f4a88f52e3e3fdcb35f2f62ac6499f5a1  ./docs/HERMES-
 1607d7018acf3606732a3ab7b965027de384473ee94aa8504df24ed8ccb9e09a  ./docs/OPERATIONS-CENTER-RATE-RAG-v0.5.4.md
 fc4d766f2c6a50dab97ffe396a2784f765e0a767a30e05a827d7ff62d9e5a3ac  ./docs/OPERATIONS.md
 1394c1252e667bd825ed9f1f127bb8d4262bf4b13ab2fd9af510c5a5b2235687  ./docs/ORCHESTRATION.md
-0b2883d0808eeceffda675e1e0efc48f8463dc5a4d34f41a70957e71ae1300be  ./docs/RELEASE-PROCESS.md
+b1d0892e4bca026d18baab764d83d48b5c0f4eecb47c50f3ba87ae742dee955b  ./docs/RELEASE-PROCESS.md
 61a006483441a5d07c7ca6064e2fe8e1b126304f8f7d260720aa50f530e0e492  ./docs/SMART-ROUTER-CLIENT-API.md
 b55501eeeef63ef7af2aefdfb0dfaa96cfce52aa4939b880dc61bdd90d62d35c  ./docs/SMART-ROUTER-PUBLIC-INGRESS.md
 a4ed1fcee3850442902984228bde2b659c037dda8701dc9c425fecb38678be72  ./docs/SMART-ROUTER-USER-GUIDE.md

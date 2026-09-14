@@ -291,6 +291,9 @@ class AparatChannel(ChatChannel):
                 title=title,
                 description=description,
                 tags=tags,
+                duration=meta.get("duration", ""),
+                thumbnail=meta.get("thumbnail") or b"",
+                thumbnail_filename=str(meta.get("thumbnail_filename") or ""),
             )
         except aparat_mod.AparatError as error:
             raise ChannelError(f"{self.label}: {error}") from error

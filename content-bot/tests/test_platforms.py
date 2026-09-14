@@ -99,6 +99,14 @@ class ProfilePolicyTests(unittest.TestCase):
         self.assertIn("First paragraph.", meta["description"])
         self.assertIn("https://example.com/layers", meta["description"])
         self.assertEqual(["docker"], meta["tags"])
+        self.assertEqual("", meta["duration"])
+
+    def test_video_meta_carries_the_duration_of_the_stored_media(self):
+        profiles = platforms.load_profiles({})
+        meta = platforms.video_meta(
+            record(media={"kind": "video", "duration": "10"}), profiles["aparat"]
+        )
+        self.assertEqual("10", meta["duration"])
 
     def test_hashtags_normalize_spaces_and_prefixes(self):
         profiles = platforms.load_profiles(

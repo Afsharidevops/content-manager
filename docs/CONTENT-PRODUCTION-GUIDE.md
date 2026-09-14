@@ -455,7 +455,7 @@ It runs as its own `content-panel` container, keeps configuration backups under
 ## Image updates
 
 The `content-bot` image is published to Docker Hub as
-`afsharidevops/content-bot:0.2.0` (plus `:latest`) whenever Content Bot source
+`afsharidevops/content-bot:0.4.2` (plus `:latest`) whenever Content Bot source
 is pushed to the `main` branch of this repository. The server never builds the
 image locally; `install.sh` and `./manage.sh start` pull the published image.
 
@@ -471,17 +471,17 @@ required repository settings, and version bumps.
 ### Local test builds
 
 While developing, build the image locally and tag it with a `-local` suffix,
-for example `CONTENT_BOT_IMAGE_TAG=0.2.0-local`. Compose reuses that local image
+for example `CONTENT_BOT_IMAGE_TAG=0.4.2-local`. Compose reuses that local image
 on `docker compose up -d content-bot` (or `./manage.sh start`); never run
 `docker compose pull` on a `-local` tag, because it is not published to any
 registry and the pull fails with `not found`. To rebuild and switch over:
 
 ```bash
-docker build -f content-bot/Dockerfile -t afsharidevops/content-bot:0.2.0-local .
+docker build -f content-bot/Dockerfile -t afsharidevops/content-bot:0.4.2-local .
 docker compose up -d --pull never content-bot
 ```
 
-The same naming works for `afsharidevops/media-studio:0.2.0-local` with
+The same naming works for `afsharidevops/media-studio:0.4.0-local` with
 `-f media-studio/Dockerfile`.
 
 The `media-studio` image is published the same way as

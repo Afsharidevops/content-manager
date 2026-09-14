@@ -666,7 +666,7 @@ services:
   # read-only from the editorial working copy.
   content-bot:
     profiles: ["content"]
-    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.4.1}
+    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.4.2}
     container_name: content-bot
     restart: unless-stopped
     user: "${CONTENT_BOT_RUN_AS:-10004:10004}"

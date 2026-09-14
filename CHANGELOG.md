@@ -48,6 +48,23 @@ The current runtime release is **v0.5.9**.
   bot after the container is recreated; a panel regression test keeps every
   platform-card key wired to its service.
 
+### Fixes — Aparat uploader matches the web uploader and retries failed chunks (2026-09-14)
+
+- The metadata call that finishes an Aparat upload now sends the body and the
+  headers the Aparat web uploader sends: `video_pass` as a number, `watermark`
+  with `watermark_bool`, `subtitle` as a list, `publish_date` as null, optional
+  `duration` and `thumbnail`, and the `isNext`/`jsonType`/`domain`/`currentUrl`/
+  `isRedesign` headers. The fields only the older body carried (`uploadId`,
+  `upload_base_url`, `video`, and the empty playlist entries) are gone, so a
+  change on the site side can be compared field by field.
+- A refused chunk is uploaded again up to three times with a 1 s, 2 s, 4 s
+  backoff, the `chunksdone` close of the upload is retried the same way, and a
+  `4xx` rejection fails on the first answer. `AparatClient.publish` takes a
+  duration and a thumbnail (image bytes or a `data:image/...` URL), the Aparat
+  channel forwards both from the draft `meta`, and the uploader logs its steps
+  (file, size, chunk, retry, metadata answer) for debugging. Content Bot 0.4.2
+  carries the change; no new environment key is required.
+
 ### Fixes — Buffered chat clients and streaming upstreams (2026-09-14)
 
 - A Chat Completions request that omits `stream` is now forwarded with an

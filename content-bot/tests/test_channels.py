@@ -111,6 +111,29 @@ class AparatChannelTests(unittest.TestCase):
             channel.send_video("clip.mp4", b"bytes", "Title", meta={"tags": []})
         self.assertEqual(list(aparat.DEFAULT_TAGS), captured["tags"])
 
+    def test_the_duration_and_thumbnail_of_the_draft_reach_the_client(self):
+        channel = channels.build_channels(settings(aparat_token="jwt"))["aparat"]
+        captured = {}
+
+        def fake_publish(data, *, filename, title, description, tags, **kwargs):
+            captured.update(kwargs)
+            return aparat.UploadResult(upload_id="1", video="v", hash="vid42")
+
+        with mock.patch.object(channel.client, "publish", side_effect=fake_publish):
+            channel.send_video(
+                "clip.mp4",
+                b"bytes",
+                "Title",
+                meta={
+                    "duration": "12",
+                    "thumbnail": b"poster-bytes",
+                    "thumbnail_filename": "poster.jpg",
+                },
+            )
+        self.assertEqual("12", captured["duration"])
+        self.assertEqual(b"poster-bytes", captured["thumbnail"])
+        self.assertEqual("poster.jpg", captured["thumbnail_filename"])
+
     def test_a_failed_upload_becomes_a_channel_error(self):
         channel = channels.build_channels(settings(aparat_token="jwt"))["aparat"]
         with mock.patch.object(

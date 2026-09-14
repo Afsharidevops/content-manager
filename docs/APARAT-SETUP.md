@@ -189,6 +189,18 @@ Knowing the four steps makes the failure messages readable:
 Nothing is published until step 4 succeeds, and a draft is only marked as sent
 after that.
 
+A chunk that fails with a dropped connection, a `5xx`, or a `408`, `425`, or
+`429` answer is sent again up to three times (a 1 s, 2 s, 4 s backoff) before
+the upload is reported as failed; `./manage.sh logs content` shows every
+attempt. A `4xx` rejection fails at once, because repeating it would only
+repeat the refusal.
+
+Step 4 carries the fields the Aparat uploader itself sends, `watermark_bool`,
+`subtitle`, and `publish_date` among them. The duration (seconds) and the
+thumbnail (a `data:image/jpeg;base64,...` URL) are attached when the caller has
+them: a clip Media Studio generated carries the duration it was asked for, and
+any other upload lets Aparat pick a frame and read the duration from the file.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -198,7 +210,7 @@ after that.
 | `Aparat session is not configured` | Neither key is set in the container. Store one and restart the bot (`./manage.sh start`). |
 | `Aparat publishes videos only; attach a video to this draft first` | The draft has no video. Send a clip, generate one with Media Studio, or pick the copy-ready package from **More platforms...**. |
 | The video is over the 20 MB Telegram bot download limit | Telegram only serves bot downloads up to 20 MB, so the file never reaches the bot's storage. Send a smaller copy or produce the video with Media Studio. |
-| `Aparat could not close the upload` / `Aparat chunk 2/5 failed` | The transfer to the upload server broke. Retry the platform; if it repeats, lower `CONTENT_APARAT_CHUNK_BYTES`. |
+| `Aparat could not close the upload` / `Aparat chunk 2/5 failed` | The transfer to the upload server broke and the automatic retries (three attempts per chunk with a growing backoff) did not get it through. Retry the platform; if it keeps failing, lower `CONTENT_APARAT_CHUNK_BYTES`. |
 | `Aparat did not return an upload server` | Aparat answered without a server, usually an account that may not upload (blocked, or a session of a different sub-domain). Sign in on `www.aparat.com` and copy the session again. |
 | The video uploads but stays unpublished | `CONTENT_APARAT_VIDEO_PASS=1` is set. Set it to `0` and publish again. |
 | Uploads stopped after weeks of working | The session expired; repeat step 1 and store the new value. |

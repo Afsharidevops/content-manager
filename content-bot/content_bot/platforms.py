@@ -327,13 +327,19 @@ def collect_tags(record: dict, profile: PlatformProfile) -> list[str]:
 
 
 def video_meta(record: dict, profile: PlatformProfile) -> dict:
-    """Return the title, description, and tags of one video publish."""
+    """Return the title, description, tags, and duration of one video publish.
+
+    The duration comes from the stored media record when the bot knows it (a
+    generated clip carries the requested seconds, a user upload does not) and
+    stays empty otherwise, so a platform derives it from the file.
+    """
     title, _shortened = compose_title(record, profile)
     description, _shortened = compose_description(record, profile)
     return {
         "title": title,
         "description": description,
         "tags": collect_tags(record, profile),
+        "duration": str((record.get("media") or {}).get("duration") or ""),
     }
 
 

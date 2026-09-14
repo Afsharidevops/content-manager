@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import unittest
 from dataclasses import replace
@@ -71,6 +72,41 @@ class HelperTests(unittest.TestCase):
         self.assertTrue(title.endswith("..."))
         self.assertEqual("x" * 200, description)
 
+    def test_thumbnail_encodes_image_bytes(self):
+        url = aparat.thumbnail_data_url(b"\x89PNG\r\n", "poster.png")
+        self.assertEqual(
+            "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n").decode(),
+            url,
+        )
+
+    def test_thumbnail_falls_back_to_jpeg_and_passes_a_data_url_through(self):
+        self.assertTrue(
+            aparat.thumbnail_data_url(b"bytes", "clip.mp4").startswith(
+                "data:image/jpeg;base64,"
+            )
+        )
+        stored = "data:image/webp;base64,AAAA"
+        self.assertEqual(stored, aparat.thumbnail_data_url(stored))
+        self.assertEqual("", aparat.thumbnail_data_url(b""))
+        self.assertEqual("", aparat.thumbnail_data_url("not-an-image"))
+
+    def test_normalize_duration_reads_numbers_and_text(self):
+        self.assertEqual(12, aparat.normalize_duration("12"))
+        self.assertEqual(12, aparat.normalize_duration(12.0))
+        self.assertEqual(12.5, aparat.normalize_duration("12.5"))
+        self.assertEqual(0, aparat.normalize_duration(""))
+        self.assertEqual(0, aparat.normalize_duration(None))
+        self.assertEqual(0, aparat.normalize_duration("soon"))
+        self.assertEqual(0, aparat.normalize_duration(-3))
+
+    def test_flag_helpers_read_the_stored_spellings(self):
+        for value in ("1", "true", "YES", "on", 1, True):
+            self.assertTrue(aparat.flag_enabled(value), value)
+        for value in ("0", "", "no", None, False):
+            self.assertFalse(aparat.flag_enabled(value), value)
+        self.assertEqual(1, aparat.flag_number("true"))
+        self.assertEqual(0, aparat.flag_number("0"))
+
     def test_the_default_category_is_technology(self):
         self.assertEqual("Technology and computers", aparat.CATEGORIES["10"])
         self.assertEqual(aparat.DEFAULT_CATEGORY, aparat.AparatCredentials().category)
@@ -82,6 +118,7 @@ class UploadTests(unittest.TestCase):
     def setUp(self):
         self.calls: list[dict] = []
         self.chunks: list[dict] = []
+        self.sleeps: list[float] = []
 
         def fake_bytes(
             url,
@@ -153,6 +190,7 @@ class UploadTests(unittest.TestCase):
     def client(self, **kwargs) -> aparat.AparatClient:
         settings = {"chunk_bytes": 4}
         settings.update(kwargs)
+        settings.setdefault("sleep", self.sleeps.append)
         return aparat.AparatClient(credentials(), **settings)
 
     def test_publish_runs_the_upload_steps_in_order(self):
@@ -181,7 +219,145 @@ class UploadTests(unittest.TestCase):
         self.assertEqual("A short explanation.", metadata["descr"])
         self.assertEqual("linux-devops-oss", metadata["tags"])
         self.assertEqual("10", metadata["category"])
-        self.assertEqual(result.video, metadata["video"])
+        # The body mirrors the Aparat uploader request, field by field.
+        self.assertEqual(
+            {
+                "video_pass",
+                "watermark",
+                "watermark_bool",
+                "category",
+                "comment",
+                "kids_friendly",
+                "title",
+                "descr",
+                "tags",
+                "subtitle",
+                "publish_date",
+            },
+            set(metadata),
+        )
+        self.assertEqual(0, metadata["video_pass"])
+        self.assertEqual("1", metadata["watermark"])
+        self.assertIs(True, metadata["watermark_bool"])
+        self.assertEqual([], metadata["subtitle"])
+        self.assertIsNone(metadata["publish_date"])
+
+    def test_the_metadata_call_carries_the_uploader_headers(self):
+        client = self.client()
+        client.publish(b"0123", filename="clip.mp4", title="T", description="D")
+        headers = self.calls[-1]["headers"]
+        self.assertEqual("application/json; charset=utf-8", headers["Content-Type"])
+        self.assertEqual("true", headers["isNext"])
+        self.assertEqual("simple", headers["jsonType"])
+        self.assertEqual("aparat", headers["domain"])
+        self.assertEqual("https://www.aparat.com/reactupload", headers["currentUrl"])
+        self.assertEqual("true", headers["isRedesign"])
+
+    def test_duration_and_thumbnail_reach_the_metadata(self):
+        client = self.client()
+        client.publish(
+            b"0123",
+            filename="clip.mp4",
+            title="T",
+            description="D",
+            duration="12",
+            thumbnail=b"\xff\xd8jpeg-bytes",
+            thumbnail_filename="poster.jpg",
+        )
+        metadata = self.calls[-1]["payload"]
+        self.assertEqual(12, metadata["duration"])
+        self.assertEqual(
+            "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8jpeg-bytes").decode(),
+            metadata["thumbnail"],
+        )
+
+    def test_an_unknown_duration_stays_out_of_the_metadata(self):
+        client = self.client()
+        client.publish(
+            b"0123", filename="clip.mp4", title="T", description="D", duration=""
+        )
+        self.assertNotIn("duration", self.calls[-1]["payload"])
+        self.assertNotIn("thumbnail", self.calls[-1]["payload"])
+
+    def test_a_failed_chunk_is_uploaded_again(self):
+        seen: list[tuple[int, int]] = []
+        client = self.client()
+        attempts = {"count": 0}
+        original = self.chunks
+
+        def flaky(*args, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                return 500, b"try again"
+            return 200, b"ok"
+
+        with mock.patch("content_bot.aparat.request_multipart", side_effect=flaky):
+            result = client.publish(
+                b"0123",
+                filename="clip.mp4",
+                title="T",
+                description="D",
+                progress=lambda done, total: seen.append((done, total)),
+            )
+        self.assertEqual("vid42", result.hash)
+        self.assertEqual(2, attempts["count"])
+        self.assertEqual([(1, 1)], seen)
+        self.assertEqual([aparat.RETRY_DELAY_SECONDS], self.sleeps)
+        self.assertEqual([], original)
+
+    def test_a_repeated_chunk_failure_is_reported_once_the_retries_run_out(self):
+        client = self.client(retries=1)
+        with mock.patch(
+            "content_bot.aparat.request_multipart",
+            return_value=(503, b"upload server is busy"),
+        ):
+            with self.assertRaises(aparat.AparatError) as caught:
+                client.publish(b"0123", filename="clip.mp4", title="T", description="D")
+        self.assertIn("chunk 1/1", str(caught.exception))
+        self.assertIn("upload server is busy", str(caught.exception))
+        self.assertEqual([aparat.RETRY_DELAY_SECONDS], self.sleeps)
+
+    def test_a_refused_chunk_is_not_uploaded_again(self):
+        client = self.client()
+        with mock.patch(
+            "content_bot.aparat.request_multipart", return_value=(403, b"forbidden")
+        ):
+            with self.assertRaises(aparat.AparatError):
+                client.publish(b"0123", filename="clip.mp4", title="T", description="D")
+        self.assertEqual([], self.sleeps)
+
+    def test_the_upload_close_is_uploaded_again(self):
+        client = self.client()
+        answers = {"count": 0}
+
+        def flaky_close(url, **kwargs):
+            if url.endswith("/chunksdone"):
+                answers["count"] += 1
+                if answers["count"] == 1:
+                    return 500, b"try again"
+            if "/upload/uploadId/" in url:
+                return 200, json.dumps({"data": {"attributes": {"uid": "vid42"}}}).encode()
+            if url.endswith("/upload_config"):
+                return 200, json.dumps({"data": {"server": "https://upload.aparat.test"}}).encode()
+            if url.endswith("/upload_url"):
+                return 200, json.dumps(
+                    {"data": [{"attributes": {"token": "t", "uploadId": "9"}}]}
+                ).encode()
+            return 200, b"{}"
+
+        with mock.patch("content_bot.aparat.request_bytes", side_effect=flaky_close):
+            result = client.publish(b"0123", filename="clip.mp4", title="T", description="D")
+        self.assertEqual("vid42", result.hash)
+        self.assertEqual(2, answers["count"])
+        self.assertEqual([aparat.RETRY_DELAY_SECONDS], self.sleeps)
+
+    def test_publishing_without_a_session_is_refused_before_any_call(self):
+        client = aparat.AparatClient(credentials(token="", cookie=""), sleep=self.sleeps.append)
+        with self.assertRaises(aparat.AparatError) as caught:
+            client.publish(b"0123", filename="clip.mp4", title="T", description="D")
+        self.assertIn("not configured", str(caught.exception))
+        self.assertEqual([], self.calls)
+        self.assertEqual([], self.chunks)
 
     def test_the_session_header_travels_with_every_call(self):
         client = self.client()

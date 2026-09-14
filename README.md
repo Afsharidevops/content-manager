@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.1   Media Studio: 0.4.0   Panel: 0.4.1
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.2   Media Studio: 0.4.0   Panel: 0.4.1
 ```
 
 ## Screenshots
@@ -264,7 +264,7 @@ The component images are built on GitHub Actions and published to Docker Hub
 whenever their source is pushed to `main`:
 
 ```text
-afsharidevops/content-bot:0.4.1
+afsharidevops/content-bot:0.4.2
 afsharidevops/media-studio:0.4.0
 afsharidevops/content-panel:0.4.1
 afsharidevops/content-bot:latest

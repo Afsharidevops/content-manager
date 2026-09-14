@@ -14,25 +14,40 @@ four steps:
 4. ``POST /api/fa/v1/video/upload/upload/uploadId/<id>`` submits the title,
    description, tags, and category that turn the upload into a video.
 
-Everything here is video-only: Aparat has no text or image post type, so the
-bot only offers the platform when a video is attached to the draft.
+A chunk that the upload server refuses is sent again with a growing backoff
+before the upload is reported as failed, and the metadata call of step 4
+mirrors the Aparat web uploader field by field (its ``duration`` and
+``thumbnail`` are optional). Everything here is video-only: Aparat has no text
+or image post type, so the bot only offers the platform when a video is
+attached to the draft.
 """
 
 from __future__ import annotations
 
+import base64
 import json
+import logging
 import mimetypes
+import time
 import uuid
 from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 from content_bot.http import request_bytes, request_multipart
 
+log = logging.getLogger("content_bot.aparat")
+
 DEFAULT_API_BASE = "https://www.aparat.com"
 API_PREFIX = "/api/fa/v1"
 DEFAULT_CATEGORY = "10"
 DEFAULT_CHUNK_BYTES = 3 * 1024 * 1024
 DEFAULT_TIMEOUT = 120
+# One failed chunk is retried this many times before the upload is reported as
+# failed; the delay doubles after every attempt and stops at the maximum.
+DEFAULT_RETRIES = 3
+RETRY_DELAY_SECONDS = 1.0
+RETRY_MAX_DELAY_SECONDS = 8.0
+RETRY_STATUSES = frozenset({408, 425, 429})
 TITLE_MAX = 100
 DESCRIPTION_MAX = 4000
 TAG_LIMIT = 5
@@ -183,6 +198,59 @@ def split_title(text: str, *, title: str = "", limit: int = TITLE_MAX) -> tuple[
     return candidate, body
 
 
+def flag_enabled(value) -> bool:
+    """Return True for the truthy flag spellings the stack accepts."""
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "y", "t"}
+
+
+def flag_number(value) -> int:
+    """Return one flag value as the ``0``/``1`` Aparat stores."""
+    return 1 if flag_enabled(value) else 0
+
+
+def normalize_duration(value) -> float | int:
+    """Return the seconds of one duration value, or ``0`` when it is unknown.
+
+    A caller can pass the seconds as a number or as the text a policy file
+    holds (``"10"``). A missing, unreadable, or non-positive value reads as
+    ``0`` so the metadata call leaves the field out and Aparat derives the
+    duration from the file it just received.
+    """
+    if isinstance(value, bool) or value is None:
+        return 0
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        seconds = 0.0
+    if seconds <= 0:
+        return 0
+    return int(seconds) if float(seconds).is_integer() else round(seconds, 3)
+
+
+def thumbnail_data_url(image, filename: str = "") -> str:
+    """Return the ``data:`` URL Aparat stores as the thumbnail of a video.
+
+    ``image`` is the raw bytes of an image file (``filename`` then decides the
+    media type, JPEG by default) or an already encoded ``data:image/...``
+    string, which passes through unchanged. An empty or unusable value returns
+    an empty string, and the metadata call then lets Aparat pick a frame.
+    """
+    if isinstance(image, str):
+        text = image.strip()
+        if text.startswith("data:image/"):
+            return text
+        if text:
+            log.warning("aparat thumbnail ignored: not a data: image URL")
+        return ""
+    blob = bytes(image or b"")
+    if not blob:
+        return ""
+    media_type = mimetypes.guess_type(str(filename or ""))[0] or ""
+    if not media_type.startswith("image/"):
+        media_type = "image/jpeg"
+    return f"data:{media_type};base64,{base64.b64encode(blob).decode('ascii')}"
+
+
 @dataclass(frozen=True)
 class AparatCredentials:
     """One Aparat channel: the browser session plus the channel defaults."""
@@ -235,12 +303,16 @@ class AparatClient:
         *,
         timeout: int = DEFAULT_TIMEOUT,
         chunk_bytes: int = DEFAULT_CHUNK_BYTES,
+        retries: int = DEFAULT_RETRIES,
         agent: str = USER_AGENT,
+        sleep=time.sleep,
     ):
         self.credentials = credentials
         self.timeout = max(int(timeout or DEFAULT_TIMEOUT), 10)
         self.chunk_bytes = max(int(chunk_bytes or DEFAULT_CHUNK_BYTES), 1)
+        self.retries = max(int(DEFAULT_RETRIES if retries is None else retries), 0)
         self.agent = agent
+        self.sleep = sleep or time.sleep
         self.api_base = str(credentials.api_base or DEFAULT_API_BASE).rstrip("/")
 
     # ------------------------------------------------------------- sessions
@@ -264,6 +336,20 @@ class AparatClient:
             headers["X-Token"] = token
         return headers
 
+    def metadata_headers(self) -> dict:
+        """Return the headers the Aparat uploader sends with the metadata call."""
+        headers = self.headers(json_body=True)
+        headers.update(
+            {
+                "isNext": "true",
+                "jsonType": "simple",
+                "domain": "aparat",
+                "currentUrl": f"{self.api_base}/reactupload",
+                "isRedesign": "true",
+            }
+        )
+        return headers
+
     def _url(self, path: str) -> str:
         return f"{self.api_base}{API_PREFIX}{path}"
 
@@ -280,26 +366,86 @@ class AparatClient:
             note = f"Aparat {step} failed (HTTP {status})"
         return AparatError(f"{note}: {detail}" if detail else note)
 
-    def _json(self, step: str, method: str, url: str, payload: dict | None = None) -> dict:
+    def _json(
+        self,
+        step: str,
+        method: str,
+        url: str,
+        payload: dict | None = None,
+        headers: dict | None = None,
+    ) -> dict:
         """Call one JSON endpoint and return the parsed body."""
         try:
             status, body = request_bytes(
                 url,
                 method=method,
-                headers=self.headers(json_body=payload is not None),
+                headers=headers
+                if headers is not None
+                else self.headers(json_body=payload is not None),
                 payload=payload,
                 timeout=self.timeout,
                 max_bytes=1_000_000,
             )
         except ConnectionError as error:
+            log.warning("aparat %s could not be reached: %s", step, error)
             raise AparatError(f"Aparat {step} could not be reached: {error}") from error
         if status >= 400:
+            log.warning("aparat %s failed with HTTP %s", step, status)
             raise self._fail(step, status, body)
+        log.debug("aparat %s answered HTTP %s (%d bytes)", step, status, len(body or b""))
         try:
             parsed = json.loads(body.decode("utf-8", "replace") or "{}")
         except ValueError as error:
             raise AparatError(f"Aparat {step} returned no JSON") from error
         return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _retryable(status: int) -> bool:
+        """True when one failed upload attempt is worth repeating."""
+        return status == 0 or status >= 500 or status in RETRY_STATUSES
+
+    def _retry_pause(self, attempt: int) -> float:
+        """Return the backoff before retry number ``attempt``."""
+        return min(RETRY_DELAY_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_DELAY_SECONDS)
+
+    def _with_retries(self, step: str, call):
+        """Run one upload-server call, retrying the attempts worth repeating.
+
+        ``call`` returns ``(status, body)`` and may raise ``ConnectionError``.
+        A refused chunk is uploaded again with an exponential backoff, while a
+        rejection that repeats itself (a refused session, a bad request) fails
+        on the first answer.
+        """
+        attempts = self.retries + 1
+        last = ""
+        for attempt in range(1, attempts + 1):
+            try:
+                status, body = call()
+            except ConnectionError as error:
+                status, body = 0, b""
+                last = f"Aparat {step} could not be reached: {error}"
+            else:
+                if status < 400:
+                    return status, body
+                detail = error_detail(body)
+                last = f"Aparat {step} failed (HTTP {status})"
+                if detail:
+                    last = f"{last}: {detail}"
+                if not self._retryable(status):
+                    raise AparatError(last)
+            if attempt >= attempts:
+                raise AparatError(last)
+            pause = self._retry_pause(attempt)
+            log.warning(
+                "aparat %s failed, retrying in %.0fs (attempt %d/%d): %s",
+                step,
+                pause,
+                attempt,
+                attempts,
+                last,
+            )
+            self.sleep(pause)
+        raise AparatError(last)
 
     # ------------------------------------------------------------- upload
 
@@ -357,6 +503,14 @@ class AparatClient:
         parts = max(1, (total + chunk_size - 1) // chunk_size)
         content_type = mimetypes.guess_type(name)[0] or "video/mp4"
         target = f"{server.rstrip('/')}/upload"
+        log.info(
+            "aparat upload %s: %s, %d bytes in %d chunk(s) of %d bytes",
+            upload_id,
+            name,
+            total,
+            parts,
+            chunk_size,
+        )
         for index in range(parts):
             offset = index * chunk_size
             blob = data[offset : offset + chunk_size]
@@ -371,8 +525,9 @@ class AparatClient:
                 "qqpartindex": index,
                 "qqpartbyteoffset": offset,
             }
-            try:
-                status, body = request_multipart(
+            self._with_retries(
+                f"chunk {index + 1}/{parts}",
+                lambda: request_multipart(
                     target,
                     fields=fields,
                     file_field="qqfile",
@@ -381,16 +536,15 @@ class AparatClient:
                     headers=self.headers(token=token),
                     timeout=self.timeout,
                     max_bytes=1_000_000,
-                )
-            except ConnectionError as error:
-                raise AparatError(
-                    f"Aparat upload server could not be reached: {error}"
-                ) from error
-            if status >= 400:
-                raise AparatError(
-                    f"Aparat chunk {index + 1}/{parts} failed (HTTP {status}): "
-                    f"{error_detail(body)}"
-                )
+                ),
+            )
+            log.debug(
+                "aparat chunk %d/%d sent (%d bytes at offset %d)",
+                index + 1,
+                parts,
+                len(blob),
+                offset,
+            )
             if progress is not None:
                 progress(index + 1, parts)
         try:
@@ -408,69 +562,76 @@ class AparatClient:
             "qqtotalfilesize": total,
             "qqtotalparts": parts,
         }
-        try:
-            status, body = request_bytes(
+        self._with_retries(
+            "upload close",
+            lambda: request_bytes(
                 f"{server.rstrip('/')}/chunksdone",
                 headers=self.headers(token=token),
                 raw_body=urlencode(payload).encode("utf-8"),
                 content_type="application/x-www-form-urlencoded",
                 timeout=self.timeout,
                 max_bytes=1_000_000,
-            )
-        except ConnectionError as error:
-            raise AparatError(
-                f"Aparat upload server could not be reached: {error}"
-            ) from error
-        if status >= 400:
-            raise AparatError(
-                f"Aparat could not close the upload (HTTP {status}): "
-                f"{error_detail(body)}"
-            )
+            ),
+        )
+        log.info("aparat upload %s closed", upload_id)
 
     def submit(
         self,
         *,
-        server: str,
         upload_id: str,
-        video: str,
         title: str,
         description: str,
         tags: list[str],
         category: str = "",
         video_pass: str = "",
+        duration="",
+        thumbnail: str = "",
     ) -> dict:
-        """Send the metadata that publishes the finished upload."""
+        """Send the metadata that publishes the finished upload.
+
+        The body and the headers mirror the request the Aparat uploader itself
+        makes, so a change on the site side can be compared field by field.
+        ``duration`` and ``thumbnail`` are optional: without them Aparat reads
+        both from the file it just received.
+        """
         credentials = self.credentials
         payload = {
-            "uploadId": upload_id,
-            "upload_base_url": server,
-            "video": video,
-            "video_pass": str(video_pass if video_pass else credentials.video_pass),
+            "video_pass": flag_number(video_pass or credentials.video_pass),
             "watermark": str(credentials.watermark),
+            "watermark_bool": flag_enabled(credentials.watermark),
             "category": str(category or credentials.category or DEFAULT_CATEGORY),
             "comment": str(credentials.comment or "yes"),
             "kids_friendly": bool(credentials.kids_friendly),
             "title": title,
             "descr": description,
             "tags": "-".join(tags),
-            "new_playlist": "",
-            "playlist_temp": "",
-            "playlistid": "",
-            "subtitle": "",
-            "publish_date": "",
+            "subtitle": [],
+            "publish_date": None,
         }
+        seconds = normalize_duration(duration)
+        if seconds:
+            payload["duration"] = seconds
+        if thumbnail:
+            payload["thumbnail"] = thumbnail
         response = self._json(
             "metadata",
             "POST",
             self._url(f"/video/upload/upload/uploadId/{upload_id}"),
             payload,
+            headers=self.metadata_headers(),
         )
         if response.get("errors"):
             detail = error_detail(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+            log.warning("aparat metadata refused for %s: %s", upload_id, detail)
             raise AparatError(
                 "Aparat refused the upload metadata"
                 + (f": {detail}" if detail else "")
             )
+        log.debug(
+            "aparat metadata accepted for %s: keys=%s",
+            upload_id,
+            sorted(str(key) for key in response),
+        )
         return response
 
     def publish(
@@ -482,10 +643,24 @@ class AparatClient:
         description: str,
         tags=(),
         category: str = "",
+        duration="",
+        thumbnail=b"",
+        thumbnail_filename: str = "",
         progress=None,
     ) -> UploadResult:
-        """Upload one video and publish it on the channel."""
+        """Upload one video and publish it on the channel.
+
+        The arguments are the whole upload contract: ``data`` is the file
+        itself with ``filename`` beside it, ``title``/``description``/``tags``
+        and ``category`` become the metadata, and ``duration`` (seconds) plus
+        ``thumbnail`` (image bytes or a ``data:image/...`` URL) are attached
+        when the caller has them. ``progress(done, total)`` is called after
+        every uploaded chunk.
+        """
+        if not self.credentials.configured:
+            raise AparatError("Aparat session is not configured")
         video = uuid.uuid4().hex
+        thumbnail_url = thumbnail_data_url(thumbnail, thumbnail_filename)
         server = str(self.upload_config().get("server") or "").rstrip("/")
         reserved = self.reserve(video, server)
         token = str(reserved.get("token") or "")
@@ -499,20 +674,27 @@ class AparatClient:
             progress=progress,
         )
         response = self.submit(
-            server=server,
             upload_id=upload_id,
-            video=video,
             title=title,
             description=description,
             tags=list(tags),
             category=category,
+            duration=duration,
+            thumbnail=thumbnail_url,
         )
-        return UploadResult(
+        result = UploadResult(
             upload_id=upload_id,
             video=video,
             hash=find_hash(response),
             response=response,
         )
+        log.info(
+            "aparat published %s: hash=%s url=%s",
+            upload_id,
+            result.hash or "-",
+            result.url or "-",
+        )
+        return result
 
     def probe(self) -> str:
         """Return the upload server of a working session, for the console."""

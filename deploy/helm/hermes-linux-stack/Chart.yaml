@@ -1,6 +1,6 @@
 apiVersion: v2
 name: hermes-linux-stack
-version: 0.6.3
+version: 0.6.4
 appVersion: "0.5.9"
 description: Content Manager on the Hermes Linux Stack v0.5.9 platform - Smart Router HA core with PostgreSQL and Redis, an optional in-cluster 9router or OmniRoute gateway, and optional Content Manager components
 type: application
@@ -19,6 +19,8 @@ maintainers:
 annotations:
   artifacthub.io/category: ai-machine-learning
   artifacthub.io/changes: |
+    - The Aparat uploader of Content Bot 0.4.2 follows the web uploader
+      request, retries a failed chunk, and accepts a thumbnail and a duration
     - Aparat video publishing in Content Bot 0.4.1, on demand and video-only
     - Scheduled proposals of the Content Bot now carry the media question,
       and the built-in daily pass can be switched off for routine-only stacks
