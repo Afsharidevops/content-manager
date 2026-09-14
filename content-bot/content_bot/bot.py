@@ -1671,12 +1671,12 @@ class ContentBot:
         record["text_message_id"] = sent.get("message_id")
         self.state.add_draft(draft_id, record)
         self._record_event(draft_id, "draft_sent")
-        if kind == "on_demand" and self.media is not None:
+        if kind in {"on_demand", "daily"} and self.media is not None:
             self._send_media_ask(record)
         return draft_id
 
     def _send_media_ask(self, record: dict) -> None:
-        """Offer media generation for one fresh on-demand draft."""
+        """Offer the media question for one fresh draft."""
         draft_id = str(record["id"])
         chat_id = record.get("chat_id")
         try:
@@ -3474,6 +3474,10 @@ class ContentBot:
                 self._start_media_job(
                     draft_id, self.settings.image_driver, "image", ""
                 )
+            elif media_mode == "ask" and self.media is not None:
+                record = self.state.get_draft(draft_id)
+                if record is not None:
+                    self._send_media_ask(record)
         log.info(
             "routine %s (%s): %s queued, %s skipped by the category mix rule, "
             "%s source(s) failed",

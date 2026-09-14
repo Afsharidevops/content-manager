@@ -17,7 +17,9 @@ pipeline:
 # Each enabled routine runs one pass per cadence period, drafts the ranked
 # candidates, optionally attaches an AI image, and drops the result into the
 # Telegram approval queue. Give every platform its own cadence by adding one
-# routine per platform; the on-demand and daily-proposal paths are unchanged.
+# routine per platform, and add several routines with different ids and times
+# to propose more than once per day; the on-demand and daily-proposal paths
+# are unchanged.
 # Shape (all keys except id are optional):
 #
 #   routines:
@@ -28,7 +30,7 @@ pipeline:
 #       time: "10:00"                # local time in pipeline.timezone
 #       weekday: monday              # weekly cadence only
 #       count: 1                     # drafts queued per run
-#       media: auto                  # auto (AI image) | none
+#       media: auto                  # auto (AI image) | ask (media question) | none
 routines: []
 
 # Deduplication tuning.

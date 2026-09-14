@@ -5,6 +5,19 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — Content Bot media question on scheduled proposals (2026-09-14)
+
+- The Content Bot media question now reaches scheduled proposals, not only
+  operator-sent links. When Media Studio is configured
+  (`CONTENT_MEDIA_STUDIO_URL`), every daily proposal is followed by the same
+  four choices as an on-demand draft (text only, AI image, send your own
+  image, or a video prompt), and scheduled routines can select
+  `media: ask` in `editorial-policy.yaml`. `media: auto` (AI image) and
+  `media: none` keep working unchanged.
+- More than one proposal per day needs no code change: add one routine per
+  slot, each with its own `id`, `time`, `count`, and `media` mode. Run markers
+  are per routine, so a second daily slot is independent of the first.
+
 ### Fixes — Buffered chat clients and streaming upstreams (2026-09-14)
 
 - A Chat Completions request that omits `stream` is now forwarded with an

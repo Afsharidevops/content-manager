@@ -86,9 +86,11 @@ snapshots stay in Media Studio (`data/media-studio/`). This satisfies the
 - Link drafting with a search fallback for short pages.
 - Topic drafting: plain messages are searched (DuckDuckGo HTML, no key) and
   drafted. Toggles: `CONTENT_SEARCH_ENABLED`, `CONTENT_TOPIC_DRAFTS_ENABLED`.
-- After an on-demand draft, the bot asks a four-choice media question: text
-  only, AI image, send your own image, or a video prompt the operator uses to
-  create the clip and upload it back.
+- After a draft, the bot asks a four-choice media question: text only, AI
+  image, send your own image, or a video prompt the operator uses to create
+  the clip and upload it back. The question is offered for on-demand drafts,
+  daily proposals, and routines with `media: ask`, whenever Media Studio is
+  configured.
 - Media jobs run through `CONTENT_MEDIA_STUDIO_URL` (Media Studio), with
   driver selection via `CONTENT_MEDIA_IMAGE_DRIVER` and
   `CONTENT_MEDIA_VIDEO_DRIVER` (Flow stays experimental).
@@ -116,9 +118,10 @@ snapshots stay in Media Studio (`data/media-studio/`). This satisfies the
   interactive confirmations plus a signed-in session; true multi-scene
   composition is Phase 3, and the supported video path is the operator-created
   prompt + upload flow.
-- The media question is only asked for operator-driven (`on_demand`) drafts.
-  Scheduled routines use their own `media: auto | none` step instead; the
-  daily proposal stays text-only.
+- The media question covers operator-driven (`on_demand`) drafts and daily
+  proposals, plus routines that set `media: ask`. A routine can instead
+  attach one AI image per queued draft (`media: auto`) or stay text-only
+  (`media: none`).
 - An operator-sent video is offered **Edit it / Publish as-is**. "Edit it"
   runs the offline `video-edit` driver in Media Studio (ffmpeg re-encode,
   long side cap, optional trim); AI editing of arbitrary footage is not part
@@ -136,8 +139,8 @@ research -> draft -> media -> approval for one platform:
 - drafts use the same discovery feeds, filters, scoring, and category-mix rule
   as the daily proposal and arrive as kind `routine` ("Scheduled proposal");
 - `media: auto` submits one image per queued draft through Media Studio and
-  attaches it when the job finishes; `media: none` queues text only. The
-  operator-driven media question stays `on_demand`-only.
+  attaches it when the job finishes; `media: ask` sends the four-choice media
+  question instead; `media: none` queues text only.
 
 The daily proposal remains the global single-pass schedule; routines add
 per-platform cadence on top and share its feeds and caps.

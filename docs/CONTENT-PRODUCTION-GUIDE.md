@@ -100,8 +100,10 @@ Commands in the bot chat: `/start`, `/help`, `/status`, `/tools`, and `/instagra
 
 ## Media for a draft
 
-Every fresh on-demand draft is followed by an "Add media to this post?"
-question with four choices:
+When Media Studio is configured (`CONTENT_MEDIA_STUDIO_URL`), every fresh
+on-demand draft and every daily proposal is followed by an "Add media to this
+post?" question with four choices (scheduled routines ask it only when they
+set `media: ask`; see "Scheduled routines" below):
 
 - **Text only** - the draft stays a normal text post.
 - **AI image** - the bot submits an image job to Media Studio
@@ -234,6 +236,10 @@ and is reloaded on every request and callback:
    daily cap (`max_approved_per_day`, default 3); operator-sent links do not.
 4. `max_consecutive_same_category` prevents same-category streaks across the
    batch and previously published items.
+5. When Media Studio is configured, each proposal is also followed by the
+   media question (see "Media for a draft"), so you decide per proposal
+   whether it stays text-only, gets an AI image, uses your own photo, or
+   becomes a video prompt.
 
 Add feeds by editing `data/content-manager/config/sources.yaml`:
 
@@ -263,7 +269,7 @@ routines:
     time: "10:00"            # local time in pipeline.timezone
     weekday: monday          # weekly cadence only
     count: 1                 # drafts queued per run
-    media: auto              # auto (AI image) | none
+    media: auto              # auto (AI image) | ask (media question) | none
 ```
 
 - A daily routine runs once per local day; a weekly routine runs once per ISO
@@ -272,9 +278,31 @@ routines:
   repeats a period.
 - `media: auto` submits one AI image per queued draft through Media Studio
   (`CONTENT_MEDIA_IMAGE_DRIVER`, default `api-image`) and delivers it as the
-  usual media preview when the job finishes. `media: none` queues text only.
-  Without Media Studio configured the drafts are still queued, and a failed
-  image job is reported to the operator.
+  usual media preview when the job finishes. `media: ask` sends the
+  four-choice media question instead (text only, AI image, send your own
+  image, or a video prompt). `media: none` queues text only. Without Media
+  Studio configured the drafts are still queued, and a failed image job is
+  reported to the operator.
+- More than one proposal per day needs no code change: add one routine per
+  slot. Each routine keeps its own run marker, so two daily routines at
+  different times are independent.
+
+```yaml
+routines:
+  - id: morning
+    enabled: true
+    cadence: daily
+    time: "08:00"
+    count: 1
+    media: ask
+  - id: evening
+    enabled: true
+    cadence: daily
+    time: "19:00"
+    count: 1
+    media: ask
+```
+
 - Routines share the discovery feeds, dedupe/filter/scoring rules, and the
   `max_consecutive_same_category` rule with the daily run; `/status` lists the
   active routines.

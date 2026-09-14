@@ -2979,6 +2979,35 @@ class RoutineScheduleTests(unittest.TestCase):
             )
         )
 
+    def test_routine_with_media_ask_sends_the_media_question(self):
+        self.write_routines(
+            [{"id": "ig", "cadence": "daily", "time": "10:00", "media": "ask"}]
+        )
+        self.bot.maybe_run_routines()
+        self.assertEqual(self.media.submits, [])
+        asks = [
+            message
+            for message in self.api.sent_messages
+            if "Add media to this post" in str(message.get("text"))
+        ]
+        self.assertEqual(len(asks), 1)
+        record = list(self.drafts().values())[0]
+        self.assertEqual(record["status"], "media_ask")
+
+    def test_daily_proposal_asks_for_media_when_media_is_configured(self):
+        self.bot.maybe_run_daily()
+        self.assertEqual(self.bot.state.load()["daily_last_run"], "2026-09-07")
+        drafts = list(self.drafts().values())
+        self.assertTrue(drafts)
+        self.assertTrue(all(record["kind"] == "daily" for record in drafts))
+        asks = [
+            message
+            for message in self.api.sent_messages
+            if "Add media to this post" in str(message.get("text"))
+        ]
+        self.assertEqual(len(asks), len(drafts))
+        self.assertTrue(all(record["status"] == "media_ask" for record in drafts))
+
     def test_routine_media_failure_is_reported(self):
         self.write_routines(
             [{"id": "ig", "cadence": "daily", "time": "10:00", "media": "auto"}]
