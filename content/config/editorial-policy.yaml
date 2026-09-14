@@ -7,6 +7,9 @@ schema_version: 1
 # Daily cadence and limits (decided values).
 pipeline:
   timezone: "Asia/Tehran"
+  # Built-in daily proposal pass. Set false when the scheduled routines
+  # replace it; routines keep their own cadence either way.
+  daily_enabled: true
   daily_proposal_time: "08:00"
   min_candidates: 5
   max_candidates: 5

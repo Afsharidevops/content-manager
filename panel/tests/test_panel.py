@@ -126,6 +126,10 @@ class ConfigStoreTest(unittest.TestCase):
         with self.assertRaisesRegex(EditError, "at least 1"):
             self.store.write("editorial-policy", "routines:\n  - id: morning\n    count: 0\n")
 
+    def test_policy_rejects_non_boolean_daily_enabled(self):
+        with self.assertRaisesRegex(EditError, "daily_enabled"):
+            self.store.write("editorial-policy", "pipeline:\n  daily_enabled: maybe\n")
+
     def test_policy_rejects_invalid_yaml(self):
         with self.assertRaisesRegex(EditError, "YAML error"):
             self.store.write("editorial-policy", "routines: [\n")

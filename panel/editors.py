@@ -286,6 +286,8 @@ def _validate_policy(parsed: dict) -> None:
         for key in ("timezone", "daily_proposal_time"):
             if key in pipeline and not isinstance(pipeline[key], str):
                 raise EditError(f"pipeline.{key} must be a string")
+        if "daily_enabled" in pipeline and not isinstance(pipeline["daily_enabled"], bool):
+            raise EditError("pipeline.daily_enabled must be true or false")
     routines = parsed.get("routines", [])
     if routines is None:
         return

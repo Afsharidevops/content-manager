@@ -143,7 +143,9 @@ research -> draft -> media -> approval for one platform:
   question instead; `media: none` queues text only.
 
 The daily proposal remains the global single-pass schedule; routines add
-per-platform cadence on top and share its feeds and caps.
+per-platform cadence on top and share its feeds and caps. Set
+`pipeline.daily_enabled: false` to turn the daily pass off when the routines
+replace it (default: enabled).
 
 ## Roadmap
 

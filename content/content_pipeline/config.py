@@ -20,6 +20,7 @@ _POLICY_DEFAULTS = {
     "schema_version": 1,
     "pipeline": {
         "timezone": "Asia/Tehran",
+        "daily_enabled": True,
         "daily_proposal_time": "08:00",
         "min_candidates": 5,
         "max_candidates": 5,

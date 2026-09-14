@@ -209,6 +209,15 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _policy_bool(value, default: bool = True) -> bool:
+    """Read an owner-editable policy boolean, tolerating string spellings."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"false", "no", "off", "0"}
+
+
 def _policy_zone(policy: dict) -> ZoneInfo:
     tz_name = str((policy.get("pipeline") or {}).get("timezone") or "Asia/Tehran")
     try:
@@ -3261,8 +3270,7 @@ class ContentBot:
             return hours * 60 + minutes
         return default
 
-    def _daily_schedule(self) -> tuple[ZoneInfo, int]:
-        policy = workflow.load_policy(self.settings.policy_dir)
+    def _daily_schedule(self, policy: dict) -> tuple[ZoneInfo, int]:
         pipeline = policy.get("pipeline") or {}
         zone = _policy_zone(policy)
         proposal_minutes = self._minutes_of_day(
@@ -3273,7 +3281,11 @@ class ContentBot:
     def maybe_run_daily(self) -> None:
         if not self.settings.scheduler_enabled:
             return
-        zone, proposal_minutes = self._daily_schedule()
+        policy = workflow.load_policy(self.settings.policy_dir)
+        pipeline = policy.get("pipeline") or {}
+        if not _policy_bool(pipeline.get("daily_enabled")):
+            return
+        zone, proposal_minutes = self._daily_schedule(policy)
         now_local = self.now_fn().astimezone(zone)
         day = now_local.date().isoformat()
         if str(self.state.load().get("daily_last_run") or "") == day:

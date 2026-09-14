@@ -250,7 +250,10 @@ sources:
 ```
 
 With no sources configured, the daily run notifies the operator and skips.
-Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`.
+Disable the scheduler entirely with `CONTENT_SCHEDULER_ENABLED=false`; disable
+only the built-in daily pass with `pipeline.daily_enabled: false` when the
+scheduled routines own the cadence (the default is `true`, and routines keep
+running either way).
 
 ## Scheduled routines (per-platform cadence)
 
@@ -307,7 +310,9 @@ routines:
   `max_consecutive_same_category` rule with the daily run; `/status` lists the
   active routines.
 - The shipped default is `routines: []`, so nothing is scheduled until you add
-  one; the daily proposal flow above keeps working unchanged.
+  one; the daily proposal flow above keeps working unchanged. When the
+  routines fully replace the daily pass, turn it off with
+  `pipeline.daily_enabled: false`.
 
 ## Telegram setup checklist
 

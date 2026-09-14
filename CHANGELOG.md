@@ -5,7 +5,7 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
-### Features — Content Bot media question on scheduled proposals (2026-09-14)
+### Features — Content Bot scheduled proposals: media question and daily toggle (2026-09-14)
 
 - The Content Bot media question now reaches scheduled proposals, not only
   operator-sent links. When Media Studio is configured
@@ -17,6 +17,10 @@ The current runtime release is **v0.5.9**.
 - More than one proposal per day needs no code change: add one routine per
   slot, each with its own `id`, `time`, `count`, and `media` mode. Run markers
   are per routine, so a second daily slot is independent of the first.
+- The built-in daily pass can be turned off with `pipeline.daily_enabled:
+  false` in `editorial-policy.yaml` when the scheduled routines own the
+  cadence. The default stays enabled, so existing deployments are unchanged,
+  and the routines keep running either way.
 
 ### Fixes — Buffered chat clients and streaming upstreams (2026-09-14)
 

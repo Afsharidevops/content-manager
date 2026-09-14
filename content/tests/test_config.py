@@ -25,6 +25,7 @@ def test_policy_encodes_decided_cadence_and_limits():
     assert pipe["max_consecutive_same_category"] == 3
     assert pipe["timezone"] == "Asia/Tehran"
     assert pipe["daily_proposal_time"] == "08:00"
+    assert pipe["daily_enabled"] is True
     assert policy["freshness_hours"] == 72
 
 

@@ -2918,6 +2918,22 @@ class RoutineScheduleTests(unittest.TestCase):
         self.assertEqual(len(self.writer.calls), 1)
         self.assertEqual(len(self.drafts()), 1)
 
+    def test_daily_run_can_be_disabled_by_policy(self):
+        path = self.policy_dir / "editorial-policy.yaml"
+        policy = yaml.safe_load(path.read_text(encoding="utf-8"))
+        policy["pipeline"]["daily_enabled"] = False
+        path.write_text(yaml.safe_dump(policy, allow_unicode=True), encoding="utf-8")
+        self.bot.maybe_run_daily()
+        self.assertEqual(self.writer.calls, [])
+        self.assertEqual(self.drafts(), {})
+        self.assertEqual(self.bot.state.load().get("daily_last_run"), "")
+        self.write_routines(
+            [{"id": "ig", "cadence": "daily", "time": "10:00", "media": "none"}]
+        )
+        self.bot.maybe_run_routines()
+        self.assertEqual(len(self.writer.calls), 1)
+        self.assertEqual(len(self.drafts()), 1)
+
     def test_routine_waits_for_its_local_time(self):
         self.write_routines(
             [{"id": "ig", "cadence": "daily", "time": "10:00", "media": "none"}]
