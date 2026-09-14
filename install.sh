@@ -826,7 +826,7 @@ if [[ -f "$ENV_FILE" ]]; then
       elif confirm "Reconfigure Media Studio settings?" n; then
         configure_media=true
       fi
-    elif confirm "Add Media Studio (optional media worker; api-image driver works without Google, flow-video/gemini-image need a signed-in Google session)?" n; then
+    elif confirm "Add Media Studio (optional media worker; api-image/api-video work without Google, flow-video/gemini-image need a signed-in Google session)?" n; then
       install_media=true
       configure_media=true
     fi
@@ -942,7 +942,7 @@ else
       fi
       ;;
     *)
-      if confirm "Add Media Studio (optional media worker; api-image works without Google, flow-video/gemini-image need a signed-in Google session)?" n; then
+      if confirm "Add Media Studio (optional media worker; api-image/api-video work without Google, flow-video/gemini-image need a signed-in Google session)?" n; then
         install_media=true
         configure_media=true
       fi
@@ -1917,17 +1917,20 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
   fi
 fi
 
-# Media Studio settings. The api-image driver reuses the writer endpoint
-# selected above (Smart Router, 9router/OmniRoute, or an external hosted API)
-# so Media Studio works without any Google subscription. flow-video and
-# gemini-image are optional and need a signed-in Google session; video-edit
+# Media Studio settings. The api-image and api-video drivers reuse the writer
+# endpoint selected above (Smart Router, 9router/OmniRoute, or an external
+# hosted API) so Media Studio works without any Google subscription. flow-video
+# and gemini-image are optional and need a signed-in Google session; video-edit
 # normalises an operator-recorded clip locally with ffmpeg.
 media_drivers="$(existing_env_value MEDIA_STUDIO_DRIVERS)"
-media_drivers="${media_drivers:-api-image,flow-video,video-edit}"
+media_drivers="${media_drivers:-api-image,api-video,flow-video,video-edit}"
 media_api_token="$(existing_env_value MEDIA_STUDIO_API_TOKEN)"
 media_writer_url="$(existing_env_value MEDIA_STUDIO_WRITER_BASE_URL)"
 media_writer_key="$(existing_env_value MEDIA_STUDIO_WRITER_API_KEY)"
 media_writer_model="$(existing_env_value MEDIA_STUDIO_WRITER_MODEL)"
+media_video_url="$(existing_env_value MEDIA_STUDIO_VIDEO_BASE_URL)"
+media_video_key="$(existing_env_value MEDIA_STUDIO_VIDEO_API_KEY)"
+media_video_model="$(existing_env_value MEDIA_STUDIO_VIDEO_MODEL)"
 media_block_geo="$(existing_env_value MEDIA_STUDIO_BLOCK_GEO_REDIRECT)"
 media_block_geo="${media_block_geo:-true}"
 media_freeze="$(existing_env_value MEDIA_STUDIO_FREEZE_ON_READY)"
@@ -1936,19 +1939,19 @@ if [[ "$install_media" == true && "$configure_media" == true ]]; then
   printf '\nMedia Studio settings\n'
   printf '%s\n' '------------------------'
   while true; do
-    media_drivers="$(prompt "Enabled drivers, comma-separated (api-image, flow-video, gemini-image, video-edit)" "$media_drivers")"
+    media_drivers="$(prompt "Enabled drivers, comma-separated (api-image, api-video, flow-video, gemini-image, video-edit)" "$media_drivers")"
     media_drivers="$(printf '%s' "$media_drivers" | tr ',' ' ' | tr -s ' ' | tr ' ' ',')"
     media_drivers_valid=true
     if IFS=',' read -r -a driver_list <<< "$media_drivers"; then
       for driver in "${driver_list[@]}"; do
         case "$driver" in
-          api-image|flow-video|gemini-image|video-edit) ;;
+          api-image|api-video|flow-video|gemini-image|video-edit) ;;
           *) media_drivers_valid=false ;;
         esac
       done
     fi
     [[ "$media_drivers_valid" == true && -n "$media_drivers" ]] && break
-    warn "Choose from api-image, flow-video, gemini-image, and video-edit only." >&2
+    warn "Choose from api-image, api-video, flow-video, gemini-image, and video-edit only." >&2
   done
   if [[ ",$media_drivers," == *,api-image,* ]]; then
     media_writer_default="$media_writer_url"
@@ -1966,6 +1969,25 @@ if [[ "$install_media" == true && "$configure_media" == true ]]; then
       [[ -n "$media_writer_key" ]] || media_writer_key="$(existing_env_value MEDIA_STUDIO_WRITER_API_KEY)"
       [[ -n "$media_writer_key" ]] || media_writer_key="$content_writer_key"
       media_writer_model="$(prompt "Image model id (as your API expects)" "${media_writer_model:-${content_writer_model:-auto}}")"
+    fi
+  fi
+  if [[ ",$media_drivers," == *,api-video,* ]]; then
+    media_video_default="$media_video_url"
+    [[ -n "$media_video_default" ]] || media_video_default="$media_writer_url"
+    while true; do
+      media_video_url="$(prompt "Video API base URL (Enter to reuse the image endpoint, or for no video API)" "$media_video_default")"
+      case "$media_video_url" in
+        "") break ;;
+        http://*|https://*) break ;;
+        *) warn "The video API base URL must start with http:// or https://." >&2 ;;
+      esac
+    done
+    if [[ -n "$media_video_url" ]]; then
+      media_video_model="$(prompt "Video model id (a provider model such as xai/grok-imagine-video; combos cannot generate video)" "${media_video_model:-}")"
+      if [[ -n "$media_video_model" ]]; then
+        media_video_key="$(prompt_secret "Video API key (Enter to reuse the image key)" true)"
+        [[ -n "$media_video_key" ]] || media_video_key="$(existing_env_value MEDIA_STUDIO_VIDEO_API_KEY)"
+      fi
     fi
   fi
   if [[ ",$media_drivers," == *,flow-video,* || ",$media_drivers," == *,gemini-image,* ]]; then
@@ -2229,14 +2251,17 @@ replace_env_value "$tmp_env" CONTENT_SCHEDULER_ENABLED "$content_scheduler_enabl
 media_studio_image_repository="$(existing_env_value MEDIA_STUDIO_IMAGE_REPOSITORY)"
 media_studio_image_repository="${media_studio_image_repository:-afsharidevops/media-studio}"
 media_studio_image_tag="$(existing_env_value MEDIA_STUDIO_IMAGE_TAG)"
-media_studio_image_tag="${media_studio_image_tag:-0.3.0}"
+media_studio_image_tag="${media_studio_image_tag:-0.4.0}"
 replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_REPOSITORY "$media_studio_image_repository"
 replace_env_value "$tmp_env" MEDIA_STUDIO_IMAGE_TAG "$media_studio_image_tag"
 replace_env_value "$tmp_env" MEDIA_STUDIO_RUN_AS "$media_run_as"
 replace_env_value "$tmp_env" MEDIA_STUDIO_DRIVERS "$media_drivers"
-replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_BASE_URL "$(dotenv_quote "$media_writer_url")"
-replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_API_KEY "$(dotenv_quote "$media_writer_key")"
-replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_MODEL "$(dotenv_quote "$media_writer_model")"
+  replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_BASE_URL "$(dotenv_quote "$media_writer_url")"
+  replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_API_KEY "$(dotenv_quote "$media_writer_key")"
+  replace_env_value "$tmp_env" MEDIA_STUDIO_WRITER_MODEL "$(dotenv_quote "$media_writer_model")"
+  replace_env_value "$tmp_env" MEDIA_STUDIO_VIDEO_BASE_URL "$(dotenv_quote "$media_video_url")"
+  replace_env_value "$tmp_env" MEDIA_STUDIO_VIDEO_API_KEY "$(dotenv_quote "$media_video_key")"
+  replace_env_value "$tmp_env" MEDIA_STUDIO_VIDEO_MODEL "$(dotenv_quote "$media_video_model")"
 replace_env_value "$tmp_env" MEDIA_STUDIO_API_TOKEN "$(dotenv_quote "$media_api_token")"
 replace_env_value "$tmp_env" MEDIA_STUDIO_BLOCK_GEO_REDIRECT "$media_block_geo"
 replace_env_value "$tmp_env" MEDIA_STUDIO_FREEZE_ON_READY "$media_freeze"
@@ -2254,7 +2279,9 @@ if [[ "$install_content" == true && "$install_media" == true ]]; then
   elif [[ ",$media_drivers," == *,gemini-image,* ]]; then
     replace_env_value "$tmp_env" CONTENT_MEDIA_IMAGE_DRIVER "gemini-image"
   fi
-  if [[ ",$media_drivers," == *,flow-video,* ]]; then
+  if [[ ",$media_drivers," == *,api-video,* ]]; then
+    replace_env_value "$tmp_env" CONTENT_MEDIA_VIDEO_DRIVER "api-video"
+  elif [[ ",$media_drivers," == *,flow-video,* ]]; then
     replace_env_value "$tmp_env" CONTENT_MEDIA_VIDEO_DRIVER "flow-video"
   fi
   # video-edit normalises an operator-recorded clip with ffmpeg; it is local

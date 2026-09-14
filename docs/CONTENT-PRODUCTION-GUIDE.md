@@ -182,11 +182,15 @@ to see the entries marked for the bot, together with the environment variable
 each one needs; `/status` shows how many entries exist. The file format and
 the per-service wiring are documented in `docs/TOOL-REGISTRY.md`.
 
-Experimental AI video jobs (`CONTENT_MEDIA_VIDEO_DRIVER`, default
-`flow-video`) can still be triggered from older media questions, but Google
-Flow requires interactive confirmations (credit usage and storyboard
-approval) plus a signed-in browser session, so it is not recommended for
-automated runs; see `docs/CONTENT-PRODUCTION-ARCHITECTURE.md`.
+AI video jobs follow `CONTENT_MEDIA_VIDEO_DRIVER`. The `api-video` driver
+generates a clip over HTTP through a video-capable provider of the gateway
+(`MEDIA_STUDIO_VIDEO_MODEL`, for example `xai/grok-imagine-video`) and needs no
+browser; `flow-video` drives Google Flow instead, which requires interactive
+confirmations (credit usage and storyboard approval) plus a signed-in browser
+session, so it is not recommended for automated runs. The video button offers
+about ten seconds or up to thirty; a gateway rejects chat combos for video, so
+the configured model has to be a concrete video model. See
+`docs/MEDIA-STUDIO.md` for the endpoint, key, and troubleshooting.
 
 When the media is ready:
 

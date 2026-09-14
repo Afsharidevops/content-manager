@@ -1673,7 +1673,7 @@ content_menu() {
 }
 
 media_status() {
-  local profiles drivers mode writer model token set freeze
+  local profiles drivers mode writer model token set freeze video video_model
   profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
   if [[ ",$profiles," != *,media,* ]]; then
     printf 'Media Studio is not enabled in COMPOSE_PROFILES. Run ./manage.sh media-configure to enable it.\n'
@@ -1686,9 +1686,14 @@ media_status() {
   token="$(env_value "$ENV_FILE" MEDIA_STUDIO_API_TOKEN)"
   freeze="$(env_value "$ENV_FILE" MEDIA_STUDIO_FREEZE_ON_READY)"
   printf 'Media Studio status\n'
-  printf '  Enabled drivers: %s\n' "${drivers:-api-image,flow-video,video-edit}"
+  printf '  Enabled drivers: %s\n' "${drivers:-api-image,api-video,flow-video,video-edit}"
   printf '  Session mode: %s\n' "${mode:-cdp}"
   printf '  Writer endpoint: %s\n' "${writer:-not configured}"
+  video="$(env_value "$ENV_FILE" MEDIA_STUDIO_VIDEO_BASE_URL)"
+  [[ -n "$video" ]] || video="$writer"
+  video_model="$(env_value "$ENV_FILE" MEDIA_STUDIO_VIDEO_MODEL)"
+  printf '  Video endpoint: %s\n' "${video:-not configured}"
+  printf '  Video model: %s\n' "${video_model:-not set (api-video jobs fail until MEDIA_STUDIO_VIDEO_MODEL is stored)}"
   printf '  API token: %s\n' "$([[ -n "$token" ]] && printf 'stored (secret not shown)' || printf 'not set (localhost only)')"
   case "$writer" in
     *smart-router*)
@@ -1697,6 +1702,11 @@ media_status() {
       printf '           section of docs/MEDIA-STUDIO.md.\n'
       ;;
   esac
+  if [[ -n "$video_model" && "$video_model" != */* ]]; then
+    printf '  Warning: the video model has no provider prefix; a chat combo such as ai or\n'
+    printf '           ai-strong cannot generate video. Use a provider model such as\n'
+    printf '           xai/grok-imagine-video. See docs/MEDIA-STUDIO.md.\n'
+  fi
   printf '  Flow freeze on ready: %s\n' "${freeze:-true}"
   printf '  Guide: docs/MEDIA-STUDIO.md\n'
   printf '  API base: http://127.0.0.1:%s (when enabled)\n' "$(env_value "$ENV_FILE" MEDIA_STUDIO_PORT | sed 's/^$/8850/')"

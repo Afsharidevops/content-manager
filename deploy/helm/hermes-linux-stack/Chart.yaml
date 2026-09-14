@@ -22,6 +22,8 @@ annotations:
     - Aparat video publishing in Content Bot 0.4.1, on demand and video-only
     - Scheduled proposals of the Content Bot now carry the media question,
       and the built-in daily pass can be switched off for routine-only stacks
+    - Media Studio 0.4.0 adds the api-video driver for video generation over
+      an OpenAI-compatible video API
     - LinkedIn publishing, social accounts, and per-destination adaptation in
       Content Bot 0.4.0
     - Optional in-cluster 9router/OmniRoute upstream

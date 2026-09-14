@@ -303,8 +303,20 @@ PLATFORMS: tuple[Platform, ...] = (
                 "secret",
                 help="Bearer token the bot sends to Media Studio.",
             ),
-            Field("CONTENT_MEDIA_IMAGE_DRIVER", "Image driver", "text", default="api-image"),
-            Field("CONTENT_MEDIA_VIDEO_DRIVER", "Video driver", "text", default="flow-video"),
+            Field(
+                "CONTENT_MEDIA_IMAGE_DRIVER",
+                "Image driver",
+                "text",
+                default="api-image",
+                help="api-image calls an OpenAI-compatible image API; gemini-image drives a signed-in Gemini session.",
+            ),
+            Field(
+                "CONTENT_MEDIA_VIDEO_DRIVER",
+                "Video driver",
+                "text",
+                default="flow-video",
+                help="api-video calls an OpenAI-compatible video API; flow-video drives Google Flow; video-edit prepares an uploaded clip.",
+            ),
             Field(
                 "CONTENT_MEDIA_VIDEO_EDIT_DRIVER",
                 "Video edit driver",
@@ -686,7 +698,7 @@ def test_writer(get) -> tuple[bool, str]:
 
 
 def test_media(get) -> tuple[bool, str]:
-    """Check the service health and the image API the media jobs call."""
+    """Check the service health and the media APIs the jobs call."""
     base = (get("CONTENT_MEDIA_STUDIO_URL") or "").rstrip("/")
     if not base:
         return False, "Store the base URL first."
@@ -703,12 +715,34 @@ def test_media(get) -> tuple[bool, str]:
     endpoint = (
         get("MEDIA_STUDIO_WRITER_BASE_URL") or get("CONTENT_WRITER_BASE_URL") or ""
     ).rstrip("/")
-    ok, detail = _probe_image_api(
-        endpoint, get("MEDIA_STUDIO_WRITER_API_KEY", secret=True)
-    )
+    image_key = get("MEDIA_STUDIO_WRITER_API_KEY", secret=True)
+    ok, detail = _probe_image_api(endpoint, image_key)
     if not ok:
         return False, f"Media Studio answered ({note}), but {detail}"
-    return True, f"Media Studio answered ({note}) and the image API responded at {endpoint}."
+    if (get("CONTENT_MEDIA_VIDEO_DRIVER") or "").strip().lower() != "api-video":
+        return True, (
+            f"Media Studio answered ({note}) and the image API responded at {endpoint}."
+        )
+    video_endpoint = (
+        get("MEDIA_STUDIO_VIDEO_BASE_URL") or endpoint
+    ).rstrip("/")
+    video_model = (get("MEDIA_STUDIO_VIDEO_MODEL") or "").strip()
+    if not video_model:
+        return False, (
+            f"Media Studio answered ({note}) and the image API responded at {endpoint}, "
+            "but the video driver is api-video and no MEDIA_STUDIO_VIDEO_MODEL is stored."
+        )
+    video_key = get("MEDIA_STUDIO_VIDEO_API_KEY", secret=True) or image_key
+    ok, detail = _probe_video_api(video_endpoint, video_key, video_model)
+    if not ok:
+        return False, (
+            f"Media Studio answered ({note}) and the image API responded at {endpoint}, "
+            f"but {detail}"
+        )
+    return True, (
+        f"Media Studio answered ({note}); the image API responded at {endpoint} and "
+        f"the video API accepted {video_model}."
+    )
 
 
 def _probe_image_api(endpoint: str, api_key: str) -> tuple[bool, str]:
@@ -740,6 +774,53 @@ def _probe_image_api(endpoint: str, api_key: str) -> tuple[bool, str]:
     if status < 500:
         return True, ""
     return False, f"the image endpoint answered HTTP {status}: {_detail(_json_body(body), body)}"
+
+
+def _probe_video_api(endpoint: str, api_key: str, model: str) -> tuple[bool, str]:
+    """Prove the video endpoint implements the route for the stored model.
+
+    The probe posts a model without a prompt: a real video route rejects that
+    as a bad request before any billable job is created, while a gateway that
+    serves only chat answers 404. The provider answer then separates a missing
+    route from a model the gateway cannot run.
+    """
+    if not endpoint:
+        return False, "no video endpoint is configured (MEDIA_STUDIO_VIDEO_BASE_URL)."
+    if not URL_RE.match(endpoint):
+        return False, "the video endpoint must start with http:// or https://."
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    status, body, error = _post_json(
+        f"{endpoint}/videos/generations", headers, {"model": model}
+    )
+    if error:
+        return False, f"the video endpoint is unreachable: {error}"
+    detail = _detail(_json_body(body), body)
+    text = detail.lower()
+    if status == 404:
+        return (
+            False,
+            "the video endpoint has no video API. Point MEDIA_STUDIO_VIDEO_BASE_URL at "
+            "a gateway that serves /videos/generations.",
+        )
+    if status in {401, 403}:
+        return False, "the video endpoint refused the stored MEDIA_STUDIO_VIDEO_API_KEY."
+    if "combos are not supported" in text:
+        return (
+            False,
+            "the gateway refuses provider combos for video; store a concrete video model "
+            "in MEDIA_STUDIO_VIDEO_MODEL (for example xai/grok-imagine-video).",
+        )
+    if "no credentials for provider" in text:
+        return (
+            False,
+            f"the video route answered but the gateway holds no credentials for that "
+            f"provider ({detail}); connect it in the router.",
+        )
+    if status < 500:
+        return True, ""
+    return False, f"the video endpoint answered HTTP {status}: {detail}"
 
 
 def _linkedin_author(kind: str, urn: str, person: str, organization: str) -> str:

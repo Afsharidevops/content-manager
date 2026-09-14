@@ -133,6 +133,20 @@ if grep -q 'stack chat gateway' <<<"$media_out"; then
   exit 1
 fi
 
+# The video lines name the model and warn when it is a chat combo, which the
+# gateway rejects for video generation.
+printf 'MEDIA_STUDIO_VIDEO_MODEL=ai-strong\n' >> "$tmp/.env"
+media_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" media-status)"
+grep -q 'Video model: ai-strong' <<<"$media_out"
+grep -q 'cannot generate video' <<<"$media_out"
+sed -i 's|^MEDIA_STUDIO_VIDEO_MODEL=.*|MEDIA_STUDIO_VIDEO_MODEL=xai/grok-imagine-video|' "$tmp/.env"
+media_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" media-status)"
+grep -q 'Video model: xai/grok-imagine-video' <<<"$media_out"
+if grep -q 'cannot generate video' <<<"$media_out"; then
+  printf 'media-status must only warn for combo video models\n' >&2
+  exit 1
+fi
+
 # Public routes: host names come from STACK_BASE_DOMAIN, a recorded public URL
 # is read back as recorded, and a loopback bind is called out with the LAN
 # target in the printed proxy block.

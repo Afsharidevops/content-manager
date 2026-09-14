@@ -7,6 +7,7 @@ stack. It runs jobs one at a time and exposes a small JSON API on
 | Driver        | Group   | Needs        | Produces               |
 |---------------|---------|--------------|------------------------|
 | `api-image`   | api     | an OpenAI-compatible image API | PNG/JPEG/WebP images |
+| `api-video`   | api     | an OpenAI-compatible video API | MP4/WebM video       |
 | `flow-video`  | google  | a signed-in Google Flow session | MP4 video             |
 | `gemini-image`| google  | a signed-in Gemini session      | PNG/JPEG/WebP images |
 
@@ -22,6 +23,110 @@ Smart Router of this stack speaks chat completions, Responses, and Messages
 only, so pointing `MEDIA_STUDIO_WRITER_BASE_URL` at it makes every image job
 fail with `HTTP 404`; a gateway that serves both (for example a router with an
 image-capable provider connected) is required.
+
+A working image configuration is three keys in `.env`:
+
+```bash
+MEDIA_STUDIO_WRITER_BASE_URL=https://your-image-api.example/v1
+MEDIA_STUDIO_WRITER_MODEL=ai-strong
+MEDIA_STUDIO_WRITER_API_KEY=...
+```
+
+The model may be an alias of the endpoint as long as it resolves to an image
+model. `./manage.sh media-status` prints the endpoint the container uses, the
+panel's Media Studio test proves the endpoint answers the images route before
+a draft asks for one, and a job that still fails reports the provider answer
+in the chat.
+
+## Video generation over an API
+
+`api-video` generates a clip over HTTP the same way `api-image` generates an
+image, so a deployment without a Google session can still answer the video
+button of the Content Bot. It speaks the asynchronous video API of the router
+family (the 9router contract that xAI Grok Imagine uses):
+
+1. `POST <base>/videos/generations` with `{"model", "prompt"}` and optional
+   `duration` (seconds), `aspect_ratio`, `resolution`, `negative_prompt`, and
+   `seed` returns a job id (`request_id`).
+2. `GET <base>/videos/<id>` is polled every `MEDIA_STUDIO_VIDEO_POLL_SECONDS`
+   until the provider answers `done` (or `failed`).
+3. The finished `video.url` is downloaded and stored as `video_1.mp4`; the
+   configured brand chip is baked in with ffmpeg unless the job passes
+   `"params": {"brand": false}`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MEDIA_STUDIO_VIDEO_BASE_URL` | the writer endpoint | Gateway root, including `/v1`. |
+| `MEDIA_STUDIO_VIDEO_API_KEY` | the writer key | Bearer token for the video route. |
+| `MEDIA_STUDIO_VIDEO_MODEL` | empty | Video model id; a job without one fails with this variable in the message. |
+| `MEDIA_STUDIO_VIDEO_PROVIDER` | derived from the model | Adds `?provider=` to the generation request. |
+| `MEDIA_STUDIO_VIDEO_DURATION` | provider default | Clip length in seconds for jobs that carry no duration. |
+| `MEDIA_STUDIO_VIDEO_ASPECT_RATIO` | provider default | For example `16:9` or `9:16`. |
+| `MEDIA_STUDIO_VIDEO_RESOLUTION` | provider default | For example `720p`. |
+| `MEDIA_STUDIO_VIDEO_POLL_SECONDS` | `10` | Delay between status lookups. |
+| `MEDIA_STUDIO_VIDEO_TIMEOUT_SECONDS` | `900` | Give up on a job that never finishes. |
+
+The model must be one the gateway can really run. A gateway that proxies video
+(9router and its forks) keeps a small list of video-capable providers - the
+model name selects one of them:
+
+| Provider | Model examples |
+| --- | --- |
+| `xai` | `xai/grok-imagine-video` |
+| `openrouter` | `openrouter/google/veo-3.1`, `openrouter/openai/sora-2-pro`, `openrouter/bytedance/seedance-2.0` |
+| `vertex` | `vertex/veo-3.1-fast-generate-preview`, `vertex/veo-3.0-generate-001` |
+
+Two answers are easy to confuse with a broken endpoint and both have their own
+message in the job log and in the chat:
+
+- `Combos are not supported for video generation` - the stored model is a chat
+  combo (a multi-provider group such as `ai` or `ai-strong`) instead of one
+  video model. Combos are a chat feature, so store the concrete model.
+- `No credentials for provider: <provider>` - the route works, but the gateway
+  holds no key or account for that provider. Connect it in the router, or set
+  `MEDIA_STUDIO_VIDEO_BASE_URL` to an API that serves video directly.
+
+### Connecting a video provider
+
+Video is the one capability a chat-only gateway cannot fake, so the gateway
+needs an account for one of the three providers above. In the router dashboard
+(9router: **Providers**, then add a connection) pick one:
+
+| Option | What to supply | Notes |
+| --- | --- | --- |
+| xAI (Grok) | **Sign in** (OAuth) or an API key from `console.x.ai` | Cheapest when a Grok subscription already exists: `grok-imagine-video` supports duration, aspect ratio, and resolution. |
+| OpenRouter | An API key from `openrouter.ai/settings/keys` | Serves `google/veo-3.1`, `openai/sora-2-pro`, and `bytedance/seedance-2.0`; **video is paid** - a free-tier key answers `402`, so the account needs credits. |
+| Vertex AI | A Google Cloud service account JSON with the Vertex AI API enabled | Serves `veo-3.1-fast-generate-preview`, `veo-3.0-generate-001`, and `veo-2.0-generate-001`; new Google Cloud accounts get $300 of credit, which is the cheapest way to try Veo. |
+
+After the connection tests green in the router, store the model that belongs to
+it, then restart the two services that read the value:
+
+```bash
+MEDIA_STUDIO_DRIVERS=api-image,api-video,flow-video,video-edit
+MEDIA_STUDIO_VIDEO_MODEL=xai/grok-imagine-video
+CONTENT_MEDIA_VIDEO_DRIVER=api-video
+docker compose up -d media-studio content-bot
+```
+
+The panel's **Platforms -> Media Studio -> Test** names the missing piece
+before a draft asks for a clip: no model, a chat combo, a route the gateway does
+not serve, or a provider without credentials.
+
+Example: `api-video` against the same gateway that serves the images.
+
+```bash
+MEDIA_STUDIO_DRIVERS=api-image,api-video,video-edit
+MEDIA_STUDIO_VIDEO_BASE_URL=https://ai.example.com/v1
+MEDIA_STUDIO_VIDEO_MODEL=xai/grok-imagine-video
+MEDIA_STUDIO_VIDEO_API_KEY=...
+CONTENT_MEDIA_VIDEO_DRIVER=api-video
+```
+
+The Content Bot picks its video driver from `CONTENT_MEDIA_VIDEO_DRIVER`
+(`flow-video` by default, `api-video` with the block above, `video-edit` for
+operator clips). When the bot and Media Studio run on one server, the panel's
+Media Studio test also probes the video route and names the missing variable
+before an operator presses the video button.
 
 ## Install
 
@@ -142,6 +247,13 @@ curl -X POST http://127.0.0.1:8850/jobs \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"driver": "flow-video", "prompt": "Slow drone shot over a misty forest"}
+
+# submit an API video job (needs MEDIA_STUDIO_VIDEO_MODEL)
+curl -X POST http://127.0.0.1:8850/jobs \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"driver": "api-video", "prompt": "Slow drone shot over a misty forest",
+       "params": {"duration": 8, "aspect_ratio": "16:9"}}'
 
 # poll a job
 curl http://127.0.0.1:8850/jobs/<id> -H 'Authorization: Bearer <token>'
@@ -267,6 +379,11 @@ wait window, then download `probe.json` and `probe.png` to pick selectors.
 | --- | --- |
 | `Image API returned HTTP 404 for model <model>` | The endpoint behind `MEDIA_STUDIO_WRITER_BASE_URL` has no `/images/generations` route. The usual cause is pointing it at the stack's own Smart Router, which serves chat completions only. Point it at an OpenAI-compatible image API and set `MEDIA_STUDIO_WRITER_MODEL` to an image model of that endpoint. |
 | `No credentials for provider: openai` (or `gemini`, `google`) | The gateway answered, but holds no key for the provider that owns the model name. Connect that provider in the gateway, or call an image API directly and store its key in `MEDIA_STUDIO_WRITER_API_KEY`. |
+| `No video model is configured.` | `api-video` ran without `MEDIA_STUDIO_VIDEO_MODEL`. Store a video model of the endpoint (for example `xai/grok-imagine-video`). |
+| `Combos are not supported for video generation` | The stored video model is a chat combo such as `ai` or `ai-strong`. Combos never generate video; store the concrete model of a video provider. |
+| `No credentials for provider: xai` (or `openrouter`, `vertex`) | The video route exists, but the gateway has no key or account for that provider. Connect it in the router, or point `MEDIA_STUDIO_VIDEO_BASE_URL` at an API that serves video. |
+| `Video API returned HTTP 404 for model <model>` | The endpoint has no `/videos/generations` route (the stack Smart Router serves chat completions only). Point `MEDIA_STUDIO_VIDEO_BASE_URL` at a gateway with the video API. |
+| `Video job <id> did not finish within 900s` | Provider rendering ran past the deadline. Raise `MEDIA_STUDIO_VIDEO_TIMEOUT_SECONDS`; long clips can take several minutes. |
 | `The session browser is not signed in to Google` | A Google driver (`gemini-image`, `flow-video`) needs the Chrome described under "Sessions for Google drivers"; sign in there once and retry. |
 | `Image API is unreachable at ...` | DNS, network, or a base URL without `/v1`. `./manage.sh media-status` prints the endpoint the container uses. |
 

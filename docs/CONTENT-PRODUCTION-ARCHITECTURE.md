@@ -187,7 +187,8 @@ optional peer service instead of being reimplemented here.
 CONTENT_MEDIA_STUDIO_URL            Media Studio API base URL (blank disables)
 CONTENT_MEDIA_STUDIO_TOKEN          Bearer token for Media Studio
 CONTENT_MEDIA_IMAGE_DRIVER          image driver (default api-image)
-CONTENT_MEDIA_VIDEO_DRIVER          video driver (default flow-video)
+CONTENT_MEDIA_VIDEO_DRIVER          video driver: api-video, flow-video, video-edit
+MEDIA_STUDIO_VIDEO_MODEL            video model of the gateway (api-video only)
 CONTENT_MEDIA_VIDEO_EDIT_DRIVER     driver for an uploaded clip (default video-edit)
 SMART_ROUTER_TOOLS_REGISTRY        tool registry file served on GET /v1/tools
 N8N_TOOLS_REGISTRY                 tool registry file read by the n8n bootstrap

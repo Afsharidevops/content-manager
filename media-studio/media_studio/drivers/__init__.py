@@ -20,6 +20,11 @@ DRIVERS: dict[str, DriverMeta] = {
         label="Image generation through an OpenAI-compatible API",
         group="api",
     ),
+    "api-video": DriverMeta(
+        name="api-video",
+        label="Video generation through an OpenAI-compatible video API",
+        group="api",
+    ),
     "video-edit": DriverMeta(
         name="video-edit",
         label="Normalise an operator-uploaded video with ffmpeg",

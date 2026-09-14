@@ -498,6 +498,74 @@ class PlatformStoreTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("MEDIA_STUDIO_WRITER_BASE_URL", result["detail"])
 
+    def test_media_test_probes_the_video_route_when_the_api_driver_is_active(self):
+        (self.root / ".env").write_text(
+            "CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850\n"
+            "MEDIA_STUDIO_WRITER_BASE_URL=https://gateway.example/v1\n"
+            "MEDIA_STUDIO_VIDEO_MODEL=xai/grok-imagine-video\n"
+            "CONTENT_MEDIA_VIDEO_DRIVER=api-video\n",
+            encoding="utf-8",
+        )
+        posted = []
+
+        def fake_post(url, headers, payload):
+            posted.append((url, payload))
+            if url.endswith("/videos/generations"):
+                return 400, '{"error": {"message": "prompt is required"}}', ""
+            return 400, '{"error": {"message": "size is required"}}', ""
+
+        with mock.patch(
+            "panel.platforms._fetch", return_value=(200, '{"ok": true, "jobs": 1}', "")
+        ), mock.patch("panel.platforms._post_json", side_effect=fake_post):
+            result = self.store.test("media", {})
+        self.assertTrue(result["ok"], result["detail"])
+        self.assertIn("xai/grok-imagine-video", result["detail"])
+        self.assertEqual(
+            posted,
+            [
+                ("https://gateway.example/v1/images/generations", {}),
+                ("https://gateway.example/v1/videos/generations", {"model": "xai/grok-imagine-video"}),
+            ],
+        )
+
+    def test_media_test_reports_a_gateway_without_video_credentials(self):
+        (self.root / ".env").write_text(
+            "CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850\n"
+            "MEDIA_STUDIO_WRITER_BASE_URL=https://gateway.example/v1\n"
+            "MEDIA_STUDIO_VIDEO_MODEL=xai/grok-imagine-video\n"
+            "CONTENT_MEDIA_VIDEO_DRIVER=api-video\n",
+            encoding="utf-8",
+        )
+
+        def fake_post(url, headers, payload):
+            if url.endswith("/videos/generations"):
+                return 400, '{"error": {"message": "No credentials for provider: xai"}}', ""
+            return 400, '{"error": {"message": "size is required"}}', ""
+
+        with mock.patch(
+            "panel.platforms._fetch", return_value=(200, '{"ok": true, "jobs": 1}', "")
+        ), mock.patch("panel.platforms._post_json", side_effect=fake_post):
+            result = self.store.test("media", {})
+        self.assertFalse(result["ok"])
+        self.assertIn("No credentials for provider: xai", result["detail"])
+
+    def test_media_test_asks_for_a_video_model(self):
+        (self.root / ".env").write_text(
+            "CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850\n"
+            "MEDIA_STUDIO_WRITER_BASE_URL=https://gateway.example/v1\n"
+            "CONTENT_MEDIA_VIDEO_DRIVER=api-video\n",
+            encoding="utf-8",
+        )
+        with mock.patch(
+            "panel.platforms._fetch", return_value=(200, '{"ok": true, "jobs": 1}', "")
+        ), mock.patch(
+            "panel.platforms._post_json",
+            return_value=(400, '{"error": {"message": "size is required"}}', ""),
+        ):
+            result = self.store.test("media", {})
+        self.assertFalse(result["ok"])
+        self.assertIn("MEDIA_STUDIO_VIDEO_MODEL", result["detail"])
+
     def test_the_writer_falls_back_to_the_health_route(self):
         (self.root / ".env").write_text(
             "CONTENT_WRITER_BASE_URL=http://gateway.local:9000\n", encoding="utf-8"

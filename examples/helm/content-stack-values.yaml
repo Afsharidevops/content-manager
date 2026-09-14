@@ -33,6 +33,10 @@ components:
     env:
       TZ: Asia/Tehran
       MEDIA_STUDIO_WRITER_BASE_URL: http://hermes-smart-router:8080/v1
+      # Video generation goes through a video-capable provider of the gateway.
+      # The model selects the provider, and chat combos cannot generate video.
+      # MEDIA_STUDIO_VIDEO_MODEL: xai/grok-imagine-video
+      # MEDIA_STUDIO_VIDEO_BASE_URL: https://gateway.example.com/v1
   panel:
     enabled: true
     existingSecret: content-panel-secrets

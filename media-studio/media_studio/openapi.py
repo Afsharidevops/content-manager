@@ -69,8 +69,8 @@ def openapi_document() -> dict:
             "version": __version__,
             "description": (
                 "Job API for image and video generation plus uploaded-clip "
-                "editing. Drivers: api-image, flow-video, gemini-image, "
-                "video-edit."
+                "editing. Drivers: api-image, api-video, flow-video, "
+                "gemini-image, video-edit."
             ),
         },
         "servers": [{"url": "/"}],
@@ -131,6 +131,7 @@ def openapi_document() -> dict:
                                             "type": "string",
                                             "enum": [
                                                 "api-image",
+                                                "api-video",
                                                 "flow-video",
                                                 "gemini-image",
                                                 "video-edit",

@@ -4,8 +4,8 @@ Fifth release of the Content Manager fork on the Hermes Linux Stack v0.5.9
 platform. It adds Aparat as an automatic video channel that publishes only
 when the operator picks it on a draft that carries a video, completes the
 media question on scheduled proposals, and lets the built-in daily pass be
-switched off. It ships Content Bot 0.4.1 and operator panel 0.4.1; Media
-Studio stays 0.3.0 because nothing in its build context changed.
+switched off. It ships Content Bot 0.4.1, operator panel 0.4.1, and Media
+Studio 0.4.0 with video generation over an API.
 
 ## Highlights
 
@@ -41,6 +41,16 @@ Studio stays 0.3.0 because nothing in its build context changed.
   console, the OpenAI-compatible API, model and alias selection, routing
   profiles, the Orchestrator, and the client integrations for every project
   that carries the router.
+- **Video generation over an API (Media Studio 0.4.0)** - the new `api-video`
+  driver submits an asynchronous video job over HTTP
+  (`POST <base>/videos/generations`, then `GET <base>/videos/<id>`), downloads
+  the finished clip, and bakes in the brand chip, so the video button works
+  without a signed-in Google session as soon as the gateway holds a
+  video-capable provider. It is configured with `MEDIA_STUDIO_VIDEO_MODEL`
+  (for example `xai/grok-imagine-video`), `MEDIA_STUDIO_VIDEO_BASE_URL`, and
+  `MEDIA_STUDIO_VIDEO_API_KEY`, which fall back to the image endpoint and key.
+  The panel's Media Studio test probes the video route too and names a missing
+  model, a chat combo, or a provider without credentials.
 
 ## Artifacts
 
@@ -48,8 +58,8 @@ Studio stays 0.3.0 because nothing in its build context changed.
   published by `.github/workflows/publish-content-bot.yml`.
 - Operator panel image: `afsharidevops/content-panel:0.4.1` (plus `:latest`),
   published by `.github/workflows/publish-panel.yml`.
-- Media Studio image: `afsharidevops/media-studio:0.3.0` (unchanged; no file in
-  its build context changed).
+- Media Studio image: `afsharidevops/media-studio:0.4.0` (plus `:latest`),
+  published by `.github/workflows/publish-media-studio.yml`.
 - Helm chart: `hermes-linux-stack` 0.6.3 carries the new component tags and is
   published by `.github/workflows/publish-helm-chart.yml` on the release tag.
 - Platform: Hermes Linux Stack v0.5.9 (inherited unchanged upstream).
@@ -60,6 +70,14 @@ Studio stays 0.3.0 because nothing in its build context changed.
   `CONTENT_BOT_IMAGE_TAG=0.4.1` and `PANEL_IMAGE_TAG=0.4.1` in `.env`, then
   `docker compose pull content-bot panel && docker compose up -d content-bot panel`.
   The installer writes both defaults, so a fresh install needs nothing.
+- Media Studio is a pulled image too: set `MEDIA_STUDIO_IMAGE_TAG=0.4.0`, then
+  `docker compose pull media-studio && docker compose up -d media-studio`. The
+  new driver is inert until it is listed in `MEDIA_STUDIO_DRIVERS` and given a
+  video model, so an existing deployment keeps its current video behavior.
+- Video generation still needs a video-capable provider: connect xAI,
+  OpenRouter, or Vertex AI in the gateway and store its model in
+  `MEDIA_STUDIO_VIDEO_MODEL`. Chat combos (`ai`, `ai-strong`) never generate
+  video - the gateway answers `Combos are not supported for video generation`.
 - Aparat stays off until a session is stored, and it never publishes on its
   own: a deployment that stores nothing keeps the package behavior of 0.4.0,
   and the daily pipeline is untouched.

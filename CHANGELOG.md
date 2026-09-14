@@ -346,8 +346,24 @@ platform; this section tracks the fork additions.
   stack chat gateway, and `docs/MEDIA-STUDIO.md` gained a troubleshooting
   table (the Smart Router serves chat completions only, so an image model and
   an image-capable provider are required).
-- Content Bot 0.4.1 and operator panel 0.4.1; Media Studio stays 0.3.0. The
-  Helm chart moves to 0.6.3 with the same image tags.
+- Added the Media Studio `api-video` driver: it submits
+  `POST <base>/videos/generations`, polls `GET <base>/videos/<id>`, downloads
+  the finished clip, and bakes in the brand chip, so a deployment without a
+  Google session can answer the video button of the Content Bot through a
+  video-capable provider of the gateway (`xai/grok-imagine-video`,
+  `openrouter/google/veo-3.1`, `vertex/veo-3.1-fast-generate-preview`). A chat
+  combo such as `ai` or `ai-strong` is rejected by the gateway with "Combos are
+  not supported for video generation", and both the driver and the panel test
+  say so instead of failing silently. New keys:
+  `MEDIA_STUDIO_VIDEO_BASE_URL`, `MEDIA_STUDIO_VIDEO_API_KEY`,
+  `MEDIA_STUDIO_VIDEO_MODEL`, `MEDIA_STUDIO_VIDEO_PROVIDER`,
+  `MEDIA_STUDIO_VIDEO_DURATION`, `MEDIA_STUDIO_VIDEO_ASPECT_RATIO`,
+  `MEDIA_STUDIO_VIDEO_RESOLUTION`, `MEDIA_STUDIO_VIDEO_POLL_SECONDS`,
+  `MEDIA_STUDIO_VIDEO_TIMEOUT_SECONDS`; the video endpoint and key fall back to
+  the writer values, and `MEDIA_STUDIO_DRIVERS` now ships
+  `api-image,api-video,flow-video,video-edit`.
+- Content Bot 0.4.1, operator panel 0.4.1, and Media Studio 0.4.0. The Helm
+  chart moves to 0.6.3 with the same image tags.
 
 ### Fork release — Content Manager v0.4.0 (2026-09-14)
 

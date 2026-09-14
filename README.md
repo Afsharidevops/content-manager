@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.1   Media Studio: 0.3.0   Panel: 0.4.1
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.1   Media Studio: 0.4.0   Panel: 0.4.1
 ```
 
 ## Screenshots
@@ -67,10 +67,11 @@ check object storage, and take backups. The captures use demonstration data.
   needs an image or a video, submits the job to Media Studio, shows the media
   preview for approval, and publishes the post plus media to the channel.
 - **Media generation (optional)** - Media Studio turns prompts into images or
-  video through an OpenAI-compatible API (`api-image`, no Google account) and,
-  optionally, through a signed-in Google Flow/Gemini session. See
-  `docs/MEDIA-STUDIO.md`. The Flow region unlock is also available standalone
-  for laptop use: `docs/FLOW-UNLOCK-STANDALONE.md` and
+  video through an OpenAI-compatible API (`api-image` and `api-video`, no
+  Google account; the video model must be a video-capable provider of the
+  gateway) and, optionally, through a signed-in Google Flow/Gemini session.
+  See `docs/MEDIA-STUDIO.md`. The Flow region unlock is also available
+  standalone for laptop use: `docs/FLOW-UNLOCK-STANDALONE.md` and
   `extensions/locallab-flow-unlock/`.
 
 | Platform | State |
@@ -81,7 +82,7 @@ check object storage, and take backups. The captures use demonstration data.
 | LinkedIn | Automatic publish to a personal profile or a company page through the REST API; each account gets its own adapted text, and the generic entry stays a copy-ready package until an account is configured; see `docs/LINKEDIN-SETUP.md` |
 | YouTube | Copy-ready upload package handed over from the same preview |
 | Aparat | Video-only automatic upload through the Aparat web API once a browser session is stored, otherwise the copy-ready package; see `docs/APARAT-SETUP.md` |
-| Media assets | Optional: `media-studio` worker (API images now; Google Flow/Gemini via browser session) |
+| Media assets | Optional: `media-studio` worker (API images and API video; Google Flow/Gemini via browser session) |
 
 ## Architecture
 
@@ -264,7 +265,7 @@ whenever their source is pushed to `main`:
 
 ```text
 afsharidevops/content-bot:0.4.1
-afsharidevops/media-studio:0.3.0
+afsharidevops/media-studio:0.4.0
 afsharidevops/content-panel:0.4.1
 afsharidevops/content-bot:latest
 ```
