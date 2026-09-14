@@ -24,7 +24,17 @@ of failing silently, so publish the text and attach the video in the app.
 1. Open **https://www.linkedin.com/developers/apps** and press **Create app**.
 2. Fill in the app name, the LinkedIn page to associate it with, an app logo,
    and a contact email.
-3. Open the **Products** tab and request:
+3. Verify the company association before requesting anything. Open the app's
+   **Settings** tab, find **Company association**, and press **Verify**. The
+   request goes to the admins of the associated page, and one of them has to
+   approve it (LinkedIn sends each admin a notification). If the page itself
+   is not verified yet, LinkedIn asks for that first - the page admins see a
+   **Verify** flow in the page's own settings, and the usual proof is an admin
+   email on the company domain. Without this step the Products tab answers
+   `Requesting access requires your application's company association to be
+   verified`. Only a page admin can complete it; if that is someone else, ask
+   them to open the notification and approve the app.
+4. Open the **Products** tab and request:
    - **Share on LinkedIn** - the personal-profile publisher
      (`w_member_social`). It is granted immediately for most apps.
    - **Sign In with LinkedIn using OpenID Connect** - recommended: it grants
@@ -33,8 +43,8 @@ of failing silently, so publish the text and attach the video in the app.
    - **Community Management API** - only for company-page posts
      (`w_organization_social`). LinkedIn reviews this request; the personal
      flow works without it.
-4. Open the **Auth** tab and note the **Client ID** and **Client Secret**.
-5. Under **OAuth 2.0 settings** add a redirect URL. For a one-time token mint
+5. Open the **Auth** tab and note the **Client ID** and **Client Secret**.
+6. Under **OAuth 2.0 settings** add a redirect URL. For a one-time token mint
    `https://localhost:8765/callback` is enough - nothing has to listen there
    when you copy the `code` out of the browser address bar.
 
@@ -377,6 +387,7 @@ it is reported.
 | Nothing appears under **More platforms...** | `CONTENT_PLATFORMS_ENABLED=true` is required; also check the account has both a token and an author |
 | The LinkedIn entry is missing while others show | The account was skipped at startup: the log names the reason (missing token, unreadable file) |
 | `invalid_request: appid/redirect uri/code verifier does not match` | The token request and the authorization request disagree: pass the plain `redirect_uri` (not the percent-encoded form), use the same app's client id and secret, and copy a fresh single-use `code` |
+| `Requesting access requires your application's company association to be verified` | Requesting any product needs a verified association between the app and its LinkedIn page: app **Settings -> Company association -> Verify**, approved by a page admin (and the page itself verified if LinkedIn asks) |
 | The Auth tab refuses to save the redirect URL | Register an HTTPS URL you control instead of localhost; the page does not have to exist, the `code` is visible in the address bar |
 | `LinkedIn did not return an image upload URL` | The author URN or the write scope is wrong; re-run the step-3 probe |
 | Post looks like the draft, not the tone | Adaptation is off, the writer is not configured, or the rewrite failed - the bot falls back to the draft text and logs the reason |
