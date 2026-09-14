@@ -342,6 +342,7 @@ bash tests/test-manage-ux.sh
 - [Object storage](docs/S3-STORAGE.md) - bundled RustFS or an external S3 endpoint for stack services
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing
 - [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
+- [Smart Router complete user guide](docs/SMART-ROUTER-USER-GUIDE.md) - every panel page, client API, recipes, configuration, and troubleshooting
 - [Multi-agent orchestration](docs/ORCHESTRATION.md) - plan, approve/reject, review
 - [Operations](docs/OPERATIONS.md) and [release process](docs/RELEASE-PROCESS.md)
 - [Changelog](CHANGELOG.md)
