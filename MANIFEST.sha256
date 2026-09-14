@@ -82,7 +82,7 @@ a3f25da07bbd442da7699f8de1a01d3cbd7b2742f855c64cf6e5f7b21f1f21f5  ./execution-br
 6b7ea776e22ebe10e6c40491d1aac4cda271f6c19afe4617cad978e9d8fc8724  ./execution-broker/src/broker/store.py
 66211081a60ab4390bf2073b09461e0798f924f3552383dff7bcd06cf45e7575  ./execution-broker/ssh-askpass.py
 889dc0f4f1f665526bc9d716ffcc98867f118e059ca5d011cfe3c20c78fbe115  ./install.sh
-1d412a4832235bc3fb80a4409aff99b9e1713062609ec5ef6a8cbb979ed49844  ./manage.sh
+128061a2dea91e23090012c425194cf451bf3e44be6bd5ef156e12659a0f40c5  ./manage.sh
 37a4106e8e076d9a4d6bd677861a66e64f79bba3bff41554d3825ae5a86bf04d  ./plugins/stack-execution-policy/__init__.py
 5544b17cc4cc7190d2c20ab35f5ec5336df7ab5211a5bdcfa61997236afed473  ./plugins/stack-execution-policy/plugin.yaml
 12a26259dfa56408d072f7b65f32a1bac0f4545fc3d4e0808321017bcb4ebd38  ./plugins/stack-package-policy/__init__.py

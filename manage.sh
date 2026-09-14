@@ -1207,14 +1207,14 @@ content_linkedin_state() {
 content_linkedin_verify() {
   # Reserves one image upload slot: validates the token, the pinned version,
   # and the author permission without publishing anything.
-  local base="$1" version="$2" token="$3" author="$4"
-  python3 - "$base" "$version" "$token" "$author" <<'PY'
+  local base="$1" version="$2" token="$3" author="$4" kind="$5"
+  python3 - "$base" "$version" "$token" "$author" "$kind" <<'PY'
 import json
 import sys
 import urllib.error
 import urllib.request
 
-base, version, token, author = sys.argv[1:5]
+base, version, token, author, kind = sys.argv[1:6]
 url = f"{base.rstrip('/')}/rest/images?action=initializeUpload"
 payload = json.dumps({"initializeUploadRequest": {"owner": author}}).encode("utf-8")
 request = urllib.request.Request(
@@ -1248,8 +1248,12 @@ if status < 300 and (data.get("value") or {}).get("uploadUrl"):
 note = str(data.get("message") or "").strip()
 if status == 401:
     print("HTTP 401: the token is expired or revoked; mint a new one.")
+elif status == 403 and kind == "organization":
+    print("HTTP 403: the token cannot post as this page (missing")
+    print("w_organization_social, or the member is not one of its admins).")
 elif status == 403:
-    print("HTTP 403: the token cannot post as this author (missing write scope or page admin role).")
+    print("HTTP 403: the token cannot post as this member (missing")
+    print("w_member_social, or the id is not the token owner's sub).")
 else:
     print(f"HTTP {status}: {note or 'unexpected answer'}")
 raise SystemExit(1)
@@ -1359,7 +1363,7 @@ content_connect_linkedin() {
   printf '  Current state: %s\n' "$(content_linkedin_state)"
   if [[ "$verify" == true ]]; then
     printf 'Token check: '
-    content_linkedin_verify "$base" "$version" "$token" "$author" \
+    content_linkedin_verify "$base" "$version" "$token" "$author" "$kind" \
       || printf 'The check did not pass; see docs/LINKEDIN-SETUP.md.\n'
   fi
   if [[ "$apply" == true ]]; then

@@ -642,9 +642,16 @@ def test_linkedin(get) -> tuple[bool, str]:
     if status == 401:
         return False, "LinkedIn rejected the token (HTTP 401): it is expired or revoked."
     if status == 403:
+        if kind == "organization":
+            return False, (
+                f"LinkedIn refused {author} (HTTP 403): the token lacks "
+                "w_organization_social for this page, or the member is not one "
+                "of its admins."
+            )
         return False, (
-            f"LinkedIn refused {author} (HTTP 403): the token lacks the write "
-            "scope for this author, or the member is not a page admin."
+            "LinkedIn refused the author (HTTP 403): the token lacks "
+            "w_member_social, or this person id is not the member that owns "
+            "the token. Use the sub value that /v2/userinfo reports."
         )
     return False, f"HTTP {status}: {_detail(payload, body)}"
 
