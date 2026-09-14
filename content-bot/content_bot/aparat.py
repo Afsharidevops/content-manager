@@ -40,6 +40,11 @@ TAG_MINIMUM = 3
 # Filler tags, used only when a draft and the configuration together carry
 # fewer than TAG_MINIMUM tags and Aparat would reject the upload.
 DEFAULT_TAGS = ("technology", "video", "tutorial")
+# `copy(...)` answers with the text "undefined" when the console is used
+# without reading the value first, and a printed value keeps its quotes when
+# it is pasted back. Both are dropped so a stored placeholder reads as "no
+# session" instead of a puzzling 401.
+PLACEHOLDER_SESSIONS = frozenset({"undefined", "null", "none", "nan"})
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -77,6 +82,14 @@ CATEGORIES = {
     "30": "Basic sciences",
     "31": "Agriculture",
 }
+
+
+def clean_session(value: str) -> str:
+    """Return one stored session value without quotes or placeholders."""
+    text = str(value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        text = text[1:-1].strip()
+    return "" if text.lower() in PLACEHOLDER_SESSIONS else text
 
 
 class AparatError(RuntimeError):
@@ -184,6 +197,10 @@ class AparatCredentials:
     comment: str = "yes"
     kids_friendly: bool = False
     label: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "token", clean_session(self.token))
+        object.__setattr__(self, "cookie", clean_session(self.cookie))
 
     @property
     def configured(self) -> bool:

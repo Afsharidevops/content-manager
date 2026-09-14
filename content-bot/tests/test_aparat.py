@@ -332,6 +332,28 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(aparat.DEFAULT_CATEGORY, client.credentials.category)
         self.assertEqual("Aparat", client.credentials.display)
 
+    def test_a_console_placeholder_is_not_a_session(self):
+        # `copy(...)` answers with the text "undefined" when the console is
+        # used without reading the value, and the printed value arrives with
+        # its quotes; neither is a session.
+        for value in ("undefined", "UNDEFINED", " null ", '"undefined"'):
+            with self.subTest(value=value):
+                credentials = aparat.AparatCredentials(token=value)
+                self.assertEqual("", credentials.token)
+                self.assertFalse(credentials.configured)
+
+    def test_a_quoted_session_is_unwrapped(self):
+        credentials = aparat.AparatCredentials(
+            token='"eyJhbGciOiJIUzI1NiJ9.payload.signature"'
+        )
+        self.assertEqual("eyJhbGciOiJIUzI1NiJ9.payload.signature", credentials.token)
+        self.assertTrue(credentials.configured)
+        headers = aparat.AparatClient(credentials).headers()
+        self.assertEqual(
+            "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature",
+            headers["Authorization"],
+        )
+
 
 if __name__ == "__main__":  # pragma: no cover - unittest entry point
     unittest.main()

@@ -22,18 +22,26 @@ Two things make Aparat different from Bale, Eitaa, or LinkedIn:
    that owns the channel the uploads should land on.
 2. Open the browser developer tools (`F12` or `Ctrl+Shift+I`) and switch to the
    console.
-3. Paste this line and press Enter:
+3. Run these two lines one after the other:
 
    ```javascript
-   copy(localStorage.getItem('jwt'))
+   localStorage.getItem('jwt')        // prints the session token, or null
+   copy(localStorage.getItem('jwt'))  // puts the same value on the clipboard
    ```
 
-   The value is now on your clipboard. It is the **session token** and is the
-   preferred credential. It lives as long as the browser session does; when
-   Aparat eventually rejects it, repeat this step and store the new value.
+   The console answers `undefined` to `copy(...)` itself. That is the normal
+   answer for a copy, not an empty value; the first line is the one that shows
+   whether the session exists, printing a long `eyJ...` string when it does
+   and `null` when the key is not there. A value pasted with its surrounding
+   quotes, or the literal text `undefined`, is discarded by the stack, so the
+   platform card stays `not configured` instead of failing later.
 
-If `jwt` is empty (an older session, or a browser that blocks local storage),
-copy the cookie instead:
+   The value on the clipboard is the **session token** and is the preferred
+   credential. It lives as long as the browser session does; when Aparat
+   eventually rejects it, repeat this step and store the new value.
+
+If `localStorage.getItem('jwt')` prints `null` (an older session, a different
+sign-in flow, or a browser that blocks local storage), copy the cookie instead:
 
 1. Open the developer tools, switch to **Network**, and reload
    `https://www.aparat.com/uploadvideo`.
@@ -180,7 +188,8 @@ after that.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `Aparat refused the stored session ... CONTENT_APARAT_TOKEN` | The JWT expired or was copied with quotes. Sign in again, copy `localStorage.getItem('jwt')` (without the surrounding quotes), store it, and rerun `./manage.sh content-aparat-check`. |
+| `Aparat refused the stored session ... CONTENT_APARAT_TOKEN` | The JWT expired, or the stored text is not a session at all. Sign in again, store the value `localStorage.getItem('jwt')` prints, and rerun `./manage.sh content-aparat-check`. |
+| The platform card stays `not configured` after storing the token | The stored value is a placeholder (the literal `undefined`, `null`, or a quoted copy). Run `localStorage.getItem('jwt')` on its own; it prints the token, and `copy(...)` answers `undefined` by design. |
 | `Aparat session is not configured` | Neither key is set in the container. Store one and restart the bot (`./manage.sh start`). |
 | `Aparat publishes videos only; attach a video to this draft first` | The draft has no video. Send a clip, generate one with Media Studio, or pick the copy-ready package from **More platforms...**. |
 | The video is over the 20 MB Telegram bot download limit | Telegram only serves bot downloads up to 20 MB, so the file never reaches the bot's storage. Send a smaller copy or produce the video with Media Studio. |

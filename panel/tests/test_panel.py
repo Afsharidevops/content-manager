@@ -439,11 +439,12 @@ class PlatformStoreTest(unittest.TestCase):
 
     def test_writer_and_media_tests_probe_their_service_endpoints(self):
         (self.root / ".env").write_text(
-            "CONTENT_WRITER_BASE_URL=http://smart-router:8080/v1\n"
+            "CONTENT_WRITER_BASE_URL=http://gateway.local:9000/v1\n"
             "CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850\n",
             encoding="utf-8",
         )
         seen = []
+        posted = []
 
         def fake_fetch(url, headers=None):
             seen.append(url)
@@ -453,14 +454,49 @@ class PlatformStoreTest(unittest.TestCase):
                 return 200, '{"ok": true, "jobs": 3}', ""
             return 404, "", ""
 
-        with mock.patch("panel.platforms._fetch", side_effect=fake_fetch):
+        def fake_post(url, headers, payload):
+            posted.append(url)
+            return 400, '{"error": {"message": "prompt is required"}}', ""
+
+        with mock.patch("panel.platforms._fetch", side_effect=fake_fetch), mock.patch(
+            "panel.platforms._post_json", side_effect=fake_post
+        ):
             writer = self.store.test("writer", {})
             media = self.store.test("media", {})
         self.assertTrue(writer["ok"])
         self.assertIn("1 models", writer["detail"])
         self.assertTrue(media["ok"])
         self.assertIn("3 jobs", media["detail"])
-        self.assertEqual(seen, ["http://smart-router:8080/v1/models", "http://media-studio:8850/healthz"])
+        self.assertEqual(seen, ["http://gateway.local:9000/v1/models", "http://media-studio:8850/healthz"])
+        self.assertEqual(posted, ["http://gateway.local:9000/v1/images/generations"])
+
+    def test_media_test_reports_a_chat_only_image_endpoint(self):
+        (self.root / ".env").write_text(
+            "CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850\n"
+            "MEDIA_STUDIO_WRITER_BASE_URL=http://smart-router:8080/v1\n",
+            encoding="utf-8",
+        )
+        with mock.patch(
+            "panel.platforms._fetch", return_value=(200, '{"ok": true, "jobs": 1}', "")
+        ), mock.patch(
+            "panel.platforms._post_json", return_value=(404, "Not Found", "")
+        ):
+            result = self.store.test("media", {})
+        self.assertFalse(result["ok"])
+        self.assertIn("no images API", result["detail"])
+        self.assertIn("MEDIA_STUDIO_WRITER_BASE_URL", result["detail"])
+
+    def test_media_test_reports_a_missing_image_endpoint(self):
+        (self.root / ".env").write_text(
+            "CONTENT_MEDIA_STUDIO_URL=http://media-studio:8850\n",
+            encoding="utf-8",
+        )
+        with mock.patch(
+            "panel.platforms._fetch", return_value=(200, '{"ok": true, "jobs": 1}', "")
+        ):
+            result = self.store.test("media", {})
+        self.assertFalse(result["ok"])
+        self.assertIn("MEDIA_STUDIO_WRITER_BASE_URL", result["detail"])
 
     def test_the_writer_falls_back_to_the_health_route(self):
         (self.root / ".env").write_text(
@@ -552,6 +588,19 @@ class PlatformStoreTest(unittest.TestCase):
         with mock.patch("panel.platforms._fetch", side_effect=fake_fetch):
             result = self.store.test("aparat", {})
         self.assertFalse(result["ok"])
+        self.assertEqual(0, called["count"])
+
+    def test_aparat_test_rejects_a_console_placeholder(self):
+        called = {"count": 0}
+
+        def fake_fetch(url, headers=None):  # pragma: no cover - must not run
+            called["count"] += 1
+            return 200, "{}", ""
+
+        with mock.patch("panel.platforms._fetch", side_effect=fake_fetch):
+            result = self.store.test("aparat", {"CONTENT_APARAT_TOKEN": "undefined"})
+        self.assertFalse(result["ok"])
+        self.assertIn("localStorage.getItem('jwt')", result["detail"])
         self.assertEqual(0, called["count"])
 
     def test_linkedin_author_prefers_the_explicit_urn(self):

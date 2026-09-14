@@ -357,9 +357,10 @@ PLATFORMS: tuple[Platform, ...] = (
                 "Session token",
                 "secret",
                 help=(
-                    "Sign in to aparat.com, open the browser console, and copy "
-                    "localStorage.getItem('jwt'). This is the preferred way to "
-                    "authenticate the upload."
+                    "Sign in to aparat.com and run localStorage.getItem('jwt') "
+                    "in the browser console. copy(...) answers undefined by "
+                    "design, so read the printed value before copying it. This "
+                    "is the preferred way to authenticate the upload."
                 ),
             ),
             Field(
@@ -620,6 +621,18 @@ def test_aparat(get) -> tuple[bool, str]:
     cookie = get("CONTENT_APARAT_COOKIE", secret=True)
     if not token and not cookie:
         return False, "Store the session token (or the session cookie) first."
+    for name, value in (
+        ("CONTENT_APARAT_TOKEN", token),
+        ("CONTENT_APARAT_COOKIE", cookie),
+    ):
+        if value.strip().strip("'\"").lower() in {"undefined", "null", "none"}:
+            return (
+                False,
+                f"{name} holds the text \"{value.strip()}\" instead of a session. "
+                "Run localStorage.getItem('jwt') and paste the value it prints - "
+                "copy(...) answers with undefined by design - or paste the whole "
+                "Cookie header.",
+            )
     base = (get("CONTENT_APARAT_API_BASE") or "https://www.aparat.com").rstrip("/")
     if not URL_RE.match(base):
         return False, "The API base URL must start with http:// or https://."

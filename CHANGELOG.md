@@ -334,6 +334,18 @@ platform; this section tracks the fork additions.
 - Added `docs/SMART-ROUTER-USER-GUIDE.md`, the complete operator guide for the
   Smart Router console, the OpenAI-compatible API, model and alias selection,
   routing profiles, the Orchestrator, and the client integrations.
+- A stored Aparat session that is really the text `undefined` or `null` - what
+  the browser console hands back when `copy(...)` is used without reading the
+  value - or that still carries its printed quotes, is discarded instead of
+  failing with a puzzling `401` later. `docs/APARAT-SETUP.md` explains the
+  console answers, and the card test names the placeholder it found.
+- An image job that fails because the endpoint has no images API now says so:
+  the Media Studio driver names `MEDIA_STUDIO_WRITER_BASE_URL`, the panel's
+  Media Studio test probes the image endpoint before an operator presses
+  **AI image**, `./manage.sh media-status` warns when the endpoint is the
+  stack chat gateway, and `docs/MEDIA-STUDIO.md` gained a troubleshooting
+  table (the Smart Router serves chat completions only, so an image model and
+  an image-capable provider are required).
 - Content Bot 0.4.1 and operator panel 0.4.1; Media Studio stays 0.3.0. The
   Helm chart moves to 0.6.3 with the same image tags.
 
