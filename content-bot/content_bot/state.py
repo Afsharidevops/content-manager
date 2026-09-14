@@ -11,6 +11,8 @@ PUBLISHED_HISTORY_LIMIT = 300
 PACKAGE_ARCHIVE_LIMIT = 25
 CATEGORY_HISTORY_LIMIT = 20
 MEMORY_LESSONS_LIMIT = 30
+PUBLICATIONS_LIMIT = 400
+CONTENT_VARIANTS_LIMIT = 400
 
 
 class StateStore:
@@ -191,3 +193,55 @@ class StateStore:
         data = self.load()
         lessons = (data.get("memory") or {}).get("lessons") or []
         return [str(lesson) for lesson in lessons[-max(1, int(limit)):]]
+
+    def add_publication(self, row: dict) -> dict:
+        """Append one publication row and return the stored copy."""
+        record = dict(row or {})
+        if not record.get("id"):
+            record["id"] = f"pub_{os.urandom(6).hex()}"
+        data = self.load()
+        rows = data.setdefault("publications", [])
+        rows.append(record)
+        data["publications"] = rows[-PUBLICATIONS_LIMIT:]
+        self.save()
+        return record
+
+    def publications_for(self, content_id: str) -> list[dict]:
+        """Return every publication row stored for one draft."""
+        wanted = str(content_id or "")
+        rows = self.load().get("publications") or []
+        return [
+            dict(row)
+            for row in rows
+            if isinstance(row, dict) and str(row.get("content_id") or "") == wanted
+        ]
+
+    def add_variant(self, row: dict) -> dict:
+        """Store one adapted text variant for a draft and target."""
+        record = dict(row or {})
+        if not record.get("id"):
+            record["id"] = f"var_{os.urandom(6).hex()}"
+        data = self.load()
+        rows = data.setdefault("content_variants", [])
+        rows.append(record)
+        data["content_variants"] = rows[-CONTENT_VARIANTS_LIMIT:]
+        self.save()
+        return record
+
+    def variants_for(self, content_id: str) -> list[dict]:
+        """Return every stored variant of one draft."""
+        wanted = str(content_id or "")
+        rows = self.load().get("content_variants") or []
+        return [
+            dict(row)
+            for row in rows
+            if isinstance(row, dict) and str(row.get("content_id") or "") == wanted
+        ]
+
+    def variant_for(self, content_id: str, target: str) -> dict | None:
+        """Return the newest stored variant of one draft and target."""
+        wanted = str(target or "")
+        for row in reversed(self.variants_for(content_id)):
+            if str(row.get("target") or "") == wanted:
+                return row
+        return None

@@ -139,6 +139,11 @@ class Writer:
         max_tokens: int | None = None,
         reasoning_effort: str | None = None,
     ) -> str:
+        """Run one buffered chat completion and return the message content.
+
+        Public because the content adaptation layer rewrites drafts for one
+        destination at a time with its own system prompt.
+        """
         headers = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -173,6 +178,10 @@ class Writer:
         if not content.strip():
             raise WriterError("writer returned empty content")
         return content
+
+    def chat(self, messages: list[dict], *, max_tokens: int | None = None) -> str:
+        """One chat completion for callers with their own prompt."""
+        return self._chat(messages, max_tokens=max_tokens)
 
     @staticmethod
     def _parse_json_object(content: str) -> dict | None:

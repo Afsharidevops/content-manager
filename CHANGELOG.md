@@ -272,6 +272,42 @@ platform (upstream unchanged) extended with a deterministic daily
 content-production layer. The upstream changelog below documents the inherited
 platform; this section tracks the fork additions.
 
+### Fork release — Content Manager v0.4.0 (2026-09-14)
+
+- Added LinkedIn as an automatic channel (`content_bot/linkedin.py`): posts are
+  created through `POST /rest/posts`, an attached image goes through
+  `initializeUpload` plus a binary `PUT`, transient failures (`429`/`5xx`) are
+  retried with backoff, and the created post URN is kept as the publication's
+  `remote_id`. Each configured account - a personal profile or a company page -
+  is its own channel on the draft.
+- Social accounts now live in `social-accounts.yaml` inside the policy
+  directory (`CONTENT_SOCIAL_ACCOUNTS_FILE`), with the `CONTENT_LINKEDIN_*`
+  environment block as the single-account fallback; tokens are never
+  hardcoded, and an account without one is skipped with a log line.
+- Added the per-destination content adapter (`content_bot/adapt.py`): the draft
+  body is rewritten for each target according to a tone profile
+  (`linkedin_personal`, `linkedin_company`, `telegram`), profiles are
+  overridable in the `tones:` section of `editorial-policy.yaml`, the rewrite
+  prompt lives in `prompt-templates/<tone>.md`, and any failure - or
+  `CONTENT_ADAPT_ENABLED=false` - publishes the untouched draft text. Only the
+  body is adapted, so title, source link, and captions keep the existing
+  behavior.
+- Added multi-target publishing with a publication ledger: drafts may carry
+  `targets:`, `publishing.targets` supplies defaults, **All targets** reaches
+  every automatic channel, and every attempt is a row (`id`, `content_id`,
+  `platform`, `account`, `status`, `remote_id`, `published_at`, `error`) in
+  `data/content-bot/state.json`. One destination failing never blocks the
+  others, and the adapted text is cached so a retry never re-runs the writer.
+- The operator console gained a LinkedIn card (token, type, author URN or
+  person/organization id, API base and version) whose **Test connection**
+  reserves one image upload slot to validate the token and the author without
+  publishing. `./manage.sh content-connect-linkedin` stores the same values,
+  and `content-channels`/`content-status` report the account state.
+- Added `docs/LINKEDIN-SETUP.md` (app, scopes, three-legged OAuth, author id,
+  account file, tones, targets, publish flow, token rotation, troubleshooting)
+  and extended the production guide and panel documentation. Content Bot
+  0.4.0 and operator panel 0.4.0; Media Studio stays 0.3.0.
+
 ### Fork release — Content Manager v0.3.0 (2026-09-11)
 
 - Added `panel/`: an optional operator console (Compose profile `panel`) for

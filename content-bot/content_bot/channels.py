@@ -14,6 +14,7 @@ import re
 from urllib.parse import urlencode
 
 from content_bot import telegram as telegram_mod
+from content_bot import linkedin as linkedin_mod
 from content_bot.http import HttpError, request_bytes, request_json, request_multipart
 
 _HTML_TAG = re.compile(r"<[^>]+>")
@@ -196,8 +197,13 @@ class EitaaChannel(ChatChannel):
         self._send_file(filename, data, caption)
 
 
-def build_channels(settings) -> dict[str, ChatChannel]:
-    """Return every configured automatic channel keyed by its draft button."""
+def build_channels(settings, accounts=None) -> dict[str, ChatChannel]:
+    """Return every configured automatic channel keyed by its draft button.
+
+    ``accounts`` holds the social accounts of the deployment; each configured
+    LinkedIn account adds its own channel (``linkedin_personal``,
+    ``linkedin_locallab``), so one draft can reach several destinations.
+    """
     channels: dict[str, ChatChannel] = {}
     bale = TelegramLikeChannel(
         "bale", "Bale", settings.bale_token, settings.bale_chat_id, settings.bale_api_base
@@ -209,4 +215,78 @@ def build_channels(settings) -> dict[str, ChatChannel]:
     )
     if eitaa.configured:
         channels[eitaa.key] = eitaa
+    channels.update(build_linkedin_channels(settings, accounts))
+    return channels
+
+
+class LinkedInChannel(ChatChannel):
+    """LinkedIn posts for one configured account (person or organization)."""
+
+    def __init__(self, account, settings):
+        super().__init__(
+            account.target,
+            account.display,
+            account.access_token,
+            account.author,
+            settings.linkedin_api_base,
+        )
+        self.account = account
+        self.publisher = linkedin_mod.LinkedInPublisher(
+            api_base=settings.linkedin_api_base,
+            api_version=settings.linkedin_api_version,
+            timeout=settings.linkedin_timeout,
+            retries=settings.linkedin_retries,
+        )
+        self.last_remote_id = ""
+
+    @property
+    def configured(self) -> bool:
+        """True when the account has both a token and an author URN."""
+        return bool(self.account.access_token and self.account.author)
+
+    def _publish_text(self, text: str) -> None:
+        commentary = linkedin_mod.build_commentary("", _plain_text(text))
+        if not commentary:
+            raise ChannelError(f"{self.label}: nothing to publish")
+        try:
+            self.last_remote_id = self.publisher.publish_text(commentary, self.account)
+        except linkedin_mod.LinkedInError as error:
+            raise ChannelError(f"{self.label}: {error}") from error
+
+    def send_text(self, text: str) -> None:
+        self._publish_text(text)
+
+    def send_photo(self, filename: str, data: bytes, caption: str) -> None:
+        commentary = linkedin_mod.build_commentary("", _plain_text(caption))
+        try:
+            self.last_remote_id = self.publisher.publish_image(
+                data,
+                commentary,
+                self.account,
+                alt_text=str(filename or ""),
+            )
+        except linkedin_mod.LinkedInError as error:
+            raise ChannelError(f"{self.label}: {error}") from error
+
+    def send_video(self, filename: str, data: bytes, caption: str) -> None:
+        raise ChannelError(
+            f"{self.label}: LinkedIn video uploads are not supported; "
+            "publish the text and attach the video manually"
+        )
+
+    def send_document(self, filename: str, data: bytes, caption: str) -> None:
+        raise ChannelError(
+            f"{self.label}: LinkedIn document posts are not supported by this adapter"
+        )
+
+
+def build_linkedin_channels(settings, accounts) -> dict[str, LinkedInChannel]:
+    """Return one channel per configured LinkedIn account."""
+    channels: dict[str, LinkedInChannel] = {}
+    for account in (accounts or {}).values():
+        if getattr(account, "platform", "") != "linkedin":
+            continue
+        channel = LinkedInChannel(account, settings)
+        if channel.configured:
+            channels[channel.key] = channel
     return channels

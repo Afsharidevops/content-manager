@@ -16,7 +16,7 @@ from panel import __version__
 from panel.actions import ActionError, ActionRunner
 from panel import drafts as drafts_mod
 from panel.editors import ConfigStore, EditError, EnvStore
-from panel.platforms import PlatformStore, platform_for
+from panel.platforms import PlatformStore, _linkedin_author, platform_for
 from panel.server import PanelApp, PanelHandler
 from panel.stack import StackView
 
@@ -378,6 +378,7 @@ class PlatformStoreTest(unittest.TestCase):
                 ("instagram", "INSTAGRAM_API_BASE"),
                 ("writer", "CONTENT_WRITER_BASE_URL"),
                 ("media", "CONTENT_MEDIA_STUDIO_URL"),
+                ("linkedin", "CONTENT_LINKEDIN_API_BASE"),
             )
         }
         self.assertEqual(urls, {"url"})
@@ -474,7 +475,103 @@ class PlatformStoreTest(unittest.TestCase):
     def test_package_platforms_have_nothing_to_test(self):
         with self.assertRaises(EditError):
             self.store.test("youtube", {})
-        self.assertIsNotNone(platform_for("linkedin"))
+        self.assertEqual(platform_for("linkedin").mode, "auto")
+
+    def test_linkedin_stays_partial_until_an_author_is_stored(self):
+        self.store.update("linkedin", {"CONTENT_LINKEDIN_ACCESS_TOKEN": "AQXsecret"})
+        self.assertEqual(self.card("linkedin")["state"], "partial")
+        self.store.update(
+            "linkedin",
+            {
+                "CONTENT_LINKEDIN_ACCOUNT_TYPE": "organization",
+                "CONTENT_LINKEDIN_ORGANIZATION_ID": "12345678",
+            },
+        )
+        card = self.card("linkedin")
+        self.assertEqual(card["state"], "ready")
+        self.assertEqual(card["mode"], "auto")
+        token = self.field(card, "CONTENT_LINKEDIN_ACCESS_TOKEN")
+        self.assertTrue(token["secret"])
+        self.assertTrue(token["set"])
+        self.assertIsNone(token["value"])
+
+    def test_linkedin_author_prefers_the_explicit_urn(self):
+        self.assertEqual(
+            _linkedin_author("person", "urn:li:person:1", "2", "3"), "urn:li:person:1"
+        )
+        self.assertEqual(
+            _linkedin_author("person", "bare-id", "2", "3"), "urn:li:person:bare-id"
+        )
+        self.assertEqual(
+            _linkedin_author("organization", "", "2", "3"), "urn:li:organization:3"
+        )
+        self.assertEqual(_linkedin_author("person", "", "2", "3"), "urn:li:person:2")
+        self.assertEqual(_linkedin_author("person", "", "", ""), "")
+
+    def test_linkedin_test_reserves_an_upload_slot_with_the_author_urn(self):
+        seen = {}
+
+        def fake_post(url, headers, payload):
+            seen["url"] = url
+            seen["headers"] = headers
+            seen["payload"] = payload
+            body = (
+                '{"value": {"uploadUrl": "https://upload.linkedin.example/x", '
+                '"image": "urn:li:image:1"}}'
+            )
+            return 201, body, ""
+
+        with mock.patch("panel.platforms._post_json", side_effect=fake_post):
+            result = self.store.test(
+                "linkedin",
+                {
+                    "CONTENT_LINKEDIN_ACCESS_TOKEN": "AQXtyped",
+                    "CONTENT_LINKEDIN_ACCOUNT_TYPE": "person",
+                    "CONTENT_LINKEDIN_PERSON_ID": "abc123",
+                },
+            )
+        self.assertTrue(result["ok"])
+        self.assertIn("urn:li:person:abc123", result["detail"])
+        self.assertNotIn("AQXtyped", result["detail"])
+        self.assertEqual(
+            seen["url"], "https://api.linkedin.com/rest/images?action=initializeUpload"
+        )
+        self.assertEqual(
+            seen["payload"], {"initializeUploadRequest": {"owner": "urn:li:person:abc123"}}
+        )
+        self.assertEqual(seen["headers"]["LinkedIn-Version"], "202601")
+        self.assertEqual(seen["headers"]["X-Restli-Protocol-Version"], "2.0.0")
+        self.assertIn("AQXtyped", seen["headers"]["Authorization"])
+
+    def test_linkedin_test_reports_the_token_and_author_problems(self):
+        values = {
+            "CONTENT_LINKEDIN_ACCESS_TOKEN": "AQXsecret",
+            "CONTENT_LINKEDIN_ACCOUNT_TYPE": "organization",
+            "CONTENT_LINKEDIN_ORGANIZATION_ID": "12345678",
+        }
+        with mock.patch("panel.platforms._post_json", return_value=(401, "{}", "")):
+            expired = self.store.test("linkedin", values)
+        self.assertFalse(expired["ok"])
+        self.assertIn("expired", expired["detail"])
+        with mock.patch("panel.platforms._post_json", return_value=(403, "{}", "")):
+            refused = self.store.test("linkedin", values)
+        self.assertFalse(refused["ok"])
+        self.assertIn("urn:li:organization:12345678", refused["detail"])
+        with mock.patch(
+            "panel.platforms._post_json",
+            return_value=(0, "", "api.linkedin.com is unreachable: boom"),
+        ):
+            offline = self.store.test("linkedin", values)
+        self.assertFalse(offline["ok"])
+        self.assertIn("unreachable", offline["detail"])
+
+    def test_linkedin_test_asks_for_an_author_before_calling_the_api(self):
+        with mock.patch(
+            "panel.platforms._post_json", side_effect=AssertionError("no call expected")
+        ):
+            result = self.store.test("linkedin", {"CONTENT_LINKEDIN_ACCESS_TOKEN": "x"})
+        self.assertFalse(result["ok"])
+        self.assertIn("author URN", result["detail"])
 
     def test_env_store_exposes_single_values_and_secret_detection(self):
         store = EnvStore(self.root)

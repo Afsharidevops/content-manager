@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 def _env(name: str, default: str = "") -> str:
@@ -81,6 +82,13 @@ class BotSettings:
     eitaa_token: str = ""
     eitaa_chat_id: str = ""
     eitaa_api_base: str = "https://eitaayar.ir/api"
+    social_accounts_file: str = "social-accounts.yaml"
+    adapt_enabled: bool = True
+    prompt_dir: str = ""
+    linkedin_api_base: str = "https://api.linkedin.com"
+    linkedin_api_version: str = "202601"
+    linkedin_timeout: int = 60
+    linkedin_retries: int = 3
 
     @classmethod
     def from_env(cls) -> "BotSettings":
@@ -134,7 +142,23 @@ class BotSettings:
             eitaa_token=_env("CONTENT_EITAA_TOKEN"),
             eitaa_chat_id=_env("CONTENT_EITAA_CHAT_ID"),
             eitaa_api_base=_env("CONTENT_EITAA_API_BASE", "https://eitaayar.ir/api"),
+            social_accounts_file=_env(
+                "CONTENT_SOCIAL_ACCOUNTS_FILE", "social-accounts.yaml"
+            ),
+            adapt_enabled=_env_bool("CONTENT_ADAPT_ENABLED", True),
+            prompt_dir=_env("CONTENT_PROMPT_DIR"),
+            linkedin_api_base=_env(
+                "CONTENT_LINKEDIN_API_BASE", "https://api.linkedin.com"
+            ),
+            linkedin_api_version=_env("CONTENT_LINKEDIN_API_VERSION", "202601"),
+            linkedin_timeout=_env_int("CONTENT_LINKEDIN_TIMEOUT", 60),
+            linkedin_retries=_env_int("CONTENT_LINKEDIN_RETRIES", 3),
         )
+
+    @property
+    def prompt_templates_dir(self) -> str:
+        """Directory that holds deployment prompt template overrides."""
+        return self.prompt_dir or str(Path(self.policy_dir) / "prompt-templates")
 
     @property
     def video_character_enabled(self) -> bool:

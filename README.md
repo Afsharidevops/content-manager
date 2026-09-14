@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.3.0   Media Studio: 0.3.0   Panel: 0.3.0
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.0   Media Studio: 0.3.0   Panel: 0.4.0
 ```
 
 ## Screenshots
@@ -56,8 +56,13 @@ check object storage, and take backups. The captures use demonstration data.
 - **Comment-driven revision** - reply to a proposal with edit notes and press
   Reject; the bot revises the draft in place and lets you iterate until it is
   right. Reject without notes discards the draft.
-- **Platform adapters** - the pipeline is platform-agnostic; publishing
-  currently supports Telegram.
+- **Platform adapters** - the pipeline is platform-agnostic: one approved
+  draft can publish to Telegram, Instagram, Bale, Eitaa, and LinkedIn. Each
+  destination receives its own adapted text (a tone profile per target), keeps
+  its own publication row, and `CONTENT_PLATFORMS_ENABLED=true` adds the
+  **More platforms...** chooser with **All targets** for every automatic
+  channel at once. See `docs/LINKEDIN-SETUP.md` for tones, targets, and
+  accounts.
 - **Media attach (optional)** - after a draft the bot asks whether the post
   needs an image or a video, submits the job to Media Studio, shows the media
   preview for approval, and publishes the post plus media to the channel.
@@ -73,7 +78,8 @@ check object storage, and take backups. The captures use demonstration data.
 | Telegram | Live: link/topic drafts, daily proposals, image/video attach, Approve/Reject, channel publish |
 | Instagram | Official Meta Graph API: photos, carousels, and video via approve buttons; see `docs/INSTAGRAM-SETUP.md` |
 | Bale / Eitaa | Automatic publish through their bot APIs from the draft preview; see `docs/BALE-EITAA-SETUP.md` |
-| Aparat / YouTube / LinkedIn | Copy-ready upload packages handed over from the same preview |
+| LinkedIn | Automatic publish to a personal profile or a company page through the REST API; each account gets its own adapted text, and the generic entry stays a copy-ready package until an account is configured; see `docs/LINKEDIN-SETUP.md` |
+| Aparat / YouTube | Copy-ready upload packages handed over from the same preview |
 | Media assets | Optional: `media-studio` worker (API images now; Google Flow/Gemini via browser session) |
 
 ## Architecture
@@ -256,9 +262,9 @@ The component images are built on GitHub Actions and published to Docker Hub
 whenever their source is pushed to `main`:
 
 ```text
-afsharidevops/content-bot:0.3.0
+afsharidevops/content-bot:0.4.0
 afsharidevops/media-studio:0.3.0
-afsharidevops/content-panel:0.3.0
+afsharidevops/content-panel:0.4.0
 afsharidevops/content-bot:latest
 ```
 
@@ -331,6 +337,7 @@ bash tests/test-manage-ux.sh
 - [Content production guide](docs/CONTENT-PRODUCTION-GUIDE.md) - bot flows and operations
 - [Instagram/Meta setup](docs/INSTAGRAM-SETUP.md) - official Graph API publishing
 - [Bale and Eitaa setup](docs/BALE-EITAA-SETUP.md) - bot tokens, channel ids, and automatic publishing
+- [LinkedIn setup](docs/LINKEDIN-SETUP.md) - app, OAuth, author id, accounts, tones, and the publish flow
 - [Operator panel](docs/PANEL.md) - optional web console for status, platform credentials, config, logs, actions
 - [Object storage](docs/S3-STORAGE.md) - bundled RustFS or an external S3 endpoint for stack services
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing

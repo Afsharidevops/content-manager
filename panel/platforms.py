@@ -45,7 +45,12 @@ class Field:
 
 @dataclass(frozen=True)
 class Platform:
-    """One platform card: its keys, its mode, and its connection test."""
+    """One platform card: its keys, its mode, and its connection test.
+
+    ``require_any`` names fields of which at least one has to be set before
+    the card counts as ready (LinkedIn needs an author URN or an id, and any
+    of the three satisfies it).
+    """
 
     key: str
     label: str
@@ -55,6 +60,7 @@ class Platform:
     docs: str = ""
     test: str = ""
     fields: tuple[Field, ...] = ()
+    require_any: tuple[str, ...] = ()
 
 
 PLATFORMS: tuple[Platform, ...] = (
@@ -343,10 +349,78 @@ PLATFORMS: tuple[Platform, ...] = (
     Platform(
         key="linkedin",
         label="LinkedIn",
-        mode="package",
+        mode="auto",
         service="content-bot",
-        summary="No credentials: package handover with its own title and description limits.",
-        docs="docs/CONTENT-PRODUCTION-GUIDE.md",
+        summary=(
+            "Posts to a personal profile or a company page through the REST "
+            "API, with the text adapted for the destination. One account is "
+            "configured here; several accounts live in social-accounts.yaml "
+            "inside the policy directory."
+        ),
+        docs="docs/LINKEDIN-SETUP.md",
+        test="linkedin",
+        require_any=(
+            "CONTENT_LINKEDIN_AUTHOR_URN",
+            "CONTENT_LINKEDIN_PERSON_ID",
+            "CONTENT_LINKEDIN_ORGANIZATION_ID",
+        ),
+        fields=(
+            Field(
+                "CONTENT_LINKEDIN_ACCESS_TOKEN",
+                "Access token",
+                "secret",
+                help="3-legged token with w_member_social, plus "
+                "w_organization_social for a page. It lives about 60 days.",
+                required=True,
+            ),
+            Field(
+                "CONTENT_LINKEDIN_ACCOUNT",
+                "Account key",
+                "text",
+                default="personal",
+                help="Short name used in the button and in publication rows.",
+            ),
+            Field(
+                "CONTENT_LINKEDIN_ACCOUNT_TYPE",
+                "Account type",
+                "text",
+                default="person",
+                help="person for a profile, organization for a company page.",
+            ),
+            Field(
+                "CONTENT_LINKEDIN_AUTHOR_URN",
+                "Author URN",
+                "text",
+                help="urn:li:person:... or urn:li:organization:...; wins over "
+                "the ids below.",
+            ),
+            Field(
+                "CONTENT_LINKEDIN_PERSON_ID",
+                "Person id",
+                "id",
+                help="The member id that /v2/userinfo reports as sub.",
+            ),
+            Field(
+                "CONTENT_LINKEDIN_ORGANIZATION_ID",
+                "Organization id",
+                "id",
+                help="The numeric page id in the company admin URL.",
+            ),
+            Field(
+                "CONTENT_LINKEDIN_API_BASE",
+                "API base URL",
+                "url",
+                default="https://api.linkedin.com",
+                help="Change it only behind a proxy.",
+            ),
+            Field(
+                "CONTENT_LINKEDIN_API_VERSION",
+                "API version",
+                "text",
+                default="202601",
+                help="Pinned LinkedIn-Version month (YYYYMM).",
+            ),
+        ),
     ),
 )
 
@@ -362,14 +436,28 @@ def platform_for(key: str) -> Platform:
 
 def _fetch(url: str, headers: dict | None = None) -> tuple[int, str, str]:
     """GET one URL; returns ``(status, body, error)`` with no exception."""
-    request = urllib.request.Request(url, headers=dict(headers or {}))
+    return _exchange(urllib.request.Request(url, headers=dict(headers or {})))
+
+
+def _post_json(url: str, headers: dict | None, payload: dict) -> tuple[int, str, str]:
+    """POST one JSON body; returns ``(status, body, error)`` with no exception."""
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request_headers = {"Content-Type": "application/json"}
+    request_headers.update(headers or {})
+    return _exchange(
+        urllib.request.Request(url, data=body, method="POST", headers=request_headers)
+    )
+
+
+def _exchange(request: urllib.request.Request) -> tuple[int, str, str]:
+    """Run one prepared request; returns ``(status, body, error)``."""
     try:
         with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
             return int(response.status), response.read().decode("utf-8", "replace"), ""
     except urllib.error.HTTPError as error:
         return int(error.code), error.read().decode("utf-8", "replace"), ""
     except (urllib.error.URLError, socket.timeout, OSError) as error:
-        host = urllib.parse.urlsplit(url).netloc
+        host = urllib.parse.urlsplit(request.full_url).netloc
         return 0, "", f"{host} is unreachable: {error}"
 
 
@@ -497,6 +585,70 @@ def test_media(get) -> tuple[bool, str]:
     return False, f"HTTP {status}: {_detail(payload, body)}"
 
 
+def _linkedin_author(kind: str, urn: str, person: str, organization: str) -> str:
+    """Build the author URN the same way the bot builds it."""
+    value = str(urn or "").strip()
+    if value:
+        return value if value.startswith("urn:") else f"urn:li:{kind}:{value}"
+    if kind == "organization":
+        identifier = str(organization or "").strip()
+        return f"urn:li:organization:{identifier}" if identifier else ""
+    identifier = str(person or "").strip()
+    return f"urn:li:person:{identifier}" if identifier else ""
+
+
+def test_linkedin(get) -> tuple[bool, str]:
+    """Check the token and the author by reserving one image upload slot.
+
+    The call validates the token, the pinned version header, and the write
+    permission of the author without publishing anything.
+    """
+    token = get("CONTENT_LINKEDIN_ACCESS_TOKEN", secret=True)
+    if not token:
+        return False, "Store the access token first."
+    kind = (get("CONTENT_LINKEDIN_ACCOUNT_TYPE") or "person").strip().lower()
+    if kind not in {"person", "organization"}:
+        return False, "The account type must be person or organization."
+    author = _linkedin_author(
+        kind,
+        get("CONTENT_LINKEDIN_AUTHOR_URN"),
+        get("CONTENT_LINKEDIN_PERSON_ID"),
+        get("CONTENT_LINKEDIN_ORGANIZATION_ID"),
+    )
+    if not author:
+        return False, "Store an author URN, a person id, or an organization id first."
+    base = (get("CONTENT_LINKEDIN_API_BASE") or "https://api.linkedin.com").rstrip("/")
+    if not URL_RE.match(base):
+        return False, "The API base URL must start with http:// or https://."
+    version = (get("CONTENT_LINKEDIN_API_VERSION") or "202601").strip()
+    status, body, error = _post_json(
+        f"{base}/rest/images?action=initializeUpload",
+        {
+            "Authorization": f"Bearer {token}",
+            "LinkedIn-Version": version,
+            "X-Restli-Protocol-Version": "2.0.0",
+        },
+        {"initializeUploadRequest": {"owner": author}},
+    )
+    if error:
+        return False, error
+    payload = _json_body(body)
+    value = payload.get("value") if isinstance(payload.get("value"), dict) else {}
+    if status < 300 and value.get("uploadUrl"):
+        return True, (
+            f"Token and author accepted ({author}); LinkedIn reserved one "
+            "image upload slot."
+        )
+    if status == 401:
+        return False, "LinkedIn rejected the token (HTTP 401): it is expired or revoked."
+    if status == 403:
+        return False, (
+            f"LinkedIn refused {author} (HTTP 403): the token lacks the write "
+            "scope for this author, or the member is not a page admin."
+        )
+    return False, f"HTTP {status}: {_detail(payload, body)}"
+
+
 def _detail(payload: dict, body: str) -> str:
     """One short, token-free description of a failed provider answer."""
     error = payload.get("error")
@@ -516,6 +668,7 @@ TESTERS = {
     "bale": test_bale,
     "eitaa": test_eitaa,
     "instagram": test_instagram,
+    "linkedin": test_linkedin,
     "writer": test_writer,
     "media": test_media,
 }
@@ -577,6 +730,10 @@ class PlatformStore:
         required = [row for row in fields if row["required"]]
         provided = [row for row in fields if row["set"]]
         if required and all(row["set"] for row in required):
+            if platform.require_any:
+                by_key = {row["key"]: row["set"] for row in fields}
+                if not any(by_key.get(key) for key in platform.require_any):
+                    return "partial"
             return "ready"
         if provided:
             return "partial"

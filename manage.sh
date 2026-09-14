@@ -92,7 +92,8 @@ Content Bot automation:
   content-connect-instagram   Print the pending Instagram/Meta setup checklist
   content-connect-bale        Store and verify the Bale bot token and channel
   content-connect-eitaa       Store and verify the Eitaa bot token and channel
-  content-channels            Show the automatic channel (Bale/Eitaa) state
+  content-connect-linkedin    Store and verify the LinkedIn token and author
+  content-channels            Show the automatic channel (Bale/Eitaa/LinkedIn) state
   content-configure           Reconfigure Content Bot settings (installer wizard)
 
 Operator panel:
@@ -1159,9 +1160,223 @@ content_status() {
   printf '  Automatic channels:\n'
   printf '    %s\n' "$(content_channel_state bale)"
   printf '    %s\n' "$(content_channel_state eitaa)"
+  printf '    %s\n' "$(content_linkedin_state)"
   printf '  Editorial policy: data/content-manager/config/editorial-policy.yaml\n'
   printf '  Discovery sources: data/content-manager/config/sources.yaml\n'
   printf '  Guide: docs/CONTENT-PRODUCTION-GUIDE.md\n'
+}
+
+content_linkedin_author() {
+  # Builds the author URN the same way the bot builds it.
+  local kind="$1" urn="$2" person="$3" org="$4"
+  if [[ -n "$urn" ]]; then
+    if [[ "$urn" == urn:* ]]; then
+      printf '%s' "$urn"
+    else
+      printf 'urn:li:%s:%s' "$kind" "$urn"
+    fi
+    return 0
+  fi
+  if [[ "$kind" == organization ]]; then
+    [[ -n "$org" ]] && printf 'urn:li:organization:%s' "$org"
+    return 0
+  fi
+  [[ -n "$person" ]] && printf 'urn:li:person:%s' "$person"
+  return 0
+}
+
+content_linkedin_state() {
+  # One line describing the LinkedIn account (no secrets).
+  local token kind account author person org
+  token="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCESS_TOKEN)"
+  kind="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCOUNT_TYPE)"
+  account="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCOUNT)"
+  author="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_AUTHOR_URN)"
+  person="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_PERSON_ID)"
+  org="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_ORGANIZATION_ID)"
+  if [[ -n "$token" ]] && [[ -n "$author" || -n "$person" || -n "$org" ]]; then
+    printf 'LinkedIn: automatic publishing ready (account %s, %s)' \
+      "${account:-personal}" "${kind:-person}"
+  elif [[ -n "$token" ]]; then
+    printf 'LinkedIn: token stored, the author URN or id is still empty'
+  else
+    printf 'LinkedIn: not configured (CONTENT_LINKEDIN_ACCESS_TOKEN is empty)'
+  fi
+}
+
+content_linkedin_verify() {
+  # Reserves one image upload slot: validates the token, the pinned version,
+  # and the author permission without publishing anything.
+  local base="$1" version="$2" token="$3" author="$4"
+  python3 - "$base" "$version" "$token" "$author" <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+
+base, version, token, author = sys.argv[1:5]
+url = f"{base.rstrip('/')}/rest/images?action=initializeUpload"
+payload = json.dumps({"initializeUploadRequest": {"owner": author}}).encode("utf-8")
+request = urllib.request.Request(
+    url,
+    data=payload,
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "LinkedIn-Version": version,
+        "X-Restli-Protocol-Version": "2.0.0",
+        "Content-Type": "application/json",
+    },
+)
+try:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        status = response.status
+        body = response.read().decode("utf-8", "replace")
+except urllib.error.HTTPError as error:
+    status = error.code
+    body = error.read().decode("utf-8", "replace")
+except Exception as error:  # noqa: BLE001 - any transport failure is reported
+    print(f"unreachable ({error})")
+    raise SystemExit(1)
+try:
+    data = json.loads(body or "{}")
+except ValueError:
+    data = {}
+if status < 300 and (data.get("value") or {}).get("uploadUrl"):
+    print(f"HTTP {status}: token and author accepted ({author})")
+    raise SystemExit(0)
+note = str(data.get("message") or "").strip()
+if status == 401:
+    print("HTTP 401: the token is expired or revoked; mint a new one.")
+elif status == 403:
+    print("HTTP 403: the token cannot post as this author (missing write scope or page admin role).")
+else:
+    print(f"HTTP {status}: {note or 'unexpected answer'}")
+raise SystemExit(1)
+PY
+}
+
+content_connect_linkedin() {
+  local usage="Usage: ./manage.sh content-connect-linkedin [--token TOKEN] [--type person|organization] [--account KEY] [--person-id ID] [--organization-id ID] [--author-urn URN] [--verify] [--no-apply]"
+  local token="" kind="" account="" person="" org="" urn="" base="" version=""
+  local token_arg="" kind_arg="" account_arg="" person_arg="" org_arg="" urn_arg="" answer
+  local verify=false apply=true arg author waited
+  while (($#)); do
+    arg="$1"; shift
+    case "$arg" in
+      --token)
+        (($#)) || { printf '%s\n' "$usage" >&2; return 2; }
+        token_arg="$1"; shift ;;
+      --type|--kind)
+        (($#)) || { printf '%s\n' "$usage" >&2; return 2; }
+        kind_arg="$1"; shift ;;
+      --account|--name)
+        (($#)) || { printf '%s\n' "$usage" >&2; return 2; }
+        account_arg="$1"; shift ;;
+      --person-id)
+        (($#)) || { printf '%s\n' "$usage" >&2; return 2; }
+        person_arg="$1"; shift ;;
+      --organization-id|--org-id)
+        (($#)) || { printf '%s\n' "$usage" >&2; return 2; }
+        org_arg="$1"; shift ;;
+      --author-urn|--author)
+        (($#)) || { printf '%s\n' "$usage" >&2; return 2; }
+        urn_arg="$1"; shift ;;
+      --verify) verify=true ;;
+      --no-apply) apply=false ;;
+      -h|--help) printf '%s\n' "$usage"; return 0 ;;
+      *) printf 'Unknown option: %s\n%s\n' "$arg" "$usage" >&2; return 2 ;;
+    esac
+  done
+  token="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCESS_TOKEN)"
+  kind="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCOUNT_TYPE)"; kind="${kind:-person}"
+  account="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCOUNT)"; account="${account:-personal}"
+  person="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_PERSON_ID)"
+  org="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_ORGANIZATION_ID)"
+  urn="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_AUTHOR_URN)"
+  base="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_API_BASE)"; base="${base:-https://api.linkedin.com}"
+  version="$(env_value "$ENV_FILE" CONTENT_LINKEDIN_API_VERSION)"; version="${version:-202601}"
+  printf 'LinkedIn setup (automatic publishing)\n'
+  printf '  1. Create the app and request Share on LinkedIn (personal) or the\n'
+  printf '     Community Management API (company page).\n'
+  printf '  2. Mint the 3-legged token; it lives about 60 days.\n'
+  printf '  3. Find the author: urn:li:person:<sub> from /v2/userinfo, or\n'
+  printf '     urn:li:organization:<id> from the page admin URL.\n'
+  printf '  Guide: docs/LINKEDIN-SETUP.md\n'
+  [[ -n "$token_arg" ]] && token="$token_arg"
+  [[ -n "$kind_arg" ]] && kind="$kind_arg"
+  [[ -n "$account_arg" ]] && account="$account_arg"
+  [[ -n "$person_arg" ]] && person="$person_arg"
+  [[ -n "$org_arg" ]] && org="$org_arg"
+  [[ -n "$urn_arg" ]] && urn="$urn_arg"
+  if [[ -z "$token_arg$kind_arg$account_arg$person_arg$org_arg$urn_arg" && -t 0 ]]; then
+    printf 'Leave an answer empty to keep the stored value.\n'
+    read -r -s -p 'LinkedIn access token: ' answer
+    printf '\n'
+    [[ -n "$answer" ]] && token="$answer"
+    read -r -p "Account type person/organization [${kind}]: " answer
+    [[ -n "$answer" ]] && kind="$answer"
+    read -r -p "Account key (button label suffix) [${account}]: " answer
+    [[ -n "$answer" ]] && account="$answer"
+    read -r -p 'Author URN, person id, or organization id: ' answer
+    if [[ -n "$answer" ]]; then
+      if [[ "$answer" == urn:* ]]; then
+        urn="$answer"
+      elif [[ "$kind" == organization ]]; then
+        org="$answer"
+      else
+        person="$answer"
+      fi
+    fi
+  fi
+  case "$kind" in
+    person|organization) ;;
+    *)
+      printf 'Unknown account type: %s (use person or organization).\n' "$kind" >&2
+      return 2 ;;
+  esac
+  if [[ -z "$token" ]]; then
+    printf '  Current state: %s\n' "$(content_linkedin_state)"
+    printf 'Nothing stored yet. Run one of:\n'
+    printf '  ./manage.sh content-connect-linkedin --token <TOKEN> --person-id <ID>\n'
+    printf '  ./manage.sh content-connect-linkedin --token <TOKEN> --organization-id <ID> --type organization\n'
+    return 1
+  fi
+  author="$(content_linkedin_author "$kind" "$urn" "$person" "$org")"
+  if [[ -z "$author" ]]; then
+    printf 'The author is still empty: pass --person-id, --organization-id, or --author-urn.\n' >&2
+    return 1
+  fi
+  replace_env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCESS_TOKEN "$token"
+  replace_env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCOUNT "$account"
+  replace_env_value "$ENV_FILE" CONTENT_LINKEDIN_ACCOUNT_TYPE "$kind"
+  replace_env_value "$ENV_FILE" CONTENT_LINKEDIN_AUTHOR_URN "$urn"
+  replace_env_value "$ENV_FILE" CONTENT_LINKEDIN_PERSON_ID "$person"
+  replace_env_value "$ENV_FILE" CONTENT_LINKEDIN_ORGANIZATION_ID "$org"
+  replace_env_value "$ENV_FILE" CONTENT_LINKEDIN_API_BASE "$base"
+  replace_env_value "$ENV_FILE" CONTENT_LINKEDIN_API_VERSION "$version"
+  printf 'Stored the LinkedIn token, account %s, and author %s in .env.\n' "$account" "$author"
+  printf '  Current state: %s\n' "$(content_linkedin_state)"
+  if [[ "$verify" == true ]]; then
+    printf 'Token check: '
+    content_linkedin_verify "$base" "$version" "$token" "$author" \
+      || printf 'The check did not pass; see docs/LINKEDIN-SETUP.md.\n'
+  fi
+  if [[ "$apply" == true ]]; then
+    if content_container_running; then
+      printf 'Applying the configuration to content-bot...\n'
+      compose up -d content-bot >/dev/null
+      waited=0
+      while ((waited < 30)) && ! content_container_running; do
+        sleep 2
+        waited=$((waited + 2))
+      done
+    else
+      printf 'content-bot is not running; it reads the new values on its next start.\n'
+    fi
+  fi
+  printf 'Open a draft in Telegram: "More platforms..." shows LinkedIn (auto) once the\n'
+  printf 'bot restarted with the new values. Check with ./manage.sh content-channels\n'
 }
 
 content_connect_instagram() {
@@ -1225,8 +1440,10 @@ content_channels_status() {
   printf 'Automatic channels (tokens are never printed)\n'
   printf '  - %s\n' "$(content_channel_state bale)"
   printf '  - %s\n' "$(content_channel_state eitaa)"
+  printf '  - %s\n' "$(content_linkedin_state)"
   printf '  A configured channel appears as "<name> (auto)" on a draft; uploads\n'
-  printf '  publish the moment it is picked. Guide: docs/BALE-EITAA-SETUP.md\n'
+  printf '  publish the moment it is picked. Guides: docs/BALE-EITAA-SETUP.md and\n'
+  printf '  docs/LINKEDIN-SETUP.md\n'
 }
 
 content_channel_get_me() {
@@ -1388,9 +1605,10 @@ content_menu() {
     printf '%s\n' '4) Reconfigure Content Bot settings'
     printf '%s\n' '5) Instagram media host status'
     printf '%s\n' '6) Enable the Instagram media host'
-    printf '%s\n' '7) Automatic channel status (Bale, Eitaa)'
+    printf '%s\n' '7) Automatic channel status (Bale, Eitaa, LinkedIn)'
     printf '%s\n' '8) Bale channel setup'
     printf '%s\n' '9) Eitaa channel setup'
+    printf '%s\n' '10) LinkedIn setup'
     printf '%s\n' '0) Back'
     read -r -p 'Choose: ' choice
     case "$choice" in
@@ -1403,6 +1621,7 @@ content_menu() {
       7) content_channels_status || true ;;
       8) content_connect_channel bale || true ;;
       9) content_connect_channel eitaa || true ;;
+      10) content_connect_linkedin || true ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1926,7 +2145,7 @@ panel_disable() {
 panel_build() {
   local repository tag
   repository="$(env_value "$ENV_FILE" PANEL_IMAGE_REPOSITORY)"; repository="${repository:-afsharidevops/content-panel}"
-  tag="$(env_value "$ENV_FILE" PANEL_IMAGE_TAG)"; tag="${tag:-0.3.0}"
+  tag="$(env_value "$ENV_FILE" PANEL_IMAGE_TAG)"; tag="${tag:-0.4.0}"
   "${DOCKER[@]}" build -t "$repository:$tag" -f "$ROOT_DIR/panel/Dockerfile" "$ROOT_DIR"
   printf 'Built %s:%s from panel/Dockerfile\n' "$repository" "$tag"
 }
@@ -3396,6 +3615,7 @@ case "$command" in
   content-connect-instagram) content_connect_instagram ;;
   content-connect-bale) shift; content_connect_channel bale "$@" ;;
   content-connect-eitaa) shift; content_connect_channel eitaa "$@" ;;
+  content-connect-linkedin) shift; content_connect_linkedin "$@" ;;
   content-channels) content_channels_status ;;
   instagram-media-status) ig_media_status ;;
   instagram-media-enable) shift; ig_media_enable "${1:-}" ;;

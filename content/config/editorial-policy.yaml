@@ -124,13 +124,46 @@ exclusions:
     - "pyramid scheme"
     - "get rich quick"
 
+# Default publishing targets. A draft may carry its own targets:
+#   targets: [linkedin_personal, linkedin_company, bale]
+# written as platform_account, or as {platform: linkedin, account: personal}.
+# Targets name the automatic channel adapters (bale, eitaa, one key per
+# LinkedIn account); Telegram and Instagram keep their own approve-time paths.
+# A draft without targets falls back to the list below; with no list at all
+# the bot publishes to every automatic channel it has configured (the
+# "All targets" button). Targets are documented in docs/LINKEDIN-SETUP.md.
+publishing:
+  targets: []
+
+# Tone profiles for per-destination adaptation. Keys ship with the bot:
+#   linkedin_personal  first person, technical, opinionated, founder voice
+#   linkedin_company   educational, neutral, brand voice
+#   telegram           concise, news-shaped
+# A LinkedIn account adapts through linkedin_company when its type is
+# organization and through linkedin_personal otherwise. Override a profile
+# here (style, max_chars, enabled, or another built-in template), add your own
+# key, or remove one with null. The rewrite prompt itself can be replaced by a
+# file named <tone>.md or <tone>.txt in prompt-templates/ inside this policy
+# directory; CONTENT_ADAPT_ENABLED=false publishes the draft text unchanged.
+# Shape:
+#
+#   tones:
+#     linkedin_personal:
+#       style: [first_person, technical, opinionated, founder_voice]
+#       max_chars: 2800
+#       template: linkedin_personal
+#       enabled: true
+tones: {}
+
 # Platforms that need a manual upload step. Used only when the operator sets
 # CONTENT_PLATFORMS_ENABLED=true; each key then becomes a button under
 # "More platforms..." on draft previews and the bot sends a copy-ready
 # package (title, description, hashtags, upload link) plus the stored media
 # file. Telegram and Instagram publish through their APIs and are not listed
-# here. Override any value below, add a new platform key, or set a key to
-# null to hide its button; no code change is required.
+# here; Bale and Eitaa below are automatic, and LinkedIn switches to one
+# automatic profile per configured account. Override any value below, add a
+# new platform key, or set a key to null to hide its button; no code change is
+# required.
 platforms:
   youtube:
     label: "YouTube"
@@ -169,5 +202,5 @@ platforms:
     upload_url: "https://www.linkedin.com/feed/"
     title_limit: 120
     description_limit: 2900
-    note: "LinkedIn has no separate title field: paste the description as the post text and use the title as the first line when it helps."
+    note: "Copy-ready package, kept beside the automatic LinkedIn accounts for hand-offs the REST API cannot do (video posts, for example); set linkedin: null here to hide it once accounts are configured (docs/LINKEDIN-SETUP.md)."
     hashtags: []

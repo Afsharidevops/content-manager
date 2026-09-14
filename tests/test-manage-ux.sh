@@ -27,6 +27,7 @@ grep -q 'instagram-media-enable' <<<"$help"
 grep -q 'instagram-media-status' <<<"$help"
 grep -q 'content-connect-bale' <<<"$help"
 grep -q 'content-connect-eitaa' <<<"$help"
+grep -q 'content-connect-linkedin' <<<"$help"
 grep -q 'content-channels' <<<"$help"
 grep -q 'domains                     Public host names' <<<"$help"
 
@@ -44,6 +45,25 @@ grep -q '^CONTENT_BALE_CHAT_ID=@test_channel$' "$tmp/.env"
 grep -q '^CONTENT_BALE_API_BASE=https://tapi.bale.ai$' "$tmp/.env"
 channels_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-channels)"
 grep -q 'Bale: automatic publishing ready' <<<"$channels_out"
+grep -q 'LinkedIn: not configured' <<<"$channels_out"
+
+# LinkedIn accepts an author as a person id, an organization id, or an
+# explicit URN, and refuses an unknown account type before writing .env.
+PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-connect-linkedin \
+  --token 'AQXtest' --person-id 'abc123' --no-apply >/dev/null
+grep -q '^CONTENT_LINKEDIN_ACCESS_TOKEN=AQXtest$' "$tmp/.env"
+grep -q '^CONTENT_LINKEDIN_PERSON_ID=abc123$' "$tmp/.env"
+PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-connect-linkedin \
+  --token 'AQXorg' --type organization --organization-id '12345678' --no-apply >/dev/null
+grep -q '^CONTENT_LINKEDIN_ORGANIZATION_ID=12345678$' "$tmp/.env"
+grep -q '^CONTENT_LINKEDIN_ACCOUNT_TYPE=organization$' "$tmp/.env"
+channels_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-channels)"
+grep -q 'LinkedIn: automatic publishing ready' <<<"$channels_out"
+if PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-connect-linkedin \
+     --token 'x' --type team --no-apply >/dev/null 2>&1; then
+  printf 'content-connect-linkedin must refuse an unknown account type\n' >&2
+  exit 1
+fi
 # content-status prints the same lines beside the rest of the configuration.
 status_root="$tmp/status-env"
 mkdir -p "$status_root"
@@ -54,6 +74,7 @@ printf 'daily_proposal_time: "08:00"\n' \
   > "$status_root/data/content-manager/config/editorial-policy.yaml"
 status_out="$(PATH="$tmp/bin:$PATH" "$status_root/manage.sh" content-status)"
 grep -q 'Eitaa: not configured' <<<"$status_out"
+grep -q 'LinkedIn: not configured' <<<"$status_out"
 
 # The media host status resolves the public URL the same way the bot does:
 # a pinned file first, then a stable environment value, then the tunnel log.

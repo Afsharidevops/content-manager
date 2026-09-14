@@ -7,6 +7,8 @@ import http.client
 import urllib.error
 import urllib.request
 import uuid
+from dataclasses import dataclass, field
+from typing import Mapping
 
 USER_AGENT = "ContentBot/0.1"
 
@@ -16,6 +18,15 @@ class HttpError(RuntimeError):
         self.status = status
         self.body = body
         super().__init__(f"HTTP {status}")
+
+
+@dataclass(frozen=True)
+class HttpResponse:
+    """One completed HTTP exchange with its response headers."""
+
+    status: int
+    body: bytes
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 def request_bytes(
@@ -35,12 +46,51 @@ def request_bytes(
     neither is given the request has no body. ``content_type`` is guessed for
     JSON payloads and can be set explicitly for raw bodies.
     """
+    response = request_response(
+        url,
+        method=method,
+        headers=headers,
+        payload=payload,
+        raw_body=raw_body,
+        content_type=content_type,
+        timeout=timeout,
+        max_bytes=max_bytes,
+    )
+    return response.status, response.body
+
+
+def request_response(
+    url: str,
+    *,
+    method: str | None = None,
+    headers: dict | None = None,
+    payload: dict | None = None,
+    raw_body: bytes | None = None,
+    content_type: str | None = None,
+    timeout: int = 30,
+    max_bytes: int = 4_000_000,
+) -> HttpResponse:
+    """Perform one HTTP request and keep the response headers.
+
+    Providers that answer with resource identifiers in headers (LinkedIn sends
+    ``x-restli-id``) need the headers next to the body, which
+    :func:`request_bytes` intentionally drops.
+    """
     data = raw_body if raw_body is not None else None
     if data is None and payload is not None:
         data = json.dumps(payload).encode("utf-8")
     if content_type is None:
         content_type = "application/json" if payload is not None else None
-    return _request(url, data=data, headers=headers, content_type=content_type, method=method, timeout=timeout, max_bytes=max_bytes)
+    status, body, response_headers = _request(
+        url,
+        data=data,
+        headers=headers,
+        content_type=content_type,
+        method=method,
+        timeout=timeout,
+        max_bytes=max_bytes,
+    )
+    return HttpResponse(status=status, body=body, headers=response_headers)
 
 
 def request_multipart(
@@ -132,7 +182,7 @@ def _request(
     method: str | None,
     timeout: int,
     max_bytes: int,
-) -> tuple[int, bytes]:
+) -> tuple[int, bytes, Mapping[str, str]]:
     request_headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
     request_headers.update(headers or {})
     if content_type:
@@ -145,9 +195,9 @@ def _request(
             body = response.read(max_bytes + 1)
             if len(body) > max_bytes:
                 raise HttpError(0, b"response body exceeds the size limit")
-            return int(response.status), body
+            return int(response.status), body, dict(response.headers.items())
     except urllib.error.HTTPError as error:
-        return int(error.code), error.read(max_bytes + 1)
+        return int(error.code), error.read(max_bytes + 1), dict(error.headers.items())
     except urllib.error.URLError as error:
         raise ConnectionError(str(error.reason)) from error
     except (http.client.IncompleteRead, TimeoutError) as error:

@@ -17,6 +17,9 @@ from content_bot import instagram as instagram_mod
 from content_bot import mediastudio as media_mod, rtl as rtl_mod, search as search_mod
 from content_bot import instagram_token as instagram_token_mod
 from content_bot import channels as channels_mod
+from content_bot import accounts as accounts_mod
+from content_bot import adapt as adapt_mod
+from content_bot import publications as publications_mod
 from content_bot import panel_actions as panel_actions_mod
 from content_bot import platforms as platforms_mod
 from content_bot import workflow, writer as writer_mod
@@ -249,7 +252,10 @@ class ContentBot:
             )
         self.media = media
         self.state = store or state_mod.StateStore(Path(settings.data_dir) / "state.json")
-        self.channels = channels_mod.build_channels(settings)
+        self.accounts = accounts_mod.load_accounts(
+            settings.policy_dir, filename=settings.social_accounts_file
+        )
+        self.channels = channels_mod.build_channels(settings, self.accounts)
         self.fetch_page = fetch_page or fetch.fetch_page
         self.fetch_feed = fetch_feed or fetch.fetch_feed
         self.search_topic = search_topic or search_mod.search_topic
@@ -2596,7 +2602,7 @@ class ContentBot:
             )
             return
         policy = workflow.load_policy(self.settings.policy_dir)
-        profiles = platforms_mod.load_profiles(policy)
+        profiles = self._platform_profiles(policy)
         if not profiles:
             self.api.answer_callback_query(
                 query_id,
@@ -2635,6 +2641,9 @@ class ContentBot:
             notes.append(
                 "These hand over a copy-ready package: " + ", ".join(manual) + "."
             )
+        if len(automatic) >= 2:
+            pairs.append(("#all", "All targets"))
+            notes.append("All targets publishes to every automatic platform above.")
         self.api.send_message(
             chat_id,
             "Pick a platform. " + " ".join(notes),
@@ -2649,6 +2658,65 @@ class ContentBot:
         key = str(getattr(profile, "channel_key", "") or profile.key)
         return self.channels.get(key)
 
+    def _platform_profiles(self, policy: dict):
+        """Return the platform profiles with the account-derived ones added."""
+        return platforms_mod.load_profiles(policy, self.accounts)
+
+    def _account_kind(self, target: str) -> str:
+        """Return the account type behind one target key."""
+        account = self.accounts.get(str(target or ""))
+        return str(getattr(account, "kind", "") or "")
+
+    def _adapter(self, policy: dict) -> adapt_mod.ContentAdapter:
+        """Return the content adapter for the current policy and templates."""
+        return adapt_mod.ContentAdapter.from_policy(
+            policy,
+            self.settings.prompt_templates_dir,
+            getattr(self, "writer", None),
+            enabled=self.settings.adapt_enabled,
+        )
+
+    def _target_record(self, record: dict, profile, policy: dict) -> dict:
+        """Return the draft as it should be published to one target.
+
+        The body is adapted once per target and the variant is cached in the
+        state store, so retrying a failed publish never calls the writer twice
+        for the same text.
+        """
+        draft_id = str(record.get("id") or "")
+        target = str(getattr(profile, "key", "") or "")
+        body = str(record.get("body") or "")
+        if not target:
+            return record
+        find_variant = getattr(self.state, "variant_for", None)
+        cached = find_variant(draft_id, target) if (draft_id and find_variant) else None
+        if cached is not None:
+            text = str(cached.get("generated_text") or "")
+        else:
+            adapter = self._adapter(policy)
+            kind = self._account_kind(target)
+            text = adapter.text_for(record, target, kind=kind)
+            store_variant = getattr(self.state, "add_variant", None)
+            if draft_id and store_variant and text.strip() != body.strip():
+                platform, _, account = target.partition("_")
+                store_variant(
+                    {
+                        "content_id": draft_id,
+                        "target": target,
+                        "platform": platform,
+                        "account": account,
+                        "tone": adapter.tone(target, kind=kind).key,
+                        "generated_text": text,
+                        "adapted": True,
+                    }
+                )
+        if not text.strip() or text.strip() == body.strip():
+            return record
+        published = dict(record)
+        published["body"] = text
+        published["adapted_body"] = True
+        return published
+
     def _platform_choice(self, query_id: str, key: str, draft_id: str) -> None:
         """Publish to one platform, or hand over its package when it is manual."""
         if not self.settings.platforms_enabled:
@@ -2662,8 +2730,12 @@ class ContentBot:
             self.api.answer_callback_query(query_id, "This draft is no longer active.")
             return
         policy = workflow.load_policy(self.settings.policy_dir)
-        profiles = platforms_mod.load_profiles(policy)
-        profile = profiles.get(str(key or "").strip().lower())
+        profiles = self._platform_profiles(policy)
+        wanted = str(key or "").strip().lower()
+        if wanted == "#all":
+            self._publish_to_targets(query_id, record, profiles)
+            return
+        profile = profiles.get(wanted)
         if profile is None:
             self.api.answer_callback_query(query_id, "Unknown platform.")
             return
@@ -2673,15 +2745,92 @@ class ContentBot:
             return
         self._publish_to_channel(query_id, record, profile, channel)
 
-    def _publish_to_channel(self, query_id: str, record: dict, profile, channel) -> None:
-        """Publish one draft through an automatic channel adapter."""
+    def _resolved_targets(self, record: dict, profiles) -> list[str]:
+        """Return the targets of one draft, defaulting to every auto platform."""
+        policy = workflow.load_policy(self.settings.policy_dir)
+        targets = publications_mod.resolve_targets(
+            record, publications_mod.publication_defaults(policy)
+        )
+        if targets:
+            return targets
+        return [
+            key
+            for key, profile in profiles.items()
+            if self._channel_for(profile) is not None
+        ]
+
+    def _publish_to_targets(self, query_id: str, record: dict, profiles) -> None:
+        """Publish one draft to every resolved target and report one summary."""
+        draft_id = str(record.get("id") or "")
+        rows: list[dict] = []
+        for target in self._resolved_targets(record, profiles):
+            profile = profiles.get(target)
+            if profile is None:
+                row = publications_mod.build_publication(
+                    draft_id, target, publications_mod.STATUS_SKIPPED, error="unknown target"
+                ).as_row()
+                self._record_publication(row)
+                rows.append(row)
+                continue
+            channel = self._channel_for(profile)
+            if channel is None:
+                row = publications_mod.build_publication(
+                    draft_id,
+                    target,
+                    publications_mod.STATUS_SKIPPED,
+                    error="no token or a manual platform",
+                ).as_row()
+                self._record_publication(row)
+                rows.append(row)
+                continue
+            rows.append(
+                self._publish_to_channel(None, record, profile, channel, quiet=True)
+            )
+        labels = {key: profile.label for key, profile in profiles.items()}
+        summary = publications_mod.summarize_labels(rows, labels)
+        self._safe_answer(query_id, f"Published to {len(rows)} target(s).")
+        chat_id = record.get("chat_id")
+        if chat_id is None:
+            return
+        try:
+            self.api.send_message(
+                chat_id,
+                "Publish results:\n" + html.escape(summary, quote=False),
+            )
+        except telegram_mod.TelegramError as error:
+            log.warning("publish summary failed: %s", error)
+
+    def _record_publication(self, row: dict) -> None:
+        """Store one publication row, never failing the publish over it."""
+        try:
+            self.state.add_publication(row)
+        except OSError as error:
+            log.warning("publication row not stored: %s", error)
+
+    def _publish_to_channel(
+        self, query_id: str | None, record: dict, profile, channel, *, quiet: bool = False
+    ) -> dict:
+        """Publish one draft through an automatic channel adapter.
+
+        Returns the publication row for this target so callers can publish to
+        several targets and report one summary. A failed target never stops
+        the remaining ones.
+        """
         draft_id = str(record.get("id") or "")
         already = list(record.get("published_targets") or [])
         if profile.key in already:
-            self._safe_answer(query_id, f"Already published to {profile.label}.")
-            return
-        messages = _media_caption_messages(record)
-        media = record.get("media") or {}
+            if not quiet:
+                self._safe_answer(query_id, f"Already published to {profile.label}.")
+            return publications_mod.build_publication(
+                draft_id,
+                profile.key,
+                publications_mod.STATUS_SKIPPED,
+                error="already published",
+            ).as_row()
+        policy = workflow.load_policy(self.settings.policy_dir)
+        published_record = self._target_record(record, profile, policy)
+        messages = _media_caption_messages(published_record)
+        media = published_record.get("media") or {}
         kind = str(media.get("kind") or "")
         files = list(media.get("files") or [])
         local_path = str(media.get("local_path") or "")
@@ -2715,15 +2864,32 @@ class ContentBot:
                 for continuation in messages[1:]:
                     channel.send_text(continuation)
             else:
-                channel.send_text(self.channel_text(record))
+                channel.send_text(self.channel_text(published_record))
         except (channels_mod.ChannelError, OSError) as error:
             log.warning("channel publish failed (%s): %s", profile.key, error)
-            self._safe_answer(query_id, f"{profile.label}: {error}")
-            return
+            row = publications_mod.build_publication(
+                draft_id,
+                profile.key,
+                publications_mod.STATUS_FAILED,
+                error=str(error),
+            ).as_row()
+            self._record_publication(row)
+            if not quiet:
+                self._safe_answer(query_id, f"{profile.label}: {error}")
+            return row
         if draft_id and self.state.get_draft(draft_id) is not None:
             self.state.update_draft(
                 draft_id, {"published_targets": already + [profile.key]}
             )
+        row = publications_mod.build_publication(
+            draft_id,
+            profile.key,
+            publications_mod.STATUS_PUBLISHED,
+            remote_id=str(getattr(channel, "last_remote_id", "") or ""),
+        ).as_row()
+        self._record_publication(row)
+        if quiet:
+            return row
         self._safe_answer(query_id, f"Published to {profile.label}.")
         chat_id = record.get("chat_id")
         if chat_id is not None:
@@ -2731,6 +2897,7 @@ class ContentBot:
                 self.api.send_message(chat_id, f"Published to {profile.label}.")
             except telegram_mod.TelegramError as error:
                 log.warning("channel confirmation failed: %s", error)
+        return row
 
     def _send_platform_package(self, query_id: str, key: str, draft_id: str) -> None:
         """Send one platform package plus the stored media for a draft."""
@@ -2746,7 +2913,7 @@ class ContentBot:
             self.api.answer_callback_query(query_id, "This draft is no longer active.")
             return
         policy = workflow.load_policy(self.settings.policy_dir)
-        profiles = platforms_mod.load_profiles(policy)
+        profiles = self._platform_profiles(policy)
         profile = profiles.get(str(key or "").strip().lower())
         if profile is None:
             self.api.answer_callback_query(query_id, "Unknown platform.")
@@ -2755,16 +2922,17 @@ class ContentBot:
         if chat_id is None:
             self.api.answer_callback_query(query_id, "No chat is attached to this draft.")
             return
+        package_record = self._target_record(record, profile, policy)
         try:
             self.api.send_message(
                 chat_id,
-                platforms_mod.package_text(record, profile),
+                platforms_mod.package_text(package_record, profile),
                 parse_mode="HTML",
             )
         except telegram_mod.TelegramError as error:
             self.api.answer_callback_query(query_id, f"Package failed: {error}")
             return
-        self._send_package_media(chat_id, record, profile)
+        self._send_package_media(chat_id, package_record, profile)
         self._safe_answer(query_id, f"{profile.label} package sent.")
 
     def _send_package_media(self, chat_id, record: dict, profile) -> None:

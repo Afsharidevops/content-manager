@@ -33,6 +33,8 @@ class PlatformProfile:
     wants_video: bool = False
     mode: str = "package"
     channel_key: str = ""
+    account: str = ""
+    tone: str = ""
 
 
 DEFAULT_PROFILES: dict[str, PlatformProfile] = {
@@ -122,9 +124,52 @@ def _hashtags(value, fallback: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(tags)
 
 
-def load_profiles(policy: dict) -> dict[str, PlatformProfile]:
-    """Return the platform profiles after applying the policy overrides."""
+def account_profiles(accounts) -> dict[str, PlatformProfile]:
+    """Return one automatic profile per configured social account.
+
+    A LinkedIn deployment with two accounts offers two buttons - the personal
+    profile and the company page - and each one publishes through its own
+    token and author URN.
+    """
+    profiles: dict[str, PlatformProfile] = {}
+    for account in (accounts or {}).values():
+        if str(getattr(account, "platform", "")) != "linkedin":
+            continue
+        key = str(getattr(account, "target", "") or "")
+        if not key:
+            continue
+        kind = str(getattr(account, "kind", "") or "")
+        profiles[key] = PlatformProfile(
+            key=key,
+            label=str(getattr(account, "display", "") or key),
+            upload_url="https://www.linkedin.com/feed/",
+            title_limit=120,
+            description_limit=3000,
+            note="Published through the LinkedIn REST API.",
+            mode="auto",
+            channel_key=key,
+            account=str(getattr(account, "account", "") or ""),
+            tone="linkedin_company" if kind == "organization" else "linkedin_personal",
+        )
+    return profiles
+
+
+def load_profiles(policy: dict, accounts=None) -> dict[str, PlatformProfile]:
+    """Return the platform profiles after applying the policy overrides.
+
+    Accounts come first: every configured LinkedIn account adds one automatic
+    profile, so no policy entry is needed for them. The generic manual LinkedIn
+    profile stays as the copy-ready package (a video post, for example, is
+    refused by the adapter and handed over this way) unless the ``platforms:``
+    section of the policy removes it with ``linkedin: null``. The section wins
+    over both the built-in and the account-derived profiles, so a deployment
+    can rename, restrict, or remove any of them.
+    """
     profiles = dict(DEFAULT_PROFILES)
+    derived = account_profiles(accounts)
+    if derived:
+        profiles.pop("linkedin", None)
+        profiles.update(derived)
     section = policy.get("platforms")
     if not isinstance(section, dict):
         return profiles
@@ -155,6 +200,8 @@ def load_profiles(policy: dict) -> dict[str, PlatformProfile]:
                 else base.mode
             ),
             channel_key=_text(raw.get("channel"), base.channel_key),
+            account=_text(raw.get("account"), base.account),
+            tone=_text(raw.get("tone"), base.tone),
         )
     return profiles
 

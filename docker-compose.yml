@@ -666,7 +666,7 @@ services:
   # read-only from the editorial working copy.
   content-bot:
     profiles: ["content"]
-    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.3.0}
+    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.4.0}
     container_name: content-bot
     restart: unless-stopped
     user: "${CONTENT_BOT_RUN_AS:-10004:10004}"
@@ -702,6 +702,20 @@ services:
       CONTENT_EITAA_TOKEN: ${CONTENT_EITAA_TOKEN:-}
       CONTENT_EITAA_CHAT_ID: ${CONTENT_EITAA_CHAT_ID:-}
       CONTENT_EITAA_API_BASE: ${CONTENT_EITAA_API_BASE:-https://eitaayar.ir/api}
+      CONTENT_LINKEDIN_ACCESS_TOKEN: ${CONTENT_LINKEDIN_ACCESS_TOKEN:-}
+      CONTENT_LINKEDIN_ACCOUNT: ${CONTENT_LINKEDIN_ACCOUNT:-personal}
+      CONTENT_LINKEDIN_ACCOUNT_TYPE: ${CONTENT_LINKEDIN_ACCOUNT_TYPE:-person}
+      CONTENT_LINKEDIN_PERSON_ID: ${CONTENT_LINKEDIN_PERSON_ID:-}
+      CONTENT_LINKEDIN_ORGANIZATION_ID: ${CONTENT_LINKEDIN_ORGANIZATION_ID:-}
+      CONTENT_LINKEDIN_AUTHOR_URN: ${CONTENT_LINKEDIN_AUTHOR_URN:-}
+      CONTENT_LINKEDIN_LABEL: ${CONTENT_LINKEDIN_LABEL:-}
+      CONTENT_LINKEDIN_API_BASE: ${CONTENT_LINKEDIN_API_BASE:-https://api.linkedin.com}
+      CONTENT_LINKEDIN_API_VERSION: ${CONTENT_LINKEDIN_API_VERSION:-202601}
+      CONTENT_LINKEDIN_TIMEOUT: ${CONTENT_LINKEDIN_TIMEOUT:-60}
+      CONTENT_LINKEDIN_RETRIES: ${CONTENT_LINKEDIN_RETRIES:-3}
+      CONTENT_SOCIAL_ACCOUNTS_FILE: ${CONTENT_SOCIAL_ACCOUNTS_FILE:-social-accounts.yaml}
+      CONTENT_ADAPT_ENABLED: ${CONTENT_ADAPT_ENABLED:-true}
+      CONTENT_PROMPT_DIR: ${CONTENT_PROMPT_DIR:-}
       INSTAGRAM_BUSINESS_ID: ${INSTAGRAM_BUSINESS_ID:-}
       INSTAGRAM_ACCESS_TOKEN: ${INSTAGRAM_ACCESS_TOKEN:-}
       INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
@@ -792,7 +806,7 @@ services:
   # mounts exactly like a host invocation.
   panel:
     profiles: ["panel"]
-    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.3.0}
+    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.4.0}
     build:
       context: .
       dockerfile: panel/Dockerfile

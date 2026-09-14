@@ -303,8 +303,9 @@ routines:
 | --- | --- |
 | Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
 | Instagram | Official Meta Graph API: photos, carousels, and video; the long-lived token refreshes itself, `/instagram` reports the expiry, and the `ig-media` profile publishes the media directory at a public URL (`./manage.sh instagram-media-status`, a domain through Caddy, or a named tunnel); see `docs/INSTAGRAM-SETUP.md` |
-| YouTube / Aparat / LinkedIn | Optional copy-ready upload package (off by default); see "Extra platforms" |
+| YouTube / Aparat | Optional copy-ready upload package (off by default); see "Extra platforms" |
 | Bale / Eitaa | Automatic channel publish through their bot APIs (needs a token and a chat id); see "Extra platforms" |
+| LinkedIn | Automatic publish to a personal profile or a company page through the REST API, with a per-destination tone; the generic entry stays a copy-ready package until an account is configured (`docs/LINKEDIN-SETUP.md`) |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
 
 ## Extra platforms
@@ -318,16 +319,32 @@ publishes the draft immediately or hands over a copy-ready package, depending
 on what the platform supports:
 
 - **Automatic channels** publish the draft the moment you pick them, exactly
-  (setup: `docs/BALE-EITAA-SETUP.md`)
-  like Telegram. `Bale` speaks the Telegram Bot API
-  (`CONTENT_BALE_TOKEN` + `CONTENT_BALE_CHAT_ID`), and `Eitaa` goes through the
-  EitaaYar gateway (`CONTENT_EITAA_TOKEN` + `CONTENT_EITAA_CHAT_ID`). Each
-  channel is marked `(auto)` in the chooser, publishes the caption and the
-  attached media, and records the target on the draft so the same post is
-  never sent twice. A channel without a token is marked `(no token)` and falls
-  back to the package until you add one.
-- **Package platforms** keep the manual flow below: YouTube, Aparat,
-  LinkedIn, and any key you add yourself.
+  like Telegram. `Bale` speaks the Telegram Bot API (`CONTENT_BALE_TOKEN` +
+  `CONTENT_BALE_CHAT_ID`) and `Eitaa` goes through the EitaaYar gateway
+  (`CONTENT_EITAA_TOKEN` + `CONTENT_EITAA_CHAT_ID`); both are covered by
+  `docs/BALE-EITAA-SETUP.md`. `LinkedIn` posts to a personal profile or a
+  company page through the REST API - one account per destination, each with
+  its own tone - and is covered by `docs/LINKEDIN-SETUP.md`. Each channel is
+  marked `(auto)` in the chooser, publishes the caption and the attached
+  media, and records the target on the draft so the same post is never sent
+  twice. A channel without a token is marked `(no token)` and falls back to
+  the package until you add one, and with the extra platforms enabled the
+  chooser also carries **All targets**, which publishes to every configured
+  automatic channel and reports one result per target.
+- **Per-destination adaptation** rewrites the draft body for each automatic
+  channel before publishing: a LinkedIn personal profile reads first person
+  and opinionated, a LinkedIn company page educational and neutral, and a
+  messenger channel short and news-shaped. The rewritten text is stored with
+  the draft, republished retries reuse it, and publishing falls back to the
+  untouched draft text whenever `CONTENT_ADAPT_ENABLED=false`, no writer is
+  configured, or the rewrite fails. Tone profiles, prompt templates, and the
+  target defaults (`publishing.targets` and the per-draft `targets:`) are
+  documented in `docs/LINKEDIN-SETUP.md`.
+- **Package platforms** keep the manual flow below: YouTube, Aparat, and any
+  key you add yourself. The generic LinkedIn entry stays beside the automatic
+  accounts as the hand-off for what the REST adapter refuses (a video post,
+  for example); set `linkedin: null` in the `platforms:` section to hide it
+  once accounts are configured.
 
 The packages:
 

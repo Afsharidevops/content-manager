@@ -96,10 +96,11 @@ needed when `COMPOSE_PROFILES` does not already include it.
   (`PANEL_PUBLIC_URL`, `MEDIA_STUDIO_PUBLIC_URL`, ...) moves from the
   `./manage.sh domains` checklist into the file the console reads.
 - **Platforms** - one card per publishing platform (Telegram, Bale, Eitaa,
-  Instagram, the AI writer, Media Studio, the platform chooser, and the
-  package-only YouTube/Aparat/LinkedIn entries) with the keys that platform
-  needs: bot tokens, channel or business ids, and the API **base URL** each
-  client dials. A card shows its state at a glance (`ready`, `incomplete`,
+  Instagram, LinkedIn, the AI writer, Media Studio, the platform chooser, and
+  the package-only YouTube/Aparat entries) with the keys that platform
+  needs: bot tokens, channel or business ids, the LinkedIn access token and
+  author (person or organization), and the API **base URL** each client
+  dials. A card shows its state at a glance (`ready`, `incomplete`,
   `not configured`, `package handover`, or `on`/`off` for the chooser switch),
   marks the fields that are required before it can publish, and keeps stored
   secrets masked - the browser never receives a token, only whether one is
@@ -108,8 +109,10 @@ needed when `COMPOSE_PROFILES` does not already include it.
   provider with the value currently in the form (so a token can be checked
   before it is saved), and **Apply changes** recreates the containers so
   `content-bot` reads the new values. Tests cover `getMe` for Telegram, Bale,
-  and Eitaa, the Instagram Graph node lookup, `/v1/models` (with a `/health`
-  fallback) for the writer, and `/healthz` for Media Studio.
+  and Eitaa, the Instagram Graph node lookup, the LinkedIn image
+  upload-slot probe (token and author check without publishing anything),
+  `/v1/models` (with a `/health` fallback) for the writer, and `/healthz` for
+  Media Studio.
 - **Logs** - `docker compose logs` tails per service with an optional
   auto-refresh.
 - **Object storage** - the shared S3 block every consumer reads:
@@ -245,7 +248,7 @@ Keep the token out of proxy logs; the console never puts it in a URL.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PANEL_IMAGE_REPOSITORY` | `afsharidevops/content-panel` | Image repository |
-| `PANEL_IMAGE_TAG` | `0.3.0` | Image tag; the Compose service also builds locally when the image is missing |
+| `PANEL_IMAGE_TAG` | `0.4.0` | Image tag; the Compose service also builds locally when the image is missing |
 | `PANEL_BIND_IP` | `127.0.0.1` | Host address the console binds to |
 | `PANEL_PORT` | `8899` | Host port |
 | `PANEL_ACTIONS_ENABLED` | `true` | `false` serves read-only views |

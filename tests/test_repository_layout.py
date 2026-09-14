@@ -3,6 +3,19 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Runtime state and local tooling live outside the repository tree: every path
+# below is git-ignored, so its file names cannot influence the layout rules.
+IGNORED_DIRECTORIES = {'.git', '.venv', 'data', 'node_modules'}
+
+
+def markdown_files() -> list[Path]:
+    """Return the Markdown files that belong to the repository tree."""
+    return [
+        path
+        for path in ROOT.rglob('*.md')
+        if not IGNORED_DIRECTORIES.intersection(path.relative_to(ROOT).parts)
+    ]
+
 
 class RepositoryLayoutTest(unittest.TestCase):
     def test_single_canonical_root_changelog(self):
@@ -14,8 +27,7 @@ class RepositoryLayoutTest(unittest.TestCase):
         self.assertEqual(expected, {p.name for p in ROOT.glob('*.md')})
 
     def test_no_roadmap_or_plan_documents_in_active_tree(self):
-        markdown = [p for p in ROOT.rglob('*.md') if '.git' not in p.parts]
-        offenders = [p.relative_to(ROOT).as_posix() for p in markdown
+        offenders = [p.relative_to(ROOT).as_posix() for p in markdown_files()
                      if 'roadmap' in p.name.lower() or 'plan' in p.name.lower()]
         self.assertEqual([], sorted(offenders))
 
