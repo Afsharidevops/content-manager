@@ -38,12 +38,12 @@ Current release state:
 
 Fork release state (Content Manager):
 
-- fork/content release: `content-manager-v0.4.0`
-- Content Bot image: `afsharidevops/content-bot:0.4.0`
+- fork/content release: `content-manager-v0.4.1`
+- Content Bot image: `afsharidevops/content-bot:0.4.1`
 - Content Bot mutable current tag: `afsharidevops/content-bot:latest`
 - Media Studio image: `afsharidevops/media-studio:0.3.0`
 - Media Studio mutable current tag: `afsharidevops/media-studio:latest`
-- Operator panel image: `afsharidevops/content-panel:0.4.0`
+- Operator panel image: `afsharidevops/content-panel:0.4.1`
 - Operator panel mutable current tag: `afsharidevops/content-panel:latest`
 
 The Content Bot, Media Studio, and operator panel images are rebuilt and

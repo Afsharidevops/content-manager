@@ -3,7 +3,7 @@
 ## Images
 
 ```text
-afsharidevops/content-bot:0.4.0
+afsharidevops/content-bot:0.4.1
 afsharidevops/content-bot:latest
 ```
 
@@ -14,7 +14,7 @@ linux/amd64
 linux/arm64
 ```
 
-Do not publish a redundant `v0.4.0` Docker tag.
+Do not publish a redundant `v0.4.1` Docker tag.
 
 ## How publishing works
 
@@ -24,11 +24,11 @@ Pushing `content-bot/`, `content/content_pipeline/`, or this workflow to the
 
 1. Runs the content-layer and Content Bot test suites.
 2. Builds the image for `linux/amd64` and `linux/arm64` with build metadata.
-3. Pushes `afsharidevops/content-bot:0.4.0` and `:latest` to Docker Hub.
+3. Pushes `afsharidevops/content-bot:0.4.1` and `:latest` to Docker Hub.
 4. Verifies the published multi-platform manifest.
 
 The workflow can also be started manually from the GitHub Actions tab
-(`workflow_dispatch`); manual runs publish the same `0.4.0` tag from `main`.
+(`workflow_dispatch`); manual runs publish the same `0.4.1` tag from `main`.
 
 ## Repository settings
 
@@ -49,6 +49,9 @@ A version bump changes the image tag that installs pull by default:
 2. Bump `CONTENT_BOT_IMAGE_TAG` in `docker-compose.yml` and `.env.example`.
 3. Bump the version label in `content-bot/Dockerfile`.
 4. Update this page and `docs/CONTENT-PRODUCTION-GUIDE.md`.
+5. Bump the contentBot image tag in `deploy/helm/hermes-linux-stack/values.yaml`
+   and the chart version with its `artifacthub.io/changes` entry in the
+   chart's `Chart.yaml`.
 
 Push the change to `main`; the workflow publishes the new tag plus `:latest`.
 

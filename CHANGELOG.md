@@ -22,6 +22,28 @@ The current runtime release is **v0.5.9**.
   cadence. The default stays enabled, so existing deployments are unchanged,
   and the routines keep running either way.
 
+### Features — Aparat video publishing for the Content Bot (2026-09-14)
+
+- Aparat is an automatic channel now. Once a browser session is stored
+  (`CONTENT_APARAT_TOKEN`, the `jwt` value of a signed-in aparat.com tab, or
+  `CONTENT_APARAT_COOKIE`), a draft that carries a video publishes to Aparat
+  the moment the platform is picked: the bot reserves an upload slot, sends
+  the file in chunks, and submits the title, description, tags, and category.
+  The publication row keeps the watch URL when Aparat returns one.
+- Aparat is video-only and on demand. Text and photo drafts keep the
+  copy-ready package, the chooser marks the entry `Aparat (needs a video)`
+  until a video is attached, **All targets** skips it without a video, and
+  picking it without one asks for the file and uploads it as soon as it
+  arrives. The daily proposals and the scheduled routines never publish to
+  Aparat on their own.
+- The adapter reads the same per-destination adapted text the other channels
+  use, so the title, description, and hashtags of the Aparat upload follow the
+  draft language and the platform profile. `docs/APARAT-SETUP.md` covers the
+  session copy step, the panel card, the category ids, and the failure modes;
+  the panel gained an Aparat card with a session test, and
+  `./manage.sh content-aparat-check` probes the stored session without
+  uploading anything.
+
 ### Fixes — Buffered chat clients and streaming upstreams (2026-09-14)
 
 - A Chat Completions request that omits `stream` is now forwarded with an
@@ -288,6 +310,32 @@ This repository is **Content Manager**: a fork of the Hermes Linux Stack v0.5.9
 platform (upstream unchanged) extended with a deterministic daily
 content-production layer. The upstream changelog below documents the inherited
 platform; this section tracks the fork additions.
+
+### Fork release — Content Manager v0.4.1 (2026-09-14)
+
+- Added Aparat as an automatic video channel (`content_bot/aparat.py`,
+  `AparatChannel`): the bot reserves an upload slot, sends the clip in chunks,
+  and submits the title, description, tags, and category through the Aparat
+  upload API of a stored browser session (`CONTENT_APARAT_TOKEN` or
+  `CONTENT_APARAT_COOKIE`). Aparat is on demand and video-only: the daily
+  proposals and the scheduled routines never publish to it, the chooser marks
+  the entry `Aparat (needs a video)` until a clip is attached, **All targets**
+  skips it without one, and picking it without a video asks for the file and
+  uploads it as soon as it arrives. Text and photo drafts keep the copy-ready
+  package. `docs/APARAT-SETUP.md` covers the session copy step, the category
+  ids, and the failure modes; the panel gained an Aparat card with a session
+  test, and `./manage.sh content-aparat-check` probes the stored session
+  without uploading anything.
+- Scheduled proposals of the Content Bot now carry the same media question as
+  an on-demand draft, each routine selects its own `media` mode (`none`,
+  `auto`, or `ask`), and the built-in daily pass can be switched off with
+  `pipeline.daily_enabled: false` when the routines own the cadence. The
+  default stays enabled, so existing deployments are unchanged.
+- Added `docs/SMART-ROUTER-USER-GUIDE.md`, the complete operator guide for the
+  Smart Router console, the OpenAI-compatible API, model and alias selection,
+  routing profiles, the Orchestrator, and the client integrations.
+- Content Bot 0.4.1 and operator panel 0.4.1; Media Studio stays 0.3.0. The
+  Helm chart moves to 0.6.3 with the same image tags.
 
 ### Fork release — Content Manager v0.4.0 (2026-09-14)
 

@@ -1,9 +1,10 @@
-"""Automatic publishers for the chat-style messengers of the stack.
+"""Automatic publishers for the audiences of the stack.
 
 Telegram is the operator surface, so it has its own client. The channels in
 this module reach audiences on messengers that speak a Telegram-shaped Bot
-API (Bale) or the EitaaYar gateway (Eitaa). Instagram stays a manual package
-because its Graph API needs a review-gated business account.
+API (Bale), the EitaaYar gateway (Eitaa), the LinkedIn REST API, and the
+Aparat upload API. Aparat carries videos only, so its adapter refuses text
+and photo posts and keeps the copy-ready package in reach for those.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import json
 import re
 from urllib.parse import urlencode
 
+from content_bot import aparat as aparat_mod
 from content_bot import telegram as telegram_mod
 from content_bot import linkedin as linkedin_mod
 from content_bot.http import HttpError, request_bytes, request_json, request_multipart
@@ -64,7 +66,15 @@ class ChatChannel:
     def send_photo(self, filename: str, data: bytes, caption: str) -> None:
         raise NotImplementedError
 
-    def send_video(self, filename: str, data: bytes, caption: str) -> None:
+    def send_video(
+        self,
+        filename: str,
+        data: bytes,
+        caption: str,
+        *,
+        meta: dict | None = None,
+    ) -> None:
+        """Publish one video; ``meta`` carries per-platform title and tags."""
         raise NotImplementedError
 
     def send_document(self, filename: str, data: bytes, caption: str) -> None:
@@ -102,7 +112,14 @@ class TelegramLikeChannel(ChatChannel):
     def send_photo(self, filename: str, data: bytes, caption: str) -> None:
         self._upload("sendPhoto", "photo", filename, data, caption)
 
-    def send_video(self, filename: str, data: bytes, caption: str) -> None:
+    def send_video(
+        self,
+        filename: str,
+        data: bytes,
+        caption: str,
+        *,
+        meta: dict | None = None,
+    ) -> None:
         self._upload("sendVideo", "video", filename, data, caption)
 
     def send_document(self, filename: str, data: bytes, caption: str) -> None:
@@ -190,11 +207,95 @@ class EitaaChannel(ChatChannel):
     def send_photo(self, filename: str, data: bytes, caption: str) -> None:
         self._send_file(filename, data, caption)
 
-    def send_video(self, filename: str, data: bytes, caption: str) -> None:
+    def send_video(
+        self,
+        filename: str,
+        data: bytes,
+        caption: str,
+        *,
+        meta: dict | None = None,
+    ) -> None:
         self._send_file(filename, data, caption)
 
     def send_document(self, filename: str, data: bytes, caption: str) -> None:
         self._send_file(filename, data, caption)
+
+
+class AparatChannel(ChatChannel):
+    """Aparat video publishing for one stored browser session.
+
+    Aparat has no text or image post type, so the adapter refuses anything but
+    a video and keeps the copy-ready package in reach for those drafts. One
+    publish uploads the file in chunks and reports the watch URL when Aparat
+    hands one back.
+    """
+
+    def __init__(self, credentials, *, timeout: int = 120, chunk_bytes: int = 3 * 1024 * 1024):
+        super().__init__(
+            "aparat",
+            credentials.display,
+            credentials.token or credentials.cookie,
+            "",
+            credentials.api_base,
+        )
+        self.credentials = credentials
+        self.client = aparat_mod.AparatClient(
+            credentials, timeout=timeout, chunk_bytes=chunk_bytes
+        )
+        self.last_remote_id = ""
+        self.last_url = ""
+
+    @property
+    def configured(self) -> bool:
+        """True when the deployment stored an Aparat browser session."""
+        return bool(self.credentials.configured)
+
+    def _needs_video(self) -> ChannelError:
+        return ChannelError(
+            "Aparat publishes videos only; attach a video to this draft first"
+        )
+
+    def send_text(self, text: str) -> None:
+        raise self._needs_video()
+
+    def send_photo(self, filename: str, data: bytes, caption: str) -> None:
+        raise self._needs_video()
+
+    def send_document(self, filename: str, data: bytes, caption: str) -> None:
+        raise self._needs_video()
+
+    def send_video(
+        self,
+        filename: str,
+        data: bytes,
+        caption: str,
+        *,
+        meta: dict | None = None,
+    ) -> None:
+        meta = dict(meta or {})
+        title, description = aparat_mod.split_title(
+            _plain_text(caption), title=str(meta.get("title") or "")
+        )
+        tags = aparat_mod.clean_tags(
+            list(meta.get("tags") or []) + list(self.credentials.tags or ())
+        )
+        for fallback in aparat_mod.DEFAULT_TAGS:
+            if len(tags) >= aparat_mod.TAG_MINIMUM:
+                break
+            if fallback not in tags:
+                tags.append(fallback)
+        try:
+            result = self.client.publish(
+                data,
+                filename=filename,
+                title=title,
+                description=description,
+                tags=tags,
+            )
+        except aparat_mod.AparatError as error:
+            raise ChannelError(f"{self.label}: {error}") from error
+        self.last_url = result.url
+        self.last_remote_id = result.url or result.hash or result.upload_id
 
 
 def build_channels(settings, accounts=None) -> dict[str, ChatChannel]:
@@ -215,6 +316,22 @@ def build_channels(settings, accounts=None) -> dict[str, ChatChannel]:
     )
     if eitaa.configured:
         channels[eitaa.key] = eitaa
+    aparat = AparatChannel(
+        aparat_mod.AparatCredentials(
+            token=settings.aparat_token,
+            cookie=settings.aparat_cookie,
+            api_base=settings.aparat_api_base,
+            category=settings.aparat_category,
+            tags=tuple(settings.aparat_tags or ()),
+            watermark=settings.aparat_watermark,
+            video_pass=settings.aparat_video_pass,
+            label=settings.aparat_label,
+        ),
+        timeout=settings.aparat_timeout,
+        chunk_bytes=settings.aparat_chunk_bytes,
+    )
+    if aparat.configured:
+        channels[aparat.key] = aparat
     channels.update(build_linkedin_channels(settings, accounts))
     return channels
 
@@ -268,7 +385,14 @@ class LinkedInChannel(ChatChannel):
         except linkedin_mod.LinkedInError as error:
             raise ChannelError(f"{self.label}: {error}") from error
 
-    def send_video(self, filename: str, data: bytes, caption: str) -> None:
+    def send_video(
+        self,
+        filename: str,
+        data: bytes,
+        caption: str,
+        *,
+        meta: dict | None = None,
+    ) -> None:
         raise ChannelError(
             f"{self.label}: LinkedIn video uploads are not supported; "
             "publish the text and attach the video manually"

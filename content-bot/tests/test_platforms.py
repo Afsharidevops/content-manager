@@ -61,6 +61,45 @@ class ProfilePolicyTests(unittest.TestCase):
         self.assertEqual(profiles["youtube"].title_limit, 100)
         self.assertEqual(profiles["youtube"].description_limit, 5000)
 
+    def test_a_live_aparat_channel_turns_its_profile_automatic(self):
+        profiles = platforms.load_profiles({}, None, {"aparat": object()})
+        aparat = profiles["aparat"]
+        self.assertEqual("auto", aparat.mode)
+        self.assertEqual("aparat", aparat.channel_key)
+        self.assertTrue(platforms.needs_video(aparat))
+        self.assertTrue(aparat.wants_video)
+        self.assertEqual(100, aparat.title_limit)
+        self.assertEqual(4000, aparat.description_limit)
+
+    def test_aparat_stays_a_package_without_a_session(self):
+        aparat = platforms.load_profiles({})["aparat"]
+        self.assertEqual("package", aparat.mode)
+        self.assertFalse(platforms.needs_video(aparat))
+
+    def test_policy_can_pin_the_video_only_flag(self):
+        profiles = platforms.load_profiles({"platforms": {"youtube": {"video_only": True}}})
+        self.assertTrue(platforms.needs_video(profiles["youtube"]))
+
+    def test_collect_tags_reads_the_description_hashtags(self):
+        profiles = platforms.load_profiles(
+            {"platforms": {"youtube": {"hashtags": ["docker", "devops"]}}}
+        )
+        tags = platforms.collect_tags(
+            record(body="A post about #Linux and #kernel work."), profiles["youtube"]
+        )
+        # Inline tags of the body keep their place before the profile ones.
+        self.assertEqual(["Linux", "kernel", "docker", "devops"], tags)
+
+    def test_video_meta_carries_the_title_description_and_tags(self):
+        profiles = platforms.load_profiles(
+            {"platforms": {"youtube": {"hashtags": ["docker"]}}}
+        )
+        meta = platforms.video_meta(record(), profiles["youtube"])
+        self.assertEqual("Container layers explained", meta["title"])
+        self.assertIn("First paragraph.", meta["description"])
+        self.assertIn("https://example.com/layers", meta["description"])
+        self.assertEqual(["docker"], meta["tags"])
+
     def test_hashtags_normalize_spaces_and_prefixes(self):
         profiles = platforms.load_profiles(
             {"platforms": {"youtube": {"hashtags": "docker optimization"}}}

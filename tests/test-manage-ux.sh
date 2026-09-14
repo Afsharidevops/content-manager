@@ -28,6 +28,7 @@ grep -q 'instagram-media-status' <<<"$help"
 grep -q 'content-connect-bale' <<<"$help"
 grep -q 'content-connect-eitaa' <<<"$help"
 grep -q 'content-connect-linkedin' <<<"$help"
+grep -q 'content-aparat-check' <<<"$help"
 grep -q 'content-channels' <<<"$help"
 grep -q 'domains                     Public host names' <<<"$help"
 
@@ -36,6 +37,7 @@ grep -q 'domains                     Public host names' <<<"$help"
 channels_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-channels)"
 grep -q 'Bale: not configured' <<<"$channels_out"
 grep -q 'Eitaa: not configured' <<<"$channels_out"
+grep -q 'Aparat: not configured' <<<"$channels_out"
 connect_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-connect-bale 2>&1 || true)"
 grep -q 'CONTENT_BALE_TOKEN' <<<"$connect_out"
 PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-connect-bale \
@@ -59,6 +61,11 @@ grep -q '^CONTENT_LINKEDIN_ORGANIZATION_ID=12345678$' "$tmp/.env"
 grep -q '^CONTENT_LINKEDIN_ACCOUNT_TYPE=organization$' "$tmp/.env"
 channels_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-channels)"
 grep -q 'LinkedIn: automatic publishing ready' <<<"$channels_out"
+# Aparat reports a stored session from either key and needs no chat id.
+PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-aparat-check >/dev/null 2>&1 || true
+printf 'CONTENT_APARAT_TOKEN=jwt-value\n' >> "$tmp/.env"
+channels_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-channels)"
+grep -q 'Aparat: session token stored' <<<"$channels_out"
 if PATH="$tmp/bin:$PATH" "$tmp/manage.sh" content-connect-linkedin \
      --token 'x' --type team --no-apply >/dev/null 2>&1; then
   printf 'content-connect-linkedin must refuse an unknown account type\n' >&2
@@ -107,6 +114,22 @@ grep -q 'ig-media' <<<"$profiles_out"
 # --named without a token is refused, and --quick ignores the token branch.
 if PATH="$tmp/bin:$PATH" "$tmp/manage.sh" instagram-media-enable --named >/dev/null 2>&1; then
   printf 'instagram-media-enable --named must fail without IG_MEDIA_TUNNEL_TOKEN\n' >&2
+  exit 1
+fi
+
+# Media Studio status names the image endpoint and warns when it points at the
+# stack chat gateway, which serves chat completions only: api-image jobs fail
+# with HTTP 404 there.
+sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=9router,content,media/' "$tmp/.env"
+printf 'MEDIA_STUDIO_WRITER_BASE_URL=http://smart-router:8080/v1\nMEDIA_STUDIO_WRITER_MODEL=auto\n' >> "$tmp/.env"
+media_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" media-status)"
+grep -q 'Writer endpoint: http://smart-router:8080/v1' <<<"$media_out"
+grep -q 'stack chat gateway' <<<"$media_out"
+sed -i 's|^MEDIA_STUDIO_WRITER_BASE_URL=.*|MEDIA_STUDIO_WRITER_BASE_URL=https://images.example.com/v1|' "$tmp/.env"
+media_out="$(PATH="$tmp/bin:$PATH" "$tmp/manage.sh" media-status)"
+grep -q 'Writer endpoint: https://images.example.com/v1' <<<"$media_out"
+if grep -q 'stack chat gateway' <<<"$media_out"; then
+  printf 'media-status must only warn for the chat gateway endpoint\n' >&2
   exit 1
 fi
 

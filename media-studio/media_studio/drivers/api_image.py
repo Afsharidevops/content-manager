@@ -28,6 +28,26 @@ def _ext_from_bytes(raw: bytes, fallback: str = "png") -> str:
     return fallback
 
 
+def _failure_hint(status: int, detail: str) -> str:
+    """Explain the common ways the image endpoint is misconfigured."""
+    note = ""
+    if status == 404:
+        note = (
+            "The endpoint has no images API. Point MEDIA_STUDIO_WRITER_BASE_URL "
+            "at an OpenAI-compatible image API - the Smart Router serves chat "
+            "completions only - and set MEDIA_STUDIO_WRITER_MODEL to the image "
+            "model that endpoint offers."
+        )
+    elif status in {401, 403}:
+        note = (
+            "The endpoint refused the credentials. Store the image API key in "
+            "MEDIA_STUDIO_WRITER_API_KEY."
+        )
+    if note:
+        return f"{note} Provider response: {detail}"
+    return f"Provider response: {detail}"
+
+
 class ApiImageDriver(Driver):
     name = "api-image"
     label = "Image generation through an OpenAI-compatible API"
@@ -72,7 +92,7 @@ class ApiImageDriver(Driver):
             raise DriverError(
                 f"Image API returned HTTP {exc.code} for model {model or '<unset>'}.",
                 step="request",
-                hint=f"Provider response: {detail}",
+                hint=_failure_hint(exc.code, detail),
             ) from exc
         except urllib.error.URLError as exc:
             raise DriverError(

@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.0   Media Studio: 0.3.0   Panel: 0.4.0
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.1   Media Studio: 0.3.0   Panel: 0.4.1
 ```
 
 ## Screenshots
@@ -79,7 +79,8 @@ check object storage, and take backups. The captures use demonstration data.
 | Instagram | Official Meta Graph API: photos, carousels, and video via approve buttons; see `docs/INSTAGRAM-SETUP.md` |
 | Bale / Eitaa | Automatic publish through their bot APIs from the draft preview; see `docs/BALE-EITAA-SETUP.md` |
 | LinkedIn | Automatic publish to a personal profile or a company page through the REST API; each account gets its own adapted text, and the generic entry stays a copy-ready package until an account is configured; see `docs/LINKEDIN-SETUP.md` |
-| Aparat / YouTube | Copy-ready upload packages handed over from the same preview |
+| YouTube | Copy-ready upload package handed over from the same preview |
+| Aparat | Video-only automatic upload through the Aparat web API once a browser session is stored, otherwise the copy-ready package; see `docs/APARAT-SETUP.md` |
 | Media assets | Optional: `media-studio` worker (API images now; Google Flow/Gemini via browser session) |
 
 ## Architecture
@@ -262,9 +263,9 @@ The component images are built on GitHub Actions and published to Docker Hub
 whenever their source is pushed to `main`:
 
 ```text
-afsharidevops/content-bot:0.4.0
+afsharidevops/content-bot:0.4.1
 afsharidevops/media-studio:0.3.0
-afsharidevops/content-panel:0.4.0
+afsharidevops/content-panel:0.4.1
 afsharidevops/content-bot:latest
 ```
 
@@ -338,6 +339,7 @@ bash tests/test-manage-ux.sh
 - [Instagram/Meta setup](docs/INSTAGRAM-SETUP.md) - official Graph API publishing
 - [Bale and Eitaa setup](docs/BALE-EITAA-SETUP.md) - bot tokens, channel ids, and automatic publishing
 - [LinkedIn setup](docs/LINKEDIN-SETUP.md) - app, OAuth, author id, accounts, tones, and the publish flow
+- [Aparat setup](docs/APARAT-SETUP.md) - browser session, on-demand video publishing, categories, and troubleshooting
 - [Operator panel](docs/PANEL.md) - optional web console for status, platform credentials, config, logs, actions
 - [Object storage](docs/S3-STORAGE.md) - bundled RustFS or an external S3 endpoint for stack services
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing

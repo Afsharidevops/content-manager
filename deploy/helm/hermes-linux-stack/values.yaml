@@ -83,13 +83,14 @@ components:
     enabled: false
     image:
       repository: afsharidevops/content-bot
-      tag: "0.4.0"
+      tag: "0.4.1"
       pullPolicy: IfNotPresent
     # Secret with the bot credentials (CONTENT_BOT_TOKEN, CONTENT_WRITER_API_KEY,
     # CONTENT_MEDIA_STUDIO_TOKEN, INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_APP_SECRET,
-    # CONTENT_LINKEDIN_ACCESS_TOKEN, ...). Keys must be valid environment
-    # variable names. LinkedIn accounts can also live in social-accounts.yaml
-    # inside the policy ConfigMap; docs/LINKEDIN-SETUP.md covers both paths.
+    # CONTENT_LINKEDIN_ACCESS_TOKEN, CONTENT_APARAT_TOKEN, ...). Keys must be
+    # valid environment variable names. LinkedIn accounts can also live in
+    # social-accounts.yaml inside the policy ConfigMap; docs/LINKEDIN-SETUP.md
+    # and docs/APARAT-SETUP.md cover both paths.
     existingSecret: ""
     # ConfigMap holding editorial-policy.yaml, tools.json, and sources.yaml.
     policyConfigMap: ""
@@ -109,7 +110,7 @@ components:
     enabled: false
     image:
       repository: afsharidevops/content-panel
-      tag: "0.4.0"
+      tag: "0.4.1"
       pullPolicy: IfNotPresent
     existingSecret: ""
     storage:

@@ -122,7 +122,7 @@ secrets and ConfigMap it references first:
 
 | Secret | Keys (exact environment variable names) |
 | --- | --- |
-| `content-bot-secrets` | `CONTENT_BOT_TOKEN`, `CONTENT_TELEGRAM_CHANNEL`, `CONTENT_TELEGRAM_USERS`, `CONTENT_WRITER_API_KEY`, `CONTENT_MEDIA_STUDIO_TOKEN`, `INSTAGRAM_BUSINESS_ID`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, optionally `CONTENT_MEDIA_STUDIO_URL`, `CONTENT_VIDEO_CHARACTER`, `CONTENT_LINKEDIN_ACCESS_TOKEN` and the other `CONTENT_LINKEDIN_*` keys - or one `CONTENT_LINKEDIN_ACCOUNTS` value holding the whole account mapping as JSON/YAML (`docs/LINKEDIN-SETUP.md`) |
+| `content-bot-secrets` | `CONTENT_BOT_TOKEN`, `CONTENT_TELEGRAM_CHANNEL`, `CONTENT_TELEGRAM_USERS`, `CONTENT_WRITER_API_KEY`, `CONTENT_MEDIA_STUDIO_TOKEN`, `INSTAGRAM_BUSINESS_ID`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, optionally `CONTENT_MEDIA_STUDIO_URL`, `CONTENT_VIDEO_CHARACTER`, `CONTENT_LINKEDIN_ACCESS_TOKEN` and the other `CONTENT_LINKEDIN_*` keys - or one `CONTENT_LINKEDIN_ACCOUNTS` value holding the whole account mapping as JSON/YAML (`docs/LINKEDIN-SETUP.md`); optionally `CONTENT_APARAT_TOKEN` or `CONTENT_APARAT_COOKIE` and the other `CONTENT_APARAT_*` keys (`docs/APARAT-SETUP.md`) |
 | `media-studio-secrets` | `MEDIA_STUDIO_API_TOKEN`, `MEDIA_STUDIO_WRITER_API_KEY`, optionally `MEDIA_STUDIO_WRITER_BASE_URL` |
 | `content-panel-secrets` | Optional; the panel token lives on its PVC (`data/panel/token` equivalent) |
 | `nine-router-secrets` | `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET`, `MACHINE_ID_SALT`, optionally `REQUIRE_API_KEY`, `AUTH_COOKIE_SECURE` |

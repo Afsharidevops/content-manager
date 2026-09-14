@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,16 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _parse_tags(raw: str) -> tuple[str, ...]:
+    """Return the comma- or space-separated platform tags of one env value."""
+    tags: list[str] = []
+    for part in re.split(r"[,\n]", raw or ""):
+        tag = " ".join(part.split()).strip()
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tuple(tags)
 
 
 def _parse_user_ids(raw: str) -> frozenset[int]:
@@ -85,6 +96,16 @@ class BotSettings:
     social_accounts_file: str = "social-accounts.yaml"
     adapt_enabled: bool = True
     prompt_dir: str = ""
+    aparat_token: str = ""
+    aparat_cookie: str = ""
+    aparat_api_base: str = "https://www.aparat.com"
+    aparat_category: str = "10"
+    aparat_tags: tuple[str, ...] = ()
+    aparat_watermark: str = "1"
+    aparat_video_pass: str = "0"
+    aparat_label: str = ""
+    aparat_timeout: int = 120
+    aparat_chunk_bytes: int = 3 * 1024 * 1024
     linkedin_api_base: str = "https://api.linkedin.com"
     linkedin_api_version: str = "202601"
     linkedin_timeout: int = 60
@@ -147,6 +168,18 @@ class BotSettings:
             ),
             adapt_enabled=_env_bool("CONTENT_ADAPT_ENABLED", True),
             prompt_dir=_env("CONTENT_PROMPT_DIR"),
+            aparat_token=_env("CONTENT_APARAT_TOKEN"),
+            aparat_cookie=_env("CONTENT_APARAT_COOKIE"),
+            aparat_api_base=_env("CONTENT_APARAT_API_BASE", "https://www.aparat.com"),
+            aparat_category=_env("CONTENT_APARAT_CATEGORY", "10"),
+            aparat_tags=_parse_tags(_env("CONTENT_APARAT_TAGS")),
+            aparat_watermark=_env("CONTENT_APARAT_WATERMARK", "1"),
+            aparat_video_pass=_env("CONTENT_APARAT_VIDEO_PASS", "0"),
+            aparat_label=_env("CONTENT_APARAT_LABEL"),
+            aparat_timeout=_env_int("CONTENT_APARAT_TIMEOUT", 120),
+            aparat_chunk_bytes=_env_int(
+                "CONTENT_APARAT_CHUNK_BYTES", 3 * 1024 * 1024
+            ),
             linkedin_api_base=_env(
                 "CONTENT_LINKEDIN_API_BASE", "https://api.linkedin.com"
             ),
@@ -164,6 +197,11 @@ class BotSettings:
     def video_character_enabled(self) -> bool:
         """True when a saved Flow character can carry the reel narration."""
         return bool(self.video_character)
+
+    @property
+    def aparat_enabled(self) -> bool:
+        """True when an Aparat browser session is stored."""
+        return bool(self.aparat_token or self.aparat_cookie)
 
     @property
     def instagram_enabled(self) -> bool:

@@ -15,6 +15,14 @@ subscription at all: it calls the same gateway the Content Bot uses
 (`MEDIA_STUDIO_WRITER_*` values fall back to `CONTENT_WRITER_*`), so a router
 or hosted API is enough. Google drivers are optional extras.
 
+One condition applies to the router case: the endpoint must implement the
+OpenAI images API (`POST <base>/images/generations`) and
+`MEDIA_STUDIO_WRITER_MODEL` must be an image model that endpoint serves. The
+Smart Router of this stack speaks chat completions, Responses, and Messages
+only, so pointing `MEDIA_STUDIO_WRITER_BASE_URL` at it makes every image job
+fail with `HTTP 404`; a gateway that serves both (for example a router with an
+image-capable provider connected) is required.
+
 ## Install
 
 Run `./install.sh`. The wizard offers a Media Studio-only install (option 6)
@@ -252,6 +260,18 @@ When a step fails, the worker writes a failure snapshot (screenshot plus an
 interactive-element dump) into the job artifact directory. A probe job does
 the same on demand: submit one, wait for the operator to sign in during the
 wait window, then download `probe.json` and `probe.png` to pick selectors.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `Image API returned HTTP 404 for model <model>` | The endpoint behind `MEDIA_STUDIO_WRITER_BASE_URL` has no `/images/generations` route. The usual cause is pointing it at the stack's own Smart Router, which serves chat completions only. Point it at an OpenAI-compatible image API and set `MEDIA_STUDIO_WRITER_MODEL` to an image model of that endpoint. |
+| `No credentials for provider: openai` (or `gemini`, `google`) | The gateway answered, but holds no key for the provider that owns the model name. Connect that provider in the gateway, or call an image API directly and store its key in `MEDIA_STUDIO_WRITER_API_KEY`. |
+| `The session browser is not signed in to Google` | A Google driver (`gemini-image`, `flow-video`) needs the Chrome described under "Sessions for Google drivers"; sign in there once and retry. |
+| `Image API is unreachable at ...` | DNS, network, or a base URL without `/v1`. `./manage.sh media-status` prints the endpoint the container uses. |
+
+`./manage.sh media-status` also warns when the writer endpoint is the stack
+chat gateway, which is the first case in the table.
 
 ## Notes
 

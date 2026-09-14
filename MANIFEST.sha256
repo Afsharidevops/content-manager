@@ -1,4 +1,4 @@
-9b4c5e57bd11abc4ab704856cece3d06b04f4771341bfdef188dd61ad4f885cb  ./.env.example
+24c57d90a2e3994eee44fc29ff57e0d4e6ecf6023c6e173a1039f1cf58c09d52  ./.env.example
 8ed5a6b036e51998d5729c0cd495bfef86acc4373b2c999b41dd9e828b3725eb  ./.github/workflows/platform-v0.5.6.yml
 5910cc997d369c252d987d720ad7dff4159fb08182e2b8188baf8f9a62d93a8f  ./.github/workflows/platform-v0.5.7.yml
 a7a6b25ceb9a098d816ce4f35662e2bb5204af2eaaf09da566eeeb825b41f893  ./.github/workflows/platform-v0.5.9.yml
@@ -11,9 +11,9 @@ b7daffa9c99f0c2eaf3ef98d2e794fc411c9e5dc87053c2dcbb3ba52111c6a9e  ./.github/work
 63484ebdcc4128bfcde557b0e524409133cac25aa524844af43d4e0687c3afdf  ./.github/workflows/validate-calibrated-router.yml
 54a2894246012da9011c7e56e1635594af7341374b3602253a17b84b6222e035  ./.github/workflows/validate.yml
 6d99802a2802bea0dbb84cdc2e45c462051f322b48258ee60c76fce16a76d2ad  ./.gitignore
-75435b2d48db285496d835c3eb982b2482342e74da7f4c08bd5dcd17533be057  ./CHANGELOG.md
+8ce1f9dd22f6a8d9cef555945ab3b47071f56dffd2de8378e780927a8878380a  ./CHANGELOG.md
 ecafcebc0f616dba3be7e6262e8764f76b7e5b5d10f9b89f9034198c2f882645  ./LICENSE
-c4839ff8d2431c0c0805c349fc1d395fe61c259c81fce7bfa2e6fd5d7dcf4aa8  ./README.md
+e8c0a3cdae20abd67b24a2548d914dd545516ccb379de6daef7b9299a14cf638  ./README.md
 101b32583c695ebbd67cd7d63d43ac5836571afd675c2ffbafeed41c4a06dfc8  ./SECURITY.md
 14f902162772401747f01f771b13eddb86c3552404be449c4db34b66bda2ea41  ./VERSION
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./data/9router/.gitkeep
@@ -27,7 +27,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./data/stack-s
 4bf37a3d035f52ab0fa5bdb14400ffed58c1e02bc416f73d1b03a80148036baf  ./deploy/demo/docker-compose.v0.5.7.yml
 b1fc208b59878a012048e6d973a8ad20e3b29158c7c9abdc627db42a3e51b3e5  ./deploy/demo/docker-compose.v0.5.8.yml
 fbb45b39eb617e22646dcbb9d75409981fff115b5a8b1124d59ed96e017d1e86  ./deploy/demo/docker-compose.v0.5.9.yml
-1021004dc919a64d7185448712b9876066b4692d842f6a58bce346730becda7f  ./deploy/helm/hermes-linux-stack/Chart.yaml
+542875c9ccd3c69a2d6fc6f46603499ab69aa5bd804f6c74809d7abe93fea60e  ./deploy/helm/hermes-linux-stack/Chart.yaml
 11a430fdf4591bc497e2d9f1e521c0fd355307832c8e95fa29d092617e7c8f24  ./deploy/helm/hermes-linux-stack/README.md
 edec3bbac60251f6a3fbb49870318167234288488d1568ac5fa89c1af3f2ebaa  ./deploy/helm/hermes-linux-stack/templates/_helpers.tpl
 22579dfc0d58fb0edaf803df8632d4c337697fff3c8da99b921f06025b4c4dd9  ./deploy/helm/hermes-linux-stack/templates/hpa.yaml
@@ -36,8 +36,8 @@ edec3bbac60251f6a3fbb49870318167234288488d1568ac5fa89c1af3f2ebaa  ./deploy/helm/
 fe5ebbc8aed343cfb068cb026856456fdd542b6d2fdc40346907c70bed1dfaa4  ./deploy/helm/hermes-linux-stack/templates/redis.yaml
 07475e8ba9f9c36c96456d0c801ec6d170c953a8cbe123672f5363a987fe6c45  ./deploy/helm/hermes-linux-stack/templates/router.yaml
 f123278b4c0cb59bcf3bd2294bac94b497a98ee9fde6dbf703137e3cc89be5e7  ./deploy/helm/hermes-linux-stack/templates/serviceaccount.yaml
-b4fd07d7f23543a8d222444b8eb13d061f04846bf64a44bd85b7f02c6d9e6a93  ./deploy/helm/hermes-linux-stack/values.yaml
-d3dd9418ea82b4a694c01c45788e8f01af3982db3496dc8b6c41484615d9f9e7  ./docker-compose.yml
+d3eb8168cc5e27296867b647c6082bb474abf725bdc36753c7600dea3ea0f264  ./deploy/helm/hermes-linux-stack/values.yaml
+4e56cc42ab919e954ea1b5f801ac6aba0801332150c75fbe7dad39a427d4162d  ./docker-compose.yml
 7027090985c6b7cef4bd12666014abde4cf194b8c945b067ea5b1de11d3bb522  ./docs-site/assets/flight-deck-v0.5.6.png
 02f9a764b15b9c21db2c800c2826aee5fc2519c6a3160f27e7a6c823424a5d1a  ./docs-site/assets/operations-center-v0.5.6.png
 2b294d692f2997980a721b510e8d1c868f7bd6647f0fae96581c22cf9ffc610e  ./docs-site/assets/smart-router-console-v0.6.0.png
@@ -49,7 +49,7 @@ e6807f578f70ba5b15936e7a3e0ffd0f4a88f52e3e3fdcb35f2f62ac6499f5a1  ./docs/HERMES-
 1607d7018acf3606732a3ab7b965027de384473ee94aa8504df24ed8ccb9e09a  ./docs/OPERATIONS-CENTER-RATE-RAG-v0.5.4.md
 fc4d766f2c6a50dab97ffe396a2784f765e0a767a30e05a827d7ff62d9e5a3ac  ./docs/OPERATIONS.md
 1394c1252e667bd825ed9f1f127bb8d4262bf4b13ab2fd9af510c5a5b2235687  ./docs/ORCHESTRATION.md
-3adccce626c3467cb61add6d58d035fd29e46a9be275648ebc9bd3e20001601b  ./docs/RELEASE-PROCESS.md
+a08dd32b4a4b9dd792c4cd3cdd7896cc5468152fb647032c69a842acbdefe8e8  ./docs/RELEASE-PROCESS.md
 61a006483441a5d07c7ca6064e2fe8e1b126304f8f7d260720aa50f530e0e492  ./docs/SMART-ROUTER-CLIENT-API.md
 b55501eeeef63ef7af2aefdfb0dfaa96cfce52aa4939b880dc61bdd90d62d35c  ./docs/SMART-ROUTER-PUBLIC-INGRESS.md
 a4ed1fcee3850442902984228bde2b659c037dda8701dc9c425fecb38678be72  ./docs/SMART-ROUTER-USER-GUIDE.md
@@ -83,7 +83,7 @@ a3f25da07bbd442da7699f8de1a01d3cbd7b2742f855c64cf6e5f7b21f1f21f5  ./execution-br
 6b7ea776e22ebe10e6c40491d1aac4cda271f6c19afe4617cad978e9d8fc8724  ./execution-broker/src/broker/store.py
 66211081a60ab4390bf2073b09461e0798f924f3552383dff7bcd06cf45e7575  ./execution-broker/ssh-askpass.py
 889dc0f4f1f665526bc9d716ffcc98867f118e059ca5d011cfe3c20c78fbe115  ./install.sh
-128061a2dea91e23090012c425194cf451bf3e44be6bd5ef156e12659a0f40c5  ./manage.sh
+b5d875f4604d0a94033606a74aa555cbb83e6f83575f9efe2c714263715b4e7b  ./manage.sh
 37a4106e8e076d9a4d6bd677861a66e64f79bba3bff41554d3825ae5a86bf04d  ./plugins/stack-execution-policy/__init__.py
 5544b17cc4cc7190d2c20ab35f5ec5336df7ab5211a5bdcfa61997236afed473  ./plugins/stack-execution-policy/plugin.yaml
 12a26259dfa56408d072f7b65f32a1bac0f4545fc3d4e0808321017bcb4ebd38  ./plugins/stack-package-policy/__init__.py
@@ -223,7 +223,7 @@ bc2eb29aff1e4b058e48d824365a0eda826a56505ae21a919efb1916875cf06a  ./smart-router
 0edbcf7a74465f0206487501f79548478e37b530dec72b603c86a2c083d0d767  ./tests/smoke.sh
 0d9cf7bd26abc5978066da72d084f5120798a3c34d06d49d875323ead9ad61e3  ./tests/test-bootstrap-n8n.mjs
 75216df5a22558a70a26a258871a165087d09458fd5a17e55d3ee6e0bac17e77  ./tests/test-manage-n8n.sh
-e5c63b81ddcbb201d8210905f0e7e3cd0725c5c37da508c9a9a6f38d889e592e  ./tests/test-manage-ux.sh
+263eb4b02c2886c38312ecc3de6903804f68cd9ba9dfc80e3544e5c6796c490d  ./tests/test-manage-ux.sh
 799f04ff73e1a2647fa8566310f518a148addec919678de84d1511777181d10c  ./tests/test-ssh-profiles.sh
 a962c10c4a45cc4ae524ba41213db22129b737dd13a83164879a90fc5e12e4e0  ./tests/test-stack-ops.sh
 3aa99a5bdf4bb71afc2a568eb544698fe41486f8886c3f9845434d39632c21bf  ./tests/test-verify-n8n.mjs

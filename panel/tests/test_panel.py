@@ -499,6 +499,61 @@ class PlatformStoreTest(unittest.TestCase):
         self.assertTrue(token["set"])
         self.assertIsNone(token["value"])
 
+    def test_aparat_becomes_ready_with_either_session_key(self):
+        card = self.card("aparat")
+        self.assertEqual(card["mode"], "auto")
+        self.assertEqual(card["state"], "empty")
+        self.assertEqual("docs/APARAT-SETUP.md", card["docs"])
+        self.store.update("aparat", {"CONTENT_APARAT_COOKIE": "AuthV1=abc"})
+        self.assertEqual(self.card("aparat")["state"], "ready")
+        token = self.field(self.card("aparat"), "CONTENT_APARAT_COOKIE")
+        self.assertTrue(token["secret"])
+        self.assertTrue(token["set"])
+        self.assertIsNone(token["value"])
+        self.store.update("aparat", {"CONTENT_APARAT_TOKEN": "jwt-value"})
+        self.assertEqual(self.card("aparat")["state"], "ready")
+
+    def test_aparat_test_asks_for_the_upload_server(self):
+        seen = {}
+
+        def fake_fetch(url, headers=None):
+            seen["url"] = url
+            seen["headers"] = dict(headers or {})
+            return 200, '{"data": {"server": "https://upload.aparat.test"}}', ""
+
+        with mock.patch("panel.platforms._fetch", side_effect=fake_fetch):
+            result = self.store.test(
+                "aparat", {"CONTENT_APARAT_TOKEN": "jwt-value"}
+            )
+        self.assertTrue(result["ok"])
+        self.assertIn("upload.aparat.test", result["detail"])
+        self.assertEqual(
+            "https://www.aparat.com/api/fa/v1/video/upload/upload_config",
+            seen["url"],
+        )
+        self.assertEqual("Bearer jwt-value", seen["headers"]["Authorization"])
+
+    def test_aparat_test_reports_a_refused_session(self):
+        def fake_fetch(url, headers=None):
+            return 401, '{"errors": [{"status": 401, "detail": "کاربر پیدا نشد"}]}', ""
+
+        with mock.patch("panel.platforms._fetch", side_effect=fake_fetch):
+            result = self.store.test("aparat", {"CONTENT_APARAT_COOKIE": "AuthV1=abc"})
+        self.assertFalse(result["ok"])
+        self.assertIn("refused", result["detail"])
+
+    def test_aparat_test_needs_a_session_before_calling_aparat(self):
+        called = {"count": 0}
+
+        def fake_fetch(url, headers=None):  # pragma: no cover - must not run
+            called["count"] += 1
+            return 200, "{}", ""
+
+        with mock.patch("panel.platforms._fetch", side_effect=fake_fetch):
+            result = self.store.test("aparat", {})
+        self.assertFalse(result["ok"])
+        self.assertEqual(0, called["count"])
+
     def test_linkedin_author_prefers_the_explicit_urn(self):
         self.assertEqual(
             _linkedin_author("person", "urn:li:person:1", "2", "3"), "urn:li:person:1"

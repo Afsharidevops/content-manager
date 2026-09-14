@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from media_studio.config import Settings
 from media_studio.drivers.api_image import ApiImageDriver
-from media_studio.drivers.base import RunContext
+from media_studio.drivers.base import DriverError, RunContext
 
 PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
@@ -32,6 +32,21 @@ class FakeApiHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+
+class ChatOnlyHandler(BaseHTTPRequestHandler):
+    """Answer like a chat gateway: the images route does not exist."""
+
+    def log_message(self, _fmt, *_args):
+        pass
+
+    def do_POST(self):  # noqa: N802
+        body = b'{"error":"Not Found"}'
+        self.send_response(404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 class ApiImageDriverTests(unittest.TestCase):
@@ -62,6 +77,30 @@ class ApiImageDriverTests(unittest.TestCase):
         self.assertEqual(artifacts, [("image_1.png", "image")])
         with open(os.path.join(self.dir, "image_1.png"), "rb") as handle:
             self.assertTrue(handle.read(4).startswith(b"\x89PNG"))
+
+    def test_missing_route_names_the_writer_setting(self):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), ChatOnlyHandler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(httpd.shutdown)
+        settings = Settings(
+            data_dir=self.dir,
+            writer_base_url=f"http://127.0.0.1:{httpd.server_address[1]}/v1",
+            writer_model="auto",
+            job_timeout_seconds=10,
+        )
+        ctx = RunContext(
+            prompt="a red cube",
+            work_dir=self.dir,
+            settings=settings,
+            log=lambda _m: None,
+        )
+        with self.assertRaises(DriverError) as caught:
+            ApiImageDriver().run(ctx)
+        hint = caught.exception.hint
+        self.assertIn("404", str(caught.exception))
+        self.assertIn("MEDIA_STUDIO_WRITER_BASE_URL", hint)
+        self.assertIn("images API", hint)
 
 
 if __name__ == "__main__":

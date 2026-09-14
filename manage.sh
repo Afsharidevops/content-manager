@@ -93,7 +93,8 @@ Content Bot automation:
   content-connect-bale        Store and verify the Bale bot token and channel
   content-connect-eitaa       Store and verify the Eitaa bot token and channel
   content-connect-linkedin    Store and verify the LinkedIn token and author
-  content-channels            Show the automatic channel (Bale/Eitaa/LinkedIn) state
+  content-aparat-check        Probe the stored Aparat browser session
+  content-channels            Show the automatic channel (Bale/Eitaa/LinkedIn/Aparat) state
   content-configure           Reconfigure Content Bot settings (installer wizard)
 
 Operator panel:
@@ -1440,14 +1441,53 @@ content_channel_state() {
   fi
 }
 
+content_aparat_state() {
+  # One line describing whether the Aparat session can upload right now.
+  local token cookie
+  token="$(env_value "$ENV_FILE" CONTENT_APARAT_TOKEN)"
+  cookie="$(env_value "$ENV_FILE" CONTENT_APARAT_COOKIE)"
+  if [[ -n "$token" ]]; then
+    printf 'Aparat: session token stored (video drafts publish when picked)'
+  elif [[ -n "$cookie" ]]; then
+    printf 'Aparat: session cookie stored (video drafts publish when picked)'
+  else
+    printf 'Aparat: not configured (CONTENT_APARAT_TOKEN and CONTENT_APARAT_COOKIE are empty)'
+  fi
+}
+
+content_aparat_check() {
+  # Probe the stored session the way the bot does; no video is uploaded.
+  if ! content_container_running; then
+    printf 'Start the stack first (./manage.sh start) to probe the Aparat session.\n' >&2
+    return 1
+  fi
+  "${DOCKER[@]}" exec -i content-bot python - <<'PYCHECK'
+from content_bot.aparat import AparatError, client_from_settings
+from content_bot.config import BotSettings
+
+settings = BotSettings.from_env()
+if not settings.aparat_enabled:
+    print("No session is stored: set CONTENT_APARAT_TOKEN or CONTENT_APARAT_COOKIE.")
+    raise SystemExit(1)
+client = client_from_settings(settings)
+try:
+    server = client.probe()
+except AparatError as error:
+    print(f"Aparat refused the session: {error}")
+    raise SystemExit(1)
+print(f"Aparat session is valid (upload server {server}).")
+PYCHECK
+}
+
 content_channels_status() {
   printf 'Automatic channels (tokens are never printed)\n'
   printf '  - %s\n' "$(content_channel_state bale)"
   printf '  - %s\n' "$(content_channel_state eitaa)"
   printf '  - %s\n' "$(content_linkedin_state)"
+  printf '  - %s\n' "$(content_aparat_state)"
   printf '  A configured channel appears as "<name> (auto)" on a draft; uploads\n'
-  printf '  publish the moment it is picked. Guides: docs/BALE-EITAA-SETUP.md and\n'
-  printf '  docs/LINKEDIN-SETUP.md\n'
+  printf '  publish the moment it is picked. Guides: docs/BALE-EITAA-SETUP.md,\n'
+  printf '  docs/LINKEDIN-SETUP.md, and docs/APARAT-SETUP.md\n'
 }
 
 content_channel_get_me() {
@@ -1650,6 +1690,13 @@ media_status() {
   printf '  Session mode: %s\n' "${mode:-cdp}"
   printf '  Writer endpoint: %s\n' "${writer:-not configured}"
   printf '  API token: %s\n' "$([[ -n "$token" ]] && printf 'stored (secret not shown)' || printf 'not set (localhost only)')"
+  case "$writer" in
+    *smart-router*)
+      printf '  Warning: the writer endpoint is the stack chat gateway; image jobs need an\n'
+      printf '           OpenAI-compatible image API instead. See the troubleshooting\n'
+      printf '           section of docs/MEDIA-STUDIO.md.\n'
+      ;;
+  esac
   printf '  Flow freeze on ready: %s\n' "${freeze:-true}"
   printf '  Guide: docs/MEDIA-STUDIO.md\n'
   printf '  API base: http://127.0.0.1:%s (when enabled)\n' "$(env_value "$ENV_FILE" MEDIA_STUDIO_PORT | sed 's/^$/8850/')"
@@ -2149,7 +2196,7 @@ panel_disable() {
 panel_build() {
   local repository tag
   repository="$(env_value "$ENV_FILE" PANEL_IMAGE_REPOSITORY)"; repository="${repository:-afsharidevops/content-panel}"
-  tag="$(env_value "$ENV_FILE" PANEL_IMAGE_TAG)"; tag="${tag:-0.4.0}"
+  tag="$(env_value "$ENV_FILE" PANEL_IMAGE_TAG)"; tag="${tag:-0.4.1}"
   "${DOCKER[@]}" build -t "$repository:$tag" -f "$ROOT_DIR/panel/Dockerfile" "$ROOT_DIR"
   printf 'Built %s:%s from panel/Dockerfile\n' "$repository" "$tag"
 }
@@ -3620,6 +3667,7 @@ case "$command" in
   content-connect-bale) shift; content_connect_channel bale "$@" ;;
   content-connect-eitaa) shift; content_connect_channel eitaa "$@" ;;
   content-connect-linkedin) shift; content_connect_linkedin "$@" ;;
+  content-aparat-check) content_aparat_check ;;
   content-channels) content_channels_status ;;
   instagram-media-status) ig_media_status ;;
   instagram-media-enable) shift; ig_media_enable "${1:-}" ;;

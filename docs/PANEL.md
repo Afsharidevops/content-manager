@@ -96,8 +96,8 @@ needed when `COMPOSE_PROFILES` does not already include it.
   (`PANEL_PUBLIC_URL`, `MEDIA_STUDIO_PUBLIC_URL`, ...) moves from the
   `./manage.sh domains` checklist into the file the console reads.
 - **Platforms** - one card per publishing platform (Telegram, Bale, Eitaa,
-  Instagram, LinkedIn, the AI writer, Media Studio, the platform chooser, and
-  the package-only YouTube/Aparat entries) with the keys that platform
+  Instagram, LinkedIn, Aparat, the AI writer, Media Studio, the platform
+  chooser, and the package-only YouTube entry) with the keys that platform
   needs: bot tokens, channel or business ids, the LinkedIn access token and
   author (person or organization), and the API **base URL** each client
   dials. A card shows its state at a glance (`ready`, `incomplete`,
@@ -248,7 +248,7 @@ Keep the token out of proxy logs; the console never puts it in a URL.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PANEL_IMAGE_REPOSITORY` | `afsharidevops/content-panel` | Image repository |
-| `PANEL_IMAGE_TAG` | `0.4.0` | Image tag; the Compose service also builds locally when the image is missing |
+| `PANEL_IMAGE_TAG` | `0.4.1` | Image tag; the Compose service also builds locally when the image is missing |
 | `PANEL_BIND_IP` | `127.0.0.1` | Host address the console binds to |
 | `PANEL_PORT` | `8899` | Host port |
 | `PANEL_ACTIONS_ENABLED` | `true` | `false` serves read-only views |

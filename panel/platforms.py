@@ -341,10 +341,82 @@ PLATFORMS: tuple[Platform, ...] = (
     Platform(
         key="aparat",
         label="Aparat",
-        mode="package",
+        mode="auto",
         service="content-bot",
-        summary="No credentials: package handover, same as YouTube.",
-        docs="docs/CONTENT-PRODUCTION-GUIDE.md",
+        summary=(
+            "Uploads the video of a draft to Aparat through the Aparat upload "
+            "API. A browser session is required; text and photo drafts keep "
+            "the copy-ready package."
+        ),
+        docs="docs/APARAT-SETUP.md",
+        test="aparat",
+        require_any=("CONTENT_APARAT_TOKEN", "CONTENT_APARAT_COOKIE"),
+        fields=(
+            Field(
+                "CONTENT_APARAT_TOKEN",
+                "Session token",
+                "secret",
+                help=(
+                    "Sign in to aparat.com, open the browser console, and copy "
+                    "localStorage.getItem('jwt'). This is the preferred way to "
+                    "authenticate the upload."
+                ),
+            ),
+            Field(
+                "CONTENT_APARAT_COOKIE",
+                "Session cookie",
+                "secret",
+                help=(
+                    "Alternative to the token: paste the whole Cookie request "
+                    "header of a signed-in aparat.com tab."
+                ),
+            ),
+            Field(
+                "CONTENT_APARAT_LABEL",
+                "Button label",
+                "text",
+                default="Aparat",
+                help="Name shown in the More platforms chooser.",
+            ),
+            Field(
+                "CONTENT_APARAT_CATEGORY",
+                "Category id",
+                "id",
+                default="10",
+                help=(
+                    "Aparat category id, for example 10 technology, 3 "
+                    "education, 16 business."
+                ),
+            ),
+            Field(
+                "CONTENT_APARAT_TAGS",
+                "Default tags",
+                "text",
+                default="technology,video,tutorial",
+                help="Used when the draft carries fewer than three tags.",
+            ),
+            Field(
+                "CONTENT_APARAT_WATERMARK",
+                "Aparat watermark",
+                "flag",
+                default="1",
+                help="1 keeps the Aparat watermark, 0 turns it off.",
+            ),
+            Field(
+                "CONTENT_APARAT_VIDEO_PASS",
+                "Publish state",
+                "text",
+                default="0",
+                help="0 publishes right away, 1 leaves the upload unpublished.",
+            ),
+            Field(
+                "CONTENT_APARAT_API_BASE",
+                "API base URL",
+                "url",
+                default="https://www.aparat.com",
+                help="Change it only behind a proxy.",
+            ),
+        ),
     ),
     Platform(
         key="linkedin",
@@ -542,6 +614,38 @@ def test_instagram(get) -> tuple[bool, str]:
     return False, f"HTTP {status}: {_detail(payload, body)}"
 
 
+def test_aparat(get) -> tuple[bool, str]:
+    """Check the stored session by asking Aparat for an upload server."""
+    token = get("CONTENT_APARAT_TOKEN", secret=True)
+    cookie = get("CONTENT_APARAT_COOKIE", secret=True)
+    if not token and not cookie:
+        return False, "Store the session token (or the session cookie) first."
+    base = (get("CONTENT_APARAT_API_BASE") or "https://www.aparat.com").rstrip("/")
+    if not URL_RE.match(base):
+        return False, "The API base URL must start with http:// or https://."
+    headers = {"Accept": "application/json, text/plain, */*"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if cookie:
+        headers["Cookie"] = cookie
+    status, body, error = _fetch(
+        f"{base}/api/fa/v1/video/upload/upload_config", headers
+    )
+    if error:
+        return False, error
+    payload = _json_body(body)
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    if status < 300 and data.get("server"):
+        return True, f"Aparat accepted the session ({data.get('server')})."
+    if status in {401, 403}:
+        return (
+            False,
+            "Aparat refused the session: sign in again and refresh the token "
+            "or the cookie.",
+        )
+    return False, f"HTTP {status}: {_detail(payload, body)}"
+
+
 def test_writer(get) -> tuple[bool, str]:
     base = (get("CONTENT_WRITER_BASE_URL") or "").rstrip("/")
     key = get("CONTENT_WRITER_API_KEY", secret=True)
@@ -569,6 +673,7 @@ def test_writer(get) -> tuple[bool, str]:
 
 
 def test_media(get) -> tuple[bool, str]:
+    """Check the service health and the image API the media jobs call."""
     base = (get("CONTENT_MEDIA_STUDIO_URL") or "").rstrip("/")
     if not base:
         return False, "Store the base URL first."
@@ -578,11 +683,50 @@ def test_media(get) -> tuple[bool, str]:
     if error:
         return False, error
     payload = _json_body(body)
-    if status < 300:
-        jobs = payload.get("jobs")
-        note = f"{jobs} jobs tracked" if isinstance(jobs, int) else "healthy"
-        return True, f"Media Studio answered ({note})."
-    return False, f"HTTP {status}: {_detail(payload, body)}"
+    if status >= 300:
+        return False, f"HTTP {status}: {_detail(payload, body)}"
+    jobs = payload.get("jobs")
+    note = f"{jobs} jobs tracked" if isinstance(jobs, int) else "healthy"
+    endpoint = (
+        get("MEDIA_STUDIO_WRITER_BASE_URL") or get("CONTENT_WRITER_BASE_URL") or ""
+    ).rstrip("/")
+    ok, detail = _probe_image_api(
+        endpoint, get("MEDIA_STUDIO_WRITER_API_KEY", secret=True)
+    )
+    if not ok:
+        return False, f"Media Studio answered ({note}), but {detail}"
+    return True, f"Media Studio answered ({note}) and the image API responded at {endpoint}."
+
+
+def _probe_image_api(endpoint: str, api_key: str) -> tuple[bool, str]:
+    """Prove the writer endpoint implements the OpenAI images API.
+
+    The probe posts an empty body: a real images route rejects it as a bad
+    request, while a chat-only gateway answers 404 because the route does not
+    exist. No image is generated and nothing is stored.
+    """
+    if not endpoint:
+        return False, "no image endpoint is configured (MEDIA_STUDIO_WRITER_BASE_URL)."
+    if not URL_RE.match(endpoint):
+        return False, "the image endpoint must start with http:// or https://."
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    status, body, error = _post_json(f"{endpoint}/images/generations", headers, {})
+    if error:
+        return False, f"the image endpoint is unreachable: {error}"
+    if status == 404:
+        return (
+            False,
+            "the image endpoint has no images API. Point MEDIA_STUDIO_WRITER_BASE_URL "
+            "at an OpenAI-compatible image API; the Smart Router serves chat "
+            "completions only.",
+        )
+    if status in {401, 403}:
+        return False, "the image endpoint refused the stored MEDIA_STUDIO_WRITER_API_KEY."
+    if status < 500:
+        return True, ""
+    return False, f"the image endpoint answered HTTP {status}: {_detail(_json_body(body), body)}"
 
 
 def _linkedin_author(kind: str, urn: str, person: str, organization: str) -> str:
@@ -663,6 +807,13 @@ def _detail(payload: dict, body: str) -> str:
         message = error.get("message") or error.get("type")
         if message:
             return str(message)[:160]
+    errors = payload.get("errors")
+    if isinstance(errors, list) and errors:
+        first = errors[0]
+        if isinstance(first, dict) and first.get("detail"):
+            return str(first["detail"])[:160]
+        if isinstance(first, str) and first.strip():
+            return first.strip()[:160]
     for name in ("description", "message", "detail", "error"):
         value = payload.get(name)
         if isinstance(value, str) and value.strip():
@@ -676,6 +827,7 @@ TESTERS = {
     "eitaa": test_eitaa,
     "instagram": test_instagram,
     "linkedin": test_linkedin,
+    "aparat": test_aparat,
     "writer": test_writer,
     "media": test_media,
 }
@@ -736,6 +888,10 @@ class PlatformStore:
             return "package"
         required = [row for row in fields if row["required"]]
         provided = [row for row in fields if row["set"]]
+        if not required and platform.require_any:
+            by_key = {row["key"]: row["set"] for row in fields}
+            if any(by_key.get(key) for key in platform.require_any):
+                return "ready"
         if required and all(row["set"] for row in required):
             if platform.require_any:
                 by_key = {row["key"]: row["set"] for row in fields}

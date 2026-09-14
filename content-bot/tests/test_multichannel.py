@@ -75,7 +75,9 @@ class FakeChannel:
     def send_photo(self, filename, data, caption):  # pragma: no cover - text drafts only
         self.send_text(caption)
 
-    def send_video(self, filename, data, caption):  # pragma: no cover - text drafts only
+    def send_video(
+        self, filename, data, caption, *, meta=None
+    ):  # pragma: no cover - text drafts only
         self.send_text(caption)
 
     def send_album(self, entries, caption):  # pragma: no cover - text drafts only

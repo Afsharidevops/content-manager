@@ -336,7 +336,8 @@ routines:
 | --- | --- |
 | Telegram | Live: link/topic drafts, image/video attach, Approve/Reject, channel publish |
 | Instagram | Official Meta Graph API: photos, carousels, and video; the long-lived token refreshes itself, `/instagram` reports the expiry, and the `ig-media` profile publishes the media directory at a public URL (`./manage.sh instagram-media-status`, a domain through Caddy, or a named tunnel); see `docs/INSTAGRAM-SETUP.md` |
-| YouTube / Aparat | Optional copy-ready upload package (off by default); see "Extra platforms" |
+| YouTube | Optional copy-ready upload package (off by default); see "Extra platforms" |
+| Aparat | Automatic video upload through the Aparat web API once a browser session is stored, otherwise the copy-ready package; see `docs/APARAT-SETUP.md` |
 | Bale / Eitaa | Automatic channel publish through their bot APIs (needs a token and a chat id); see "Extra platforms" |
 | LinkedIn | Automatic publish to a personal profile or a company page through the REST API, with a per-destination tone; the generic entry stays a copy-ready package until an account is configured (`docs/LINKEDIN-SETUP.md`) |
 | Media assets (images/video) | Optional Media Studio worker; API-image driver live, Google Flow/Gemini drivers ready for session calibration |
@@ -355,7 +356,11 @@ on what the platform supports:
   like Telegram. `Bale` speaks the Telegram Bot API (`CONTENT_BALE_TOKEN` +
   `CONTENT_BALE_CHAT_ID`) and `Eitaa` goes through the EitaaYar gateway
   (`CONTENT_EITAA_TOKEN` + `CONTENT_EITAA_CHAT_ID`); both are covered by
-  `docs/BALE-EITAA-SETUP.md`. `LinkedIn` posts to a personal profile or a
+  `docs/BALE-EITAA-SETUP.md`. `Aparat` uploads the video of the draft through
+  the Aparat web API (`CONTENT_APARAT_TOKEN` or `CONTENT_APARAT_COOKIE`, see
+  `docs/APARAT-SETUP.md`): it is video-only, so the entry reads `Aparat (needs
+  a video)` until one is attached, and picking it without a video asks for the
+  file instead of failing. `LinkedIn` posts to a personal profile or a
   company page through the REST API - one account per destination, each with
   its own tone - and is covered by `docs/LINKEDIN-SETUP.md`. Each channel is
   marked `(auto)` in the chooser, publishes the caption and the attached
@@ -373,11 +378,11 @@ on what the platform supports:
   configured, or the rewrite fails. Tone profiles, prompt templates, and the
   target defaults (`publishing.targets` and the per-draft `targets:`) are
   documented in `docs/LINKEDIN-SETUP.md`.
-- **Package platforms** keep the manual flow below: YouTube, Aparat, and any
-  key you add yourself. The generic LinkedIn entry stays beside the automatic
-  accounts as the hand-off for what the REST adapter refuses (a video post,
-  for example); set `linkedin: null` in the `platforms:` section to hide it
-  once accounts are configured.
+- **Package platforms** keep the manual flow below: YouTube, Aparat before a
+  session is stored, and any key you add yourself. The generic LinkedIn entry
+  stays beside the automatic accounts as the hand-off for what the REST
+  adapter refuses (a video post, for example); set `linkedin: null` in the
+  `platforms:` section to hide it once accounts are configured.
 
 The packages:
 

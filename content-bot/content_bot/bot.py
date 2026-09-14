@@ -1030,6 +1030,7 @@ class ContentBot:
                 chat_id,
                 "Media received, but the preview could not be sent.",
             )
+        self._publish_pending_target(draft_id)
 
     def _keep_telegram_media(self, draft: dict, attachment: dict) -> None:
         """Attach a file that is too large for the Bot API to download.
@@ -2102,6 +2103,7 @@ class ContentBot:
             self._edit_safe(chat_id, int(ask_id), "Media ready.")
         if not self._send_media_preview(draft_id):
             self._media_failed(draft_id, "Media preview could not be sent.")
+        self._publish_pending_target(draft_id)
 
     def _package_record(self, draft_id: str) -> dict | None:
         """Return the live draft or the copy archived after publishing."""
@@ -2624,11 +2626,15 @@ class ContentBot:
         automatic = []
         waiting = []
         manual = []
+        video_ready = platforms_mod.has_video(record)
         for key, profile in profiles.items():
             label = profile.label
             if self._channel_for(profile) is not None:
-                automatic.append(profile.label)
-                label = f"{label} (auto)"
+                if platforms_mod.needs_video(profile) and not video_ready:
+                    label = f"{label} (needs a video)"
+                else:
+                    automatic.append(profile.label)
+                    label = f"{label} (auto)"
             elif str(getattr(profile, "mode", "package")) == "auto":
                 waiting.append(profile.label)
                 label = f"{label} (no token)"
@@ -2668,8 +2674,8 @@ class ContentBot:
         return self.channels.get(key)
 
     def _platform_profiles(self, policy: dict):
-        """Return the platform profiles with the account-derived ones added."""
-        return platforms_mod.load_profiles(policy, self.accounts)
+        """Return the platform profiles with the derived ones added."""
+        return platforms_mod.load_profiles(policy, self.accounts, self.channels)
 
     def _account_kind(self, target: str) -> str:
         """Return the account type behind one target key."""
@@ -2766,6 +2772,10 @@ class ContentBot:
             key
             for key, profile in profiles.items()
             if self._channel_for(profile) is not None
+            and not (
+                platforms_mod.needs_video(profile)
+                and not platforms_mod.has_video(record)
+            )
         ]
 
     def _publish_to_targets(self, query_id: str, record: dict, profiles) -> None:
@@ -2837,6 +2847,8 @@ class ContentBot:
                 error="already published",
             ).as_row()
         policy = workflow.load_policy(self.settings.policy_dir)
+        if platforms_mod.needs_video(profile) and not platforms_mod.has_video(record):
+            return self._request_video_for_target(query_id, record, profile)
         published_record = self._target_record(record, profile, policy)
         messages = _media_caption_messages(published_record)
         media = published_record.get("media") or {}
@@ -2869,9 +2881,23 @@ class ContentBot:
                 if kind == "image":
                     channel.send_photo(path.name, payload, messages[0])
                 else:
-                    channel.send_video(path.name, payload, messages[0])
+                    channel.send_video(
+                        path.name,
+                        payload,
+                        messages[0],
+                        meta=platforms_mod.video_meta(published_record, profile),
+                    )
                 for continuation in messages[1:]:
                     channel.send_text(continuation)
+            elif platforms_mod.needs_video(profile) and media.get("oversized"):
+                # Telegram only serves bot downloads up to 20 MB, so the file
+                # never reached storage and a video-only platform cannot use it.
+                raise channels_mod.ChannelError(
+                    f"{profile.label} needs the video file itself, but this clip "
+                    "is over the 20 MB Telegram bot download limit and only "
+                    "lives on Telegram. Send a copy under 20 MB or produce the "
+                    "video with Media Studio."
+                )
             else:
                 channel.send_text(self.channel_text(published_record))
         except (channels_mod.ChannelError, OSError) as error:
@@ -2885,6 +2911,14 @@ class ContentBot:
             self._record_publication(row)
             if not quiet:
                 self._safe_answer(query_id, f"{profile.label}: {error}")
+                chat_id = record.get("chat_id")
+                if chat_id is not None:
+                    try:
+                        self.api.send_message(
+                            chat_id, f"{profile.label} failed: {error}"
+                        )
+                    except telegram_mod.TelegramError as note_error:
+                        log.warning("failure note failed: %s", note_error)
             return row
         if draft_id and self.state.get_draft(draft_id) is not None:
             self.state.update_draft(
@@ -2903,10 +2937,87 @@ class ContentBot:
         chat_id = record.get("chat_id")
         if chat_id is not None:
             try:
-                self.api.send_message(chat_id, f"Published to {profile.label}.")
+                self.api.send_message(chat_id, self._published_note(profile, channel))
             except telegram_mod.TelegramError as error:
                 log.warning("channel confirmation failed: %s", error)
         return row
+
+    def _request_video_for_target(self, query_id, record: dict, profile) -> dict:
+        """Ask for the video that a video-only platform needs.
+
+        The draft remembers the target, so the clip the operator sends next is
+        uploaded to that platform as soon as it lands on the draft; Approve
+        keeps publishing to the other targets in the meantime.
+        """
+        draft_id = str(record.get("id") or "")
+        live = bool(draft_id) and self.state.get_draft(draft_id) is not None
+        row = publications_mod.build_publication(
+            draft_id,
+            profile.key,
+            publications_mod.STATUS_SKIPPED,
+            error="waiting for a video",
+        ).as_row()
+        self._record_publication(row)
+        if live:
+            self.state.update_draft(
+                draft_id,
+                {
+                    "status": "awaiting_media",
+                    "media_wait_kind": "video",
+                    "pending_target": str(profile.key),
+                },
+            )
+        chat_id = record.get("chat_id")
+        if chat_id is not None:
+            note = (
+                f"{profile.label} publishes videos only. Send the video now "
+                "(or produce one with Media Studio) and it goes up as soon as "
+                "the file arrives; Approve and Reject keep working."
+                if live
+                else f"{profile.label} publishes videos only, and this draft no "
+                "longer waits for media. Start a draft from the same link to "
+                "attach a video, or use the copy-ready package."
+            )
+            try:
+                self.api.send_message(chat_id, note)
+            except telegram_mod.TelegramError as error:
+                log.warning("video request failed for %s: %s", draft_id, error)
+        self._safe_answer(
+            query_id,
+            f"Send the video for {profile.label}."
+            if live
+            else f"{profile.label} needs a video on a live draft.",
+        )
+        return row
+
+    def _publish_pending_target(self, draft_id: str) -> None:
+        """Publish a draft to the platform that was waiting for its video."""
+        record = self.state.get_draft(str(draft_id or ""))
+        if not isinstance(record, dict):
+            return
+        target = str(record.get("pending_target") or "")
+        if not target:
+            return
+        if not platforms_mod.has_video(record):
+            return
+        self.state.update_draft(draft_id, {"pending_target": None})
+        policy = workflow.load_policy(self.settings.policy_dir)
+        profile = self._platform_profiles(policy).get(target)
+        channel = self._channel_for(profile) if profile is not None else None
+        if profile is None or channel is None:
+            log.warning("pending target %s is no longer available", target)
+            return
+        self._publish_to_channel(None, record, profile, channel)
+
+    @staticmethod
+    def _published_note(profile, channel) -> str:
+        """Return the chat confirmation for one published target."""
+        note = f"Published to {profile.label}."
+        link = str(getattr(channel, "last_url", "") or "")
+        if not link:
+            remote = str(getattr(channel, "last_remote_id", "") or "")
+            link = remote if remote.startswith("http") else ""
+        return f"{note} {link}" if link else note
 
     def _send_platform_package(self, query_id: str, key: str, draft_id: str) -> None:
         """Send one platform package plus the stored media for a draft."""

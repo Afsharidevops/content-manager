@@ -1,10 +1,12 @@
-"""Copy-ready upload packages for platforms without a publishing API.
+"""Platform profiles: automatic channels and copy-ready upload packages.
 
-Telegram and Instagram publish through their APIs. Platforms such as YouTube
-and Aparat need a human upload step, so the bot hands the operator a package
-that can be pasted into the platform editor: a title that fits the platform
-limit, a description with the source link and hashtags, the direct upload
-URL, and the stored media file re-sent for a quick download.
+Telegram, Instagram, and the configured automatic channels publish through
+their APIs. Platforms such as YouTube and Aparat can also need a human upload
+step, so the bot hands the operator a package that can be pasted into the
+platform editor: a title that fits the platform limit, a description with the
+source link and hashtags, the direct upload URL, and the stored media file
+re-sent for a quick download. A profile whose channel is live publishes
+instead, and a video-only profile is offered for videos alone.
 
 Profiles are policy-driven. The `platforms:` section of
 `editorial-policy.yaml` can override the built-in profiles, add new ones, or
@@ -13,10 +15,13 @@ remove a profile by setting it to null; no code change is required.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from html import escape
 from pathlib import Path
 from urllib.parse import urlparse
+
+HASHTAG_RE = re.compile(r"#([^\s#،,.;:!؟?()\[\]{}\"'<>|/]+)")
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,7 @@ class PlatformProfile:
     note: str = ""
     hashtags: tuple[str, ...] = ()
     wants_video: bool = False
+    video_only: bool = False
     mode: str = "package"
     channel_key: str = ""
     account: str = ""
@@ -154,7 +160,27 @@ def account_profiles(accounts) -> dict[str, PlatformProfile]:
     return profiles
 
 
-def load_profiles(policy: dict, accounts=None) -> dict[str, PlatformProfile]:
+def channel_profiles(channels) -> dict[str, PlatformProfile]:
+    """Return the automatic profile of every channel that needs one.
+
+    Aparat ships as a package (the manual upload flow) and turns into an
+    automatic, video-only profile as soon as a browser session is stored, so
+    the operator keeps the package until the upload API is configured.
+    """
+    profiles: dict[str, PlatformProfile] = {}
+    if "aparat" in (channels or {}):
+        base = DEFAULT_PROFILES["aparat"]
+        profiles["aparat"] = replace(
+            base,
+            mode="auto",
+            channel_key="aparat",
+            video_only=True,
+            note="Published through the Aparat upload API; a video is required.",
+        )
+    return profiles
+
+
+def load_profiles(policy: dict, accounts=None, channels=None) -> dict[str, PlatformProfile]:
     """Return the platform profiles after applying the policy overrides.
 
     Accounts come first: every configured LinkedIn account adds one automatic
@@ -170,6 +196,7 @@ def load_profiles(policy: dict, accounts=None) -> dict[str, PlatformProfile]:
     if derived:
         profiles.pop("linkedin", None)
         profiles.update(derived)
+    profiles.update(channel_profiles(channels))
     section = policy.get("platforms")
     if not isinstance(section, dict):
         return profiles
@@ -194,6 +221,7 @@ def load_profiles(policy: dict, accounts=None) -> dict[str, PlatformProfile]:
             note=_text(raw.get("note"), base.note),
             hashtags=_hashtags(raw.get("hashtags"), base.hashtags),
             wants_video=bool(raw.get("wants_video", base.wants_video)),
+            video_only=bool(raw.get("video_only", base.video_only)),
             mode=(
                 str(raw.get("mode") or "").strip().lower()
                 if str(raw.get("mode") or "").strip().lower() in {"auto", "package"}
@@ -204,6 +232,11 @@ def load_profiles(policy: dict, accounts=None) -> dict[str, PlatformProfile]:
             tone=_text(raw.get("tone"), base.tone),
         )
     return profiles
+
+
+def needs_video(profile: PlatformProfile) -> bool:
+    """True when the platform can only publish a post that carries a video."""
+    return bool(getattr(profile, "video_only", False))
 
 
 def has_video(record: dict) -> bool:
@@ -275,6 +308,33 @@ def compose_description(record: dict, profile: PlatformProfile) -> tuple[str, bo
     if boundary >= limit // 2:
         shortened = shortened[:boundary]
     return shortened.rstrip(), True
+
+
+def collect_tags(record: dict, profile: PlatformProfile) -> list[str]:
+    """Return the hashtags of one draft as plain tag names.
+
+    The description of the profile carries the configured hashtags and the
+    adapted body carries any inline ones, so both are collected once and
+    handed to the platform that wants tags (Aparat) as a list.
+    """
+    description, _shortened = compose_description(record, profile)
+    tags: list[str] = []
+    for value in HASHTAG_RE.findall(description):
+        tag = " ".join(str(value).split()).strip("-_#")
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def video_meta(record: dict, profile: PlatformProfile) -> dict:
+    """Return the title, description, and tags of one video publish."""
+    title, _shortened = compose_title(record, profile)
+    description, _shortened = compose_description(record, profile)
+    return {
+        "title": title,
+        "description": description,
+        "tags": collect_tags(record, profile),
+    }
 
 
 def package_text(record: dict, profile: PlatformProfile) -> str:
