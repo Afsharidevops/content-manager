@@ -105,10 +105,61 @@ curl -s -X POST https://www.linkedin.com/oauth/v2/accessToken \
   --data-urlencode "client_secret=${CLIENT_SECRET}"
 ```
 
+Three things have to line up or LinkedIn answers
+`invalid_request: appid/redirect uri/code verifier does not match`:
+
+- `REDIRECT_URI` here is the **plain** value exactly as registered on the
+  app's Auth tab - `https://localhost:8765/callback`, not the
+  `https%3A%2F%2F...` form from the authorization URL. `--data-urlencode`
+  encodes it; passing the already-encoded value double-encodes it and the
+  two requests no longer match.
+- The `CLIENT_ID` and `CLIENT_SECRET` belong to the same app that issued the
+  code.
+- The `code` is fresh and unused. It is single-use: re-running the exchange
+  with the same code fails, and a failed attempt may already have consumed
+  it, so always reopen the authorization link and copy a new one.
+
 The answer carries the token and its lifetime:
 
 ```json
 {"access_token":"AQX...","expires_in":5184000,"scope":"openid profile w_member_social"}
+```
+
+If it is easier, let one script do both halves with the same values, so a
+mismatch cannot slip in:
+
+```bash
+CLIENT_ID='...'
+CLIENT_SECRET='...'
+REDIRECT_URI='https://localhost:8765/callback'   # plain value, as registered
+SCOPES='openid profile w_member_social'
+
+python3 - "$CLIENT_ID" "$REDIRECT_URI" "$SCOPES" <<'PY'
+import sys
+import urllib.parse
+
+client_id, redirect_uri, scopes = sys.argv[1:4]
+query = urllib.parse.urlencode(
+    {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "state": "stack-linkedin-setup",
+        "scope": scopes,
+    },
+    quote_via=urllib.parse.quote,
+)
+print("Open this link, approve the app, and copy ?code=... from the address bar:")
+print(f"https://www.linkedin.com/oauth/v2/authorization?{query}")
+PY
+read -r -p 'Paste the code: ' CODE
+curl -s -X POST https://www.linkedin.com/oauth/v2/accessToken \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=authorization_code' \
+  --data-urlencode "code=${CODE}" \
+  --data-urlencode "redirect_uri=${REDIRECT_URI}" \
+  --data-urlencode "client_id=${CLIENT_ID}" \
+  --data-urlencode "client_secret=${CLIENT_SECRET}"
 ```
 
 4. Find the author id for the destination.
@@ -325,5 +376,7 @@ it is reported.
 | `403` only for the company page | Community Management API still under review, or the member is not a page admin |
 | Nothing appears under **More platforms...** | `CONTENT_PLATFORMS_ENABLED=true` is required; also check the account has both a token and an author |
 | The LinkedIn entry is missing while others show | The account was skipped at startup: the log names the reason (missing token, unreadable file) |
+| `invalid_request: appid/redirect uri/code verifier does not match` | The token request and the authorization request disagree: pass the plain `redirect_uri` (not the percent-encoded form), use the same app's client id and secret, and copy a fresh single-use `code` |
+| The Auth tab refuses to save the redirect URL | Register an HTTPS URL you control instead of localhost; the page does not have to exist, the `code` is visible in the address bar |
 | `LinkedIn did not return an image upload URL` | The author URN or the write scope is wrong; re-run the step-3 probe |
 | Post looks like the draft, not the tone | Adaptation is off, the writer is not configured, or the rewrite failed - the bot falls back to the draft text and logs the reason |
