@@ -105,6 +105,12 @@ def main(argv: list[str] | None = None) -> int:
             "Opening NotebookLM for a manual sign-in (mode %s)", settings.session_mode
         )
         return browser.login(settings, wait_seconds=wait)
+    if command in {"login-vnc", "login_vnc"}:
+        LOGGER.info("Starting interactive VNC login session")
+        import subprocess, os
+        script = os.path.join(os.path.dirname(__file__), "..", "scripts", "login-vnc.sh")
+        result = subprocess.run(["bash", script, settings.data_dir or "/data"])
+        return result.returncode
     if command in {"login-google", "login_google"}:
         LOGGER.info("Attempting automated Google sign-in with credentials")
         return _login_google(settings)
@@ -120,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
         return browser.import_session(profile_dir, session_path)
     if command in {"serve", "run"}:
         return run_server(settings)
-    print("Usage: python -m app serve|login [seconds]|login-google|import-session <path>", file=sys.stderr)
+    print("Usage: python -m app serve|login [seconds]|login-google|login-vnc|import-session <path>", file=sys.stderr)
     return 2
 
 

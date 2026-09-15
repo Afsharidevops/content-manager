@@ -940,9 +940,63 @@ async function renderNotebookLM() {
           : null,
       ),
       h("section", { class: "card" },
-        h("h3", { text: "Auto login (Google credentials)" }),
+        h("h3", { text: "Interactive login (recommended)" }),
         h("p", { class: "muted small" },
-          "Enter your Google credentials so the worker can sign in automatically. TOTP secret is optional (2FA)."),
+          "Start a visible browser session inside the worker. You sign in to Google interactively through a VNC window."),
+        h("div", { id: "vnc-status", class: "muted small", style: "margin-top:8px" }),
+        h("div", { class: "row", style: "margin-top:10px" },
+          h("button", {
+            id: "vnc-start-btn",
+            class: "btn primary",
+            type: "button",
+            text: "Start interactive login",
+            onclick: async () => {
+              const btn = document.getElementById("vnc-start-btn");
+              const status = document.getElementById("vnc-status");
+              const stopBtn = document.getElementById("vnc-stop-btn");
+              btn.disabled = true;
+              status.textContent = "Starting login session...";
+              try {
+                const result = await api("/api/notebooklm/start-vnc-login", { method: "POST" });
+                if (result.ok) {
+                  status.innerHTML = \`<a href="${result.vnc_url}" target="_blank" rel="noreferrer">${result.vnc_url}</a><br>${result.note}\`;
+                  window.open(result.vnc_url, "_blank");
+                  btn.classList.add("hidden");
+                  stopBtn.classList.remove("hidden");
+                } else {
+                  status.textContent = "Error: " + (result.error || "unknown");
+                  btn.disabled = false;
+                }
+              } catch (err) { status.textContent = "Error: " + err.message; btn.disabled = false; }
+            },
+          }),
+          h("button", {
+            id: "vnc-stop-btn",
+            class: "btn danger hidden",
+            type: "button",
+            text: "Done - I signed in",
+            onclick: async () => {
+              const btn = document.getElementById("vnc-stop-btn");
+              const status = document.getElementById("vnc-status");
+              const startBtn = document.getElementById("vnc-start-btn");
+              btn.disabled = true;
+              status.textContent = "Stopping login session and restarting worker...";
+              try {
+                const result = await api("/api/notebooklm/stop-vnc-login", { method: "POST" });
+                status.textContent = result.ok ? "Session saved. Worker restarted." : "Error: " + (result.error || "");
+                if (result.ok) notify("Login session saved. Worker restarted.");
+                startBtn.classList.remove("hidden");
+                btn.classList.add("hidden");
+                startBtn.disabled = false;
+              } catch (err) { status.textContent = "Error: " + err.message; btn.disabled = false; }
+            },
+          }),
+        ),
+      ),
+      h("section", { class: "card" },
+        h("h3", { text: "Auto login (credentials)" }),
+        h("p", { class: "muted small" },
+          "Google email/password automation. May fail if phone verification or CAPTCHA is required."),
         h("label", { text: "Email" }),
         h("input", { id: "login-email", type: "email", placeholder: "user@gmail.com", style: "width:100%" }),
         h("label", { text: "Password", style: "margin-top:8px" }),

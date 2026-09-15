@@ -236,6 +236,69 @@ class PanelApp:
         except Exception as exc:
             return {"ok": False, "error": str(exc), "duration": round(time.monotonic() - started, 1)}
 
+    def notebooklm_start_vnc_login(self) -> dict:
+        import subprocess, time, logging
+        log = logging.getLogger("panel.notebooklm")
+        # Stop main worker first
+        try:
+            subprocess.run(
+                ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
+                 "--env-file", str(self.root / ".env"),
+                 "stop", "notebooklm-worker"],
+                capture_output=True, text=True, timeout=30, cwd=str(self.root),
+            )
+        except Exception as exc:
+            log.warning("stop worker: %s", exc)
+        # Start login container with VNC port
+        try:
+            subprocess.run(
+                ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
+                 "--env-file", str(self.root / ".env"),
+                 "run", "-d", "--rm", "--name", "notebooklm-vnc-login",
+                 "-p", "8861:8861",
+                 "notebooklm-worker",
+                 "bash", "/scripts/login-vnc.sh"],
+                capture_output=True, text=True, timeout=30, cwd=str(self.root),
+            )
+            time.sleep(3)
+            return {
+                "ok": True,
+                "vnc_url": "http://192.168.4.222:8861/vnc.html",
+                "note": "Open this URL in a new tab, click Connect, then sign in to Google.",
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def notebooklm_stop_vnc_login(self) -> dict:
+        import subprocess, time, logging
+        log = logging.getLogger("panel.notebooklm")
+        data_dir = self.root / "data" / "notebooklm-worker"
+        # Signal the login container to stop
+        try:
+            (data_dir / ".login-done").write_text("done")
+            time.sleep(3)
+        except Exception:
+            pass
+        # Force remove if still running
+        try:
+            subprocess.run(
+                ["docker", "rm", "-f", "notebooklm-vnc-login"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except Exception:
+            pass
+        # Restart the main worker
+        try:
+            subprocess.run(
+                ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
+                 "--env-file", str(self.root / ".env"),
+                 "start", "notebooklm-worker"],
+                capture_output=True, text=True, timeout=30, cwd=str(self.root),
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "note": "Worker restarted with the saved session."}
+
     def notebooklm_import_session(self, session_data: dict) -> dict:
         import subprocess, time, json
         data_dir = self.root / "data" / "notebooklm-worker"
@@ -740,6 +803,16 @@ class PanelHandler(BaseHTTPRequestHandler):
         if method == "POST" and parts == ["notebooklm", "login"]:
             self._require_csrf()
             result = self.app.notebooklm_run_login()
+            self._send_json(HTTPStatus.OK, result)
+            return
+        if method == "POST" and parts == ["notebooklm", "start-vnc-login"]:
+            self._require_csrf()
+            result = self.app.notebooklm_start_vnc_login()
+            self._send_json(HTTPStatus.OK, result)
+            return
+        if method == "POST" and parts == ["notebooklm", "stop-vnc-login"]:
+            self._require_csrf()
+            result = self.app.notebooklm_stop_vnc_login()
             self._send_json(HTTPStatus.OK, result)
             return
         if method == "POST" and parts == ["notebooklm", "import-session"]:
