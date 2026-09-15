@@ -78,20 +78,18 @@ def _login_google(settings) -> int:
         )
 
         if result == 0:
-            print("Sign-in successful.", flush=True)
+            print("Sign-in successful. Session saved to persistent profile.", flush=True)
             return 0
-        else:
+        elif result == 1:
             print(
                 f"Sign-in needs manual steps (result={result}).\n"
                 f"URL: {page.url}\n"
-                "Complete the sign-in in the browser, then press Enter here.",
+                "Check the output above for details (CAPTCHA, 2FA, etc.).",
                 flush=True,
             )
-            input()
-            if signed_in(page):
-                print("Sign-in confirmed after manual steps.", flush=True)
-                return 0
-            print("Still not signed in.", flush=True)
+            return 1
+        else:
+            print(f"Sign-in failed (result={result}). URL: {page.url}", flush=True)
             return 1
 
 def main(argv: list[str] | None = None) -> int:

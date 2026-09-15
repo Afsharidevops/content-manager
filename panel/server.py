@@ -184,10 +184,25 @@ class PanelApp:
                 capture_output=True, text=True, timeout=300,
                 cwd=str(self.root),
             )
+            ok = result.returncode == 0
+            output = result.stdout.strip()[-3000:] if result.stdout.strip() else ""
+            # Restart worker so it picks up the new profile
+            if ok:
+                try:
+                    subprocess.run(
+                        ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
+                         "--env-file", str(self.root / ".env"),
+                         "restart", "notebooklm-worker"],
+                        capture_output=True, text=True, timeout=30,
+                        cwd=str(self.root),
+                    )
+                    output += "\nWorker restarted after login."
+                except Exception as exc:
+                    output += f"\nWarning: worker restart failed: {exc}"
             return {
-                "ok": result.returncode == 0,
+                "ok": ok,
                 "returncode": result.returncode,
-                "output": result.stdout.strip()[-3000:] if result.stdout.strip() else "",
+                "output": output,
                 "error": result.stderr.strip()[-2000:] if result.stderr.strip() else "",
                 "duration": round(time.monotonic() - started, 1),
             }
