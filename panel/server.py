@@ -237,9 +237,24 @@ class PanelApp:
             return {"ok": False, "error": str(exc), "duration": round(time.monotonic() - started, 1)}
 
     def notebooklm_start_vnc_login(self) -> dict:
-        import subprocess, time, logging
+        import subprocess, time, logging, socket
         log = logging.getLogger("panel.notebooklm")
-        # Stop main worker first
+        # Detect host IP for the VNC URL
+        vnc_host = self.env_value("NOTEBOOKLM_PUBLIC_URL", "")
+        if not vnc_host:
+            bind_ip = self.env_value("PANEL_BIND_IP", "0.0.0.0")
+            if bind_ip in ("0.0.0.0", "::", "127.0.0.1", ""):
+                try:
+                    tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    tmp.settimeout(3)
+                    tmp.connect(("8.8.8.8", 80))
+                    bind_ip = tmp.getsockname()[0]
+                    tmp.close()
+                except Exception:
+                    bind_ip = socket.gethostbyname(socket.gethostname())
+            vnc_host = bind_ip
+        vnc_host = vnc_host.rstrip("/").replace("http://", "").replace("https://", "").split(":")[0].split("/")[0]
+        # Stop main worker
         try:
             subprocess.run(
                 ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
@@ -249,7 +264,7 @@ class PanelApp:
             )
         except Exception as exc:
             log.warning("stop worker: %s", exc)
-        # Start login container with VNC port
+        # Start login container
         try:
             subprocess.run(
                 ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
@@ -261,10 +276,12 @@ class PanelApp:
                 capture_output=True, text=True, timeout=30, cwd=str(self.root),
             )
             time.sleep(3)
+            vnc_url = f"http://{vnc_host}:8861/vnc.html"
             return {
                 "ok": True,
-                "vnc_url": "http://192.168.4.222:8861/vnc.html",
-                "note": "Open this URL in a new tab, click Connect, then sign in to Google.",
+                "vnc_url": vnc_url,
+                "note": "Open this URL in a new tab, click Connect, then sign in to Google. "
+                        "If the IP is wrong, set NOTEBOOKLM_PUBLIC_URL in .env.",
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
