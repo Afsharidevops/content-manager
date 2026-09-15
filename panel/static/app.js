@@ -959,7 +959,7 @@ async function renderNotebookLM() {
               try {
                 const result = await api("/api/notebooklm/start-vnc-login", { method: "POST" });
                 if (result.ok) {
-                  status.innerHTML = \`<a href="${result.vnc_url}" target="_blank" rel="noreferrer">${result.vnc_url}</a><br>${result.note}\`;
+                  status.innerHTML = `<a href="${result.vnc_url}" target="_blank" rel="noreferrer">${result.vnc_url}</a><br>${result.note}`;
                   window.open(result.vnc_url, "_blank");
                   btn.classList.add("hidden");
                   stopBtn.classList.remove("hidden");
