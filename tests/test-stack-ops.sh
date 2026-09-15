@@ -176,7 +176,8 @@ if output="$($FIX/scripts/stack-ops.sh backup-sections)" \
    && grep -q '^env ' <<<"$output" \
    && grep -q '^panel *data/panel' <<<"$output" \
    && grep -q '^s3 *data/rustfs' <<<"$output" \
-   && grep -q 'data/content-bot' <<<"$output"; then
+   && grep -q 'data/content-bot' <<<"$output" \
+   && grep -q '^notebooklm *data/notebooklm-worker' <<<"$output"; then
   ok "backup-sections lists the scoped backup sections"
 else
   not_ok "backup-sections lists the scoped backup sections"

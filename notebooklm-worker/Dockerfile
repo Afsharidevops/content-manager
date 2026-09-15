@@ -1,0 +1,29 @@
+FROM python:3.13-slim-bookworm
+
+LABEL org.opencontainers.image.title="NotebookLM Worker" \
+      org.opencontainers.image.version="0.1.0" \
+      org.opencontainers.image.description="Browser automation worker that produces videos with Google NotebookLM Video Overviews"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    HOME=/tmp \
+    TMPDIR=/tmp \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates fonts-noto-core \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 10006 notebooklm \
+    && useradd --uid 10006 --gid notebooklm --home-dir /nonexistent --no-create-home notebooklm
+
+WORKDIR /app
+COPY notebooklm-worker/requirements.txt ./notebooklm-worker/requirements.txt
+RUN pip install --no-cache-dir -r notebooklm-worker/requirements.txt \
+    && playwright install --with-deps chromium \
+    && rm -rf /root/.cache/pip
+COPY notebooklm-worker/app ./app
+
+USER 10006:10006
+CMD ["python", "-m", "app"]

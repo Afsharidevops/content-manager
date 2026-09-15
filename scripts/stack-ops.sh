@@ -365,6 +365,7 @@ hermes data/hermes
 router data/smart-router data/9router data/omniroute
 content data/content-manager data/content-bot
 media data/media-studio
+notebooklm data/notebooklm-worker
 panel data/panel
 n8n data/n8n
 openwebui data/open-webui

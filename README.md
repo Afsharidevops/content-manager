@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.2   Media Studio: 0.4.0   Panel: 0.4.1
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.3   Media Studio: 0.4.0   NotebookLM Worker: 0.1.0   Panel: 0.4.1
 ```
 
 ## Screenshots
@@ -73,6 +73,11 @@ check object storage, and take backups. The captures use demonstration data.
   See `docs/MEDIA-STUDIO.md`. The Flow region unlock is also available
   standalone for laptop use: `docs/FLOW-UNLOCK-STANDALONE.md` and
   `extensions/locallab-flow-unlock/`.
+- **NotebookLM video (optional)** - the same media question can produce a
+  narrated overview with Google NotebookLM, so a subscription replaces a paid
+  video API: the worker adds the draft and its link as sources, drives the
+  Video Overview, and sends the mp4 back as the media preview. It is an
+  independent provider next to Media Studio; see `docs/NOTEBOOKLM-STUDIO.md`.
 
 | Platform | State |
 | --- | --- |
@@ -83,6 +88,7 @@ check object storage, and take backups. The captures use demonstration data.
 | YouTube | Copy-ready upload package handed over from the same preview |
 | Aparat | Video-only automatic upload through the Aparat web API once a browser session is stored, otherwise the copy-ready package; see `docs/APARAT-SETUP.md` |
 | Media assets | Optional: `media-studio` worker (API images and API video; Google Flow/Gemini via browser session) |
+| NotebookLM video | Optional: `notebooklm-worker` produces Video Overviews from the draft sources with a signed-in NotebookLM session; see `docs/NOTEBOOKLM-STUDIO.md` |
 
 ## Architecture
 
@@ -203,6 +209,8 @@ working copy under `data/content-manager/config/`. Key settings:
 | `CONTENT_SCHEDULER_ENABLED` | Enable the daily scheduler (`true`) |
 | `CONTENT_MEDIA_STUDIO_URL` | Media Studio job API (blank disables media asks) |
 | `CONTENT_MEDIA_STUDIO_TOKEN` | Bearer token for the Media Studio API |
+| `CONTENT_NOTEBOOKLM_URL` | NotebookLM worker API (blank hides the NotebookLM button) |
+| `CONTENT_NOTEBOOKLM_TOKEN` | Shared bearer token (`NOTEBOOKLM_API_TOKEN`) |
 | `CONTENT_SEARCH_ENABLED` | Web search for topics and short pages (`true`) |
 | `CONTENT_TOPIC_DRAFTS_ENABLED` | Draft from plain topic messages (`true`) |
 | `CONTENT_BOT_IMAGE_REPOSITORY` / `CONTENT_BOT_IMAGE_TAG` | Published image to pull |
@@ -243,6 +251,8 @@ daily proposal runs once per local day at `daily_proposal_time`;
 ./manage.sh logs content            # follow Content Bot logs
 ./manage.sh content-status          # Content Bot summary (no secrets)
 ./manage.sh pipeline-status         # Content Bot + Media Studio + API link summary
+./manage.sh notebooklm-status      # NotebookLM worker and session summary
+./manage.sh notebooklm-login       # open NotebookLM and verify the sign-in
 ./manage.sh content-connect-instagram
 ./manage.sh content-configure       # reconfigure Content Bot only (writer API, model, Telegram)
 ./manage.sh configure               # re-run the installer wizard
@@ -264,9 +274,10 @@ The component images are built on GitHub Actions and published to Docker Hub
 whenever their source is pushed to `main`:
 
 ```text
-afsharidevops/content-bot:0.4.2
+afsharidevops/content-bot:0.4.3
 afsharidevops/media-studio:0.4.0
 afsharidevops/content-panel:0.4.1
+afsharidevops/notebooklm-worker:0.1.0
 afsharidevops/content-bot:latest
 ```
 

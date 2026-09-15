@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from content_bot import extract, fetch, state as state_mod, telegram as telegram_mod
 from content_bot import instagram as instagram_mod
 from content_bot import mediastudio as media_mod, rtl as rtl_mod, search as search_mod
+from content_bot import notebooklm as notebooklm_mod
 from content_bot import instagram_token as instagram_token_mod
 from content_bot import channels as channels_mod
 from content_bot import accounts as accounts_mod
@@ -75,6 +76,12 @@ def _rtl_body_html(body: str) -> str:
 
 
 _MEDIA_CAPTION_MAX = 1024
+
+#: Callback sub-name -> NotebookLM profile, built from the shared keyboard
+#: definition so the buttons and the worker profile names cannot drift.
+NOTEBOOKLM_PROFILE_BY_SUB = {
+    sub: value for _label, value, sub in telegram_mod.NOTEBOOKLM_PROFILES
+}
 _TEXT_MESSAGE_MAX = 4096
 
 # Backoff after a transient network failure in the polling loop.
@@ -237,6 +244,7 @@ class ContentBot:
         fetch_page=None,
         fetch_feed=None,
         media=None,
+        notebooklm=None,
         search_topic=None,
         now_fn=_now_utc,
     ):
@@ -260,6 +268,17 @@ class ContentBot:
                 settings.media_studio_token,
             )
         self.media = media
+        if (
+            notebooklm is None
+            and settings.notebooklm_url
+            and settings.notebooklm_enabled
+        ):
+            notebooklm = notebooklm_mod.NotebookLM(
+                settings.notebooklm_url,
+                settings.notebooklm_token,
+                timeout=max(60, int(settings.notebooklm_timeout or 1800) // 10),
+            )
+        self.notebooklm = notebooklm
         self.state = store or state_mod.StateStore(Path(settings.data_dir) / "state.json")
         self.accounts = accounts_mod.load_accounts(
             settings.policy_dir, filename=settings.social_accounts_file
@@ -1437,6 +1456,8 @@ class ContentBot:
             f"Publish channel: {self.settings.telegram_channel or 'not configured'}\n"
             f"Writer endpoint: {self.settings.writer_base_url or 'not configured'}\n"
             f"Media Studio: {self.settings.media_studio_url or 'not configured'}\n"
+            f"NotebookLM worker: "
+            f"{self.settings.notebooklm_url if self.notebooklm else 'not configured'}\n"
             f"Web search: {'enabled' if self.settings.search_enabled else 'disabled'}\n"
             f"Tool registry: {self._tools_summary()}\n"
             f"Scheduled routines: {self._routines_summary()}\n"
@@ -1689,12 +1710,19 @@ class ContentBot:
         """Offer the media question for one fresh draft."""
         draft_id = str(record["id"])
         chat_id = record.get("chat_id")
+        question = (
+            "Add media to this post? Text only / AI image / send your own "
+            "image / video prompt (you create the video)"
+        )
+        if self.notebooklm is not None:
+            question += " / NotebookLM video"
         try:
             ask = self.api.send_message(
                 chat_id,
-                "Add media to this post? Text only / AI image / send your own "
-                "image / video prompt (you create the video).",
-                telegram_mod.media_choice_keyboard(draft_id),
+                f"{question}.",
+                telegram_mod.media_choice_keyboard(
+                    draft_id, notebooklm=self.notebooklm is not None
+                ),
             )
         except telegram_mod.TelegramError:
             log.warning("media ask could not be sent for draft %s", draft_id)
@@ -1828,6 +1856,34 @@ class ContentBot:
                 seconds=10 if sub == "script10" else 30,
             )
             return
+        if sub == "nlm":
+            ask_id = record.get("ask_message_id")
+            chat_id = record.get("chat_id")
+            if self.notebooklm is None:
+                self._safe_answer(
+                    query_id,
+                    "The NotebookLM worker is not configured "
+                    "(CONTENT_NOTEBOOKLM_URL).",
+                )
+                return
+            if chat_id is None or ask_id is None:
+                self._safe_answer(query_id, "No active media question was found.")
+                return
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "Which NotebookLM video profile should I use?",
+                telegram_mod.notebooklm_profile_keyboard(draft_id),
+            )
+            self._safe_answer(query_id, "Choose a video profile.")
+            return
+        if sub in NOTEBOOKLM_PROFILE_BY_SUB:
+            self._start_notebooklm_job(
+                draft_id,
+                NOTEBOOKLM_PROFILE_BY_SUB[sub],
+                query_id=query_id,
+            )
+            return
         if sub == "video":
             ask_id = record.get("ask_message_id")
             chat_id = record.get("chat_id")
@@ -1908,6 +1964,13 @@ class ContentBot:
             driver = str(media.get("driver") or self.settings.image_driver)
             kind = str(media.get("kind") or "image")
             duration = str(media.get("duration") or "")
+            if driver == notebooklm_mod.DRIVER:
+                self._start_notebooklm_job(
+                    draft_id,
+                    str(media.get("profile") or self.settings.notebooklm_default_profile),
+                    query_id=query_id,
+                )
+                return
             self._start_media_job(
                 draft_id,
                 driver,
@@ -2009,9 +2072,96 @@ class ContentBot:
             )
         self._safe_answer(query_id, f"{kind.capitalize()} job started.")
 
+    def _notebooklm_sources(self, record: dict) -> list[dict]:
+        """Return the material the NotebookLM worker should read.
+
+        The draft text is always a source; the original link is added when the
+        draft has one, so NotebookLM reads the same page the post talks about.
+        """
+        sources: list[dict] = []
+        url = str(record.get("source_url") or "").strip()
+        if url:
+            sources.append({"kind": "auto", "value": url})
+        title = str(record.get("title") or "").strip()
+        body = writer_mod.Writer._strip_source_url(
+            str(record.get("body") or "").strip(), url
+        )
+        text = "\n".join(part for part in (title, body) if part).strip()
+        if text:
+            sources.append(
+                {
+                    "kind": "text",
+                    "value": text[:20_000],
+                    "title": title or "Draft text",
+                }
+            )
+        return sources
+
+    def _start_notebooklm_job(
+        self, draft_id: str, profile: str, *, query_id: str = ""
+    ) -> None:
+        """Queue one NotebookLM video job for a draft."""
+        if self.notebooklm is None:
+            self._safe_answer(
+                query_id,
+                "The NotebookLM worker is not configured (CONTENT_NOTEBOOKLM_URL).",
+            )
+            return
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            self._safe_answer(query_id, "This draft is no longer active.")
+            return
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
+        title = str(record.get("title") or "").strip()
+        body = str(record.get("body") or "").strip()
+        topic = title or re.sub(r"\s+", " ", body)[:120] or "Content Manager video"
+        profile = str(profile or "").strip() or self.settings.notebooklm_default_profile
+        try:
+            job_id = self.notebooklm.submit(
+                topic=topic,
+                profile=profile,
+                sources=self._notebooklm_sources(record),
+                content_id=draft_id,
+            )
+        except notebooklm_mod.NotebookLMError as error:
+            self._record_event(draft_id, "notebooklm_submit_failed", str(error))
+            if chat_id is not None and ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"NotebookLM job could not start: {error}",
+                    telegram_mod.media_retry_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, f"NotebookLM job failed: {error}")
+            return
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_running",
+                "media_duration_asked": False,
+                "media": {
+                    "kind": "video",
+                    "driver": notebooklm_mod.DRIVER,
+                    "profile": profile,
+                    "job_id": job_id,
+                    "status": "running",
+                    "stage_shown": "",
+                    "artifact": "",
+                    "local_path": "",
+                    "created_at": self.now_fn().isoformat(),
+                },
+            },
+        )
+        self._record_event(draft_id, "notebooklm_job_started", f"{profile} {job_id}")
+        self._drop_preview(chat_id, record)
+        if chat_id is not None and ask_id is not None:
+            self._edit_safe(chat_id, int(ask_id), "⏳ Preparing the sources...")
+        self._safe_answer(query_id, "NotebookLM video job started.")
+
     def maybe_poll_media_jobs(self) -> None:
         """Advance drafts whose media job finished while the bot polled."""
-        if self.media is None:
+        if self.media is None and self.notebooklm is None:
             return
         now = self.now_fn()
         for draft_id, record in list((self.state.load().get("drafts") or {}).items()):
@@ -2029,16 +2179,39 @@ class ContentBot:
             job_id = str(media.get("job_id") or "")
             if not job_id:
                 continue
+            driver = str(media.get("driver") or "")
+            client = self._media_client(driver)
+            if client is None:
+                continue
             created = self._parse_dt(media.get("created_at"))
-            if created is not None and (now - created).total_seconds() > self.settings.media_job_timeout_seconds:
+            if created is not None and (now - created).total_seconds() > self._media_timeout(
+                driver
+            ):
                 self._media_failed(draft_id, "Media job timed out.")
                 continue
             try:
-                job = self.media.job(job_id)
-            except media_mod.MediaStudioError as error:
+                job = client.job(job_id)
+            except (media_mod.MediaStudioError, notebooklm_mod.NotebookLMError) as error:
                 log.warning("media job %s lookup failed: %s", job_id, error)
                 continue
             status = str(job.get("status") or "")
+            if driver == notebooklm_mod.DRIVER:
+                if status in {
+                    "",
+                    "created",
+                    "uploading",
+                    "processing",
+                    "generating",
+                    "downloading",
+                }:
+                    self._notebooklm_progress(draft_id, media, job)
+                    continue
+                if status == "ready":
+                    self._media_finished(draft_id, job)
+                else:
+                    detail = str(job.get("error") or "NotebookLM job failed")
+                    self._media_failed(draft_id, detail)
+                continue
             if status in {"queued", "running", ""}:
                 continue
             if status == "done":
@@ -2047,19 +2220,51 @@ class ContentBot:
                 detail = str(job.get("error") or "media job failed")
                 self._media_failed(draft_id, detail)
 
+    def _media_client(self, driver: str):
+        """Return the worker client that owns one draft's media job."""
+        if str(driver) == notebooklm_mod.DRIVER:
+            return self.notebooklm
+        return self.media
+
+    def _media_timeout(self, driver: str) -> int:
+        if str(driver) == notebooklm_mod.DRIVER:
+            return max(300, int(self.settings.notebooklm_timeout or 1800))
+        return int(self.settings.media_job_timeout_seconds or 1200)
+
+    def _notebooklm_progress(self, draft_id: str, media: dict, job: dict) -> None:
+        """Edit the ask message when the NotebookLM stage changes."""
+        label = notebooklm_mod.stage_label(str(job.get("stage") or ""))
+        if not label or label == str(media.get("stage_shown") or ""):
+            return
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            return
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
+        updated = dict(media)
+        updated["stage_shown"] = label
+        self.state.update_draft(draft_id, {"media": updated})
+        if chat_id is not None and ask_id is not None:
+            self._edit_safe(chat_id, int(ask_id), label)
+
     def _media_finished(self, draft_id: str, job: dict) -> None:
         record = self.state.get_draft(draft_id)
         if record is None:
             return
-        artifact = self.media.pick_artifact(job)
+        media = dict(record.get("media") or {})
+        client = self._media_client(str(media.get("driver") or ""))
+        if client is None:
+            self._media_failed(draft_id, "The media worker for this job is gone.")
+            return
+        artifact = client.pick_artifact(job)
         if artifact is None:
             self._media_failed(draft_id, "Job finished without a usable media artifact.")
             return
         name, kind = artifact
-        job_id = str((record.get("media") or {}).get("job_id") or "")
+        job_id = str(media.get("job_id") or "")
         try:
-            content = self.media.download(job_id, name)
-        except media_mod.MediaStudioError as error:
+            content = client.download(job_id, name)
+        except (media_mod.MediaStudioError, notebooklm_mod.NotebookLMError) as error:
             self._media_failed(draft_id, str(error))
             return
         extension = name.rsplit(".", 1)[-1].lower() if "." in name else ("mp4" if kind == "video" else "png")
@@ -2071,7 +2276,7 @@ class ContentBot:
         except OSError as error:
             self._media_failed(draft_id, f"Could not store the media file: {error}")
             return
-        updated_media = dict(record.get("media") or {})
+        updated_media = dict(media)
         updated_media.update(
             {
                 "status": "done",

@@ -53,7 +53,7 @@ Interactive groups:
 Common direct commands:
   status                      Show container status
   health [--json]             Show per-service health
-  logs [SERVICE]              Follow logs (hermes/9router/omniroute/smart-router/webui/n8n/content/media/caddy/rustfs)
+  logs [SERVICE]              Follow logs (hermes/9router/omniroute/smart-router/webui/n8n/content/media/notebooklm/caddy/rustfs)
   doctor                      Run diagnostics and hardening checks
   migrate-hermes-permissions [--dry-run]
                               Repair Hermes log ownership/mode under data/hermes/logs
@@ -128,6 +128,13 @@ Media Studio automation:
   media-status                Media Studio configuration summary (no secrets)
   media-guide                 Print the Media Studio setup and API guide pointer
   media-configure             Reconfigure Media Studio settings (installer wizard)
+
+NotebookLM video automation:
+  notebooklm-status           NotebookLM worker, session mode and bot link (no secrets)
+  notebooklm-guide            Print the NotebookLM guide pointer
+  notebooklm-login [SECONDS]  Open NotebookLM in the worker browser and verify the sign-in
+  notebooklm-enable           Enable the profile, store the shared token and start the worker
+  notebooklm-disable          Stop the worker and disable its profile
 
 Backup and restore automation:
   backup [--only SECTION[,...]] [--destination DIR] [--label NAME]
@@ -615,7 +622,8 @@ interactive_menu() {
     printf '%s\n'   '11) Reconfigure installation  Run the v0.5.9 wizard again'
     printf '%s\n'   '12) Operator panel            Web console for status, config, logs, actions'
     printf '%s\n'   '13) Object storage (S3)       RustFS or an external S3 endpoint'
-    printf '%s\n'   '14) Uninstall                 Safe remove or explicit purge'
+    printf '%s\n'   '14) NotebookLM video          Worker status, sign-in and enable/disable'
+    printf '%s\n'   '15) Uninstall                 Safe remove or explicit purge'
     printf '%s\n'   '0) Exit'
     read -r -p 'Choose [0]: ' choice
     case "${choice:-0}" in
@@ -639,7 +647,8 @@ interactive_menu() {
       11) exec "$ROOT_DIR/install.sh" ;;
       12) panel_menu ;;
       13) storage_menu ;;
-      14) uninstall_menu ;;
+      14) notebooklm_menu ;;
+      15) uninstall_menu ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -1715,6 +1724,7 @@ media_status() {
 pipeline_status() {
   local profiles content_enabled media_enabled media_url media_token bot_token
   local image_driver video_driver media_drivers
+  local nlm_url nlm_token nlm_bot_token nlm_mode
   profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
   content_enabled=false
   media_enabled=false
@@ -1736,6 +1746,26 @@ pipeline_status() {
     media_status || true
   else
     printf '  Media Studio: not installed on this host (content-only server).\n'
+  fi
+  if notebooklm_enabled; then
+    nlm_url="$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_URL)"
+    [[ -n "$nlm_url" ]] || nlm_url="http://notebooklm-worker:$(notebooklm_port)"
+    nlm_token="$(env_value "$ENV_FILE" NOTEBOOKLM_API_TOKEN)"
+    nlm_bot_token="$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_TOKEN)"
+    nlm_mode="$(env_value "$ENV_FILE" NOTEBOOKLM_SESSION_MODE)"
+    printf '\nContent Bot -> NotebookLM worker link\n'
+    printf '  Worker URL: %s\n' "$nlm_url"
+    if [[ -n "$nlm_token" && "$nlm_bot_token" == "$nlm_token" ]]; then
+      printf '  API token: synced (secret not shown)\n'
+    elif [[ -z "$nlm_bot_token" && -z "$nlm_token" ]]; then
+      printf '  API token: not set; run ./manage.sh notebooklm-enable\n'
+    else
+      printf '  API token: NOT synced; the worker rejects the bot. Run ./manage.sh notebooklm-enable.\n'
+    fi
+    printf '  Session mode: %s (verify with ./manage.sh notebooklm-login 15)\n' "${nlm_mode:-cdp}"
+    if [[ "$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_ENABLED)" == false ]]; then
+      printf '  WARNING: CONTENT_NOTEBOOKLM_ENABLED=false, so the bot hides the button.\n'
+    fi
   fi
   if [[ "$content_enabled" == true && "$media_enabled" == true ]]; then
     media_url="$(env_value "$ENV_FILE" CONTENT_MEDIA_STUDIO_URL)"
@@ -1810,6 +1840,220 @@ media_menu() {
         fi
         ;;
       5) media_configure ;;
+      0) return 0 ;;
+      *) printf 'Unknown choice.\n' >&2 ;;
+    esac
+  done
+}
+
+# ---------------------------------------------------------- NotebookLM video
+
+notebooklm_enabled() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  [[ ",$profiles," == *,notebooklm,* ]]
+}
+
+notebooklm_add_profile() {
+  local profiles
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  if [[ ",$profiles," == *,notebooklm,* ]]; then
+    return 0
+  fi
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "${profiles:+$profiles,}notebooklm"
+  printf 'Enabled the "notebooklm" compose profile.\n'
+}
+
+notebooklm_remove_profile() {
+  local profiles entry filtered=""
+  profiles="$(env_value "$ENV_FILE" COMPOSE_PROFILES)"
+  local entries=()
+  IFS=',' read -r -a entries <<< "$profiles"
+  for entry in "${entries[@]}"; do
+    [[ -n "$entry" && "$entry" != notebooklm ]] || continue
+    filtered="${filtered:+$filtered,}$entry"
+  done
+  replace_env_value "$ENV_FILE" COMPOSE_PROFILES "$filtered"
+  printf 'Disabled the "notebooklm" compose profile.\n'
+}
+
+notebooklm_port() {
+  local port
+  port="$(env_value "$ENV_FILE" NOTEBOOKLM_PORT)"
+  printf '%s' "${port:-8860}"
+}
+
+notebooklm_token() {
+  local token
+  token="$(env_value "$ENV_FILE" NOTEBOOKLM_API_TOKEN)"
+  printf '%s' "$token"
+}
+
+notebooklm_ensure_token() {
+  # The bot and the worker must present the same bearer token; generate one
+  # when the operator has not stored one yet.
+  local token
+  token="$(notebooklm_token)"
+  if [[ -z "$token" ]]; then
+    token="$(random_hex 24)"
+    replace_env_value "$ENV_FILE" NOTEBOOKLM_API_TOKEN "$token"
+    printf 'Generated the shared NotebookLM API token.\n'
+  fi
+  printf '%s' "$token"
+}
+
+notebooklm_ensure_data_dir() {
+  # The image keeps its own unprivileged identity (10006), so a root-enabled
+  # stack owns the bind mount by that uid while an unprivileged operator maps
+  # the container to the invoking user. Either way the container can write its
+  # job store, uploads, and browser profile.
+  local run_as uid gid
+  run_as="$(env_value "$ENV_FILE" NOTEBOOKLM_RUN_AS)"
+  if [[ -z "$run_as" ]]; then
+    if [[ "$(id -u)" == 0 ]]; then
+      run_as=10006:10006
+    else
+      run_as="$(id -u):$(id -g)"
+    fi
+    replace_env_value "$ENV_FILE" NOTEBOOKLM_RUN_AS "$run_as"
+    printf 'Stored NOTEBOOKLM_RUN_AS=%s.\n' "$run_as"
+  fi
+  uid="${run_as%%:*}"
+  gid="${run_as##*:}"
+  install -d -m 0700 "$ROOT_DIR/data/notebooklm-worker"
+  if [[ "$(id -u)" == 0 ]]; then
+    chown -R "$uid:$gid" "$ROOT_DIR/data/notebooklm-worker"
+  fi
+}
+
+notebooklm_status() {
+  local mode url token profile session_default bot_url bot_enabled worker_state cdp_url
+  token="$(notebooklm_token)"
+  mode="$(env_value "$ENV_FILE" NOTEBOOKLM_SESSION_MODE)"
+  profile="$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_BROWSER_PROFILE)"
+  session_default="$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_DEFAULT_PROFILE)"
+  bot_enabled="$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_ENABLED)"
+  url="$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_URL)"
+  [[ -n "$url" ]] || url="http://notebooklm-worker:$(notebooklm_port)"
+  bot_url="$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_URL)"
+  [[ -n "$bot_url" ]] || bot_url="http://notebooklm-worker:$(notebooklm_port)"
+  printf 'NotebookLM video provider\n'
+  if notebooklm_enabled; then
+    printf '  Compose profile: enabled (profile "notebooklm")\n'
+  else
+    printf '  Compose profile: not enabled; run ./manage.sh notebooklm-enable to start it\n'
+  fi
+  printf '  Worker URL: %s\n' "$bot_url"
+  printf '  Session mode: %s\n' "${mode:-cdp}"
+  case "${mode:-cdp}" in
+    cdp)
+      cdp_url="$(env_value "$ENV_FILE" NOTEBOOKLM_CDP_URL)"
+      [[ -n "$cdp_url" ]] || cdp_url=http://host.docker.internal:9222
+      printf '  Session source: %s (a signed-in Chrome on the Docker host)\n' "$cdp_url"
+      ;;
+    *)
+      printf '  Browser profile: %s\n' "${profile:-/data/notebooklm-browser-profile}"
+      ;;
+  esac
+  printf '  API token: %s\n' "$([[ -n "$token" ]] && printf 'stored (secret not shown)' || printf 'not set; run ./manage.sh notebooklm-enable')"
+  printf '  Default profile: %s\n' "${session_default:-technical_fa}"
+  if [[ "$bot_enabled" == false ]]; then
+    printf '  Bot button: disabled (CONTENT_NOTEBOOKLM_ENABLED=false)\n'
+  else
+    printf '  Bot button: offered on the media question while the worker answers\n'
+  fi
+  worker_state="$("${DOCKER[@]}" inspect -f '{{.State.Running}}' notebooklm-worker 2>/dev/null || true)"
+  if [[ "$worker_state" == true ]]; then
+    printf '  Container: running\n'
+    printf '  Session probe: run ./manage.sh notebooklm-login 15 to verify the sign-in\n'
+  else
+    printf '  Container: not running\n'
+  fi
+  printf '  Data: data/notebooklm-worker (jobs, videos, failure screenshots)\n'
+  printf '  Guide: docs/NOTEBOOKLM-STUDIO.md\n'
+}
+
+notebooklm_guide() {
+  printf '%s\n' 'NotebookLM video guide: docs/NOTEBOOKLM-STUDIO.md'
+  printf '%s\n' 'Sign-in check: ./manage.sh notebooklm-login 15'
+  printf '%s\n' 'Enable the worker: ./manage.sh notebooklm-enable'
+  printf '%s\n' 'Content Bot side: ./manage.sh content-status'
+}
+
+notebooklm_enable() {
+  notebooklm_add_profile >/dev/null
+  notebooklm_ensure_token >/dev/null
+  notebooklm_ensure_data_dir
+  printf 'Starting the NotebookLM worker.\n'
+  compose up -d --no-deps notebooklm-worker
+  printf 'NotebookLM worker is enabled. Next steps:\n'
+  printf '  1) Sign in to https://notebooklm.google.com in the browser the worker uses.\n'
+  printf '  2) Verify it with ./manage.sh notebooklm-login 15\n'
+  printf '  3) The bot offers "NotebookLM video" on the next draft; docs/NOTEBOOKLM-STUDIO.md\n'
+  printf '     covers profiles, durations and failure screenshots.\n'
+}
+
+notebooklm_disable() {
+  "${DOCKER[@]}" rm -sf notebooklm-worker >/dev/null 2>&1 || true
+  notebooklm_remove_profile
+  printf 'NotebookLM worker stopped. The bot hides the button after the next restart:\n'
+  printf '  ./manage.sh restart content-bot\n'
+}
+
+notebooklm_login() {
+  # Opens NotebookLM in the browser the worker drives and reports the sign-in
+  # state; nothing is stored, the operator signs in by hand.
+  local seconds="${1:-600}" mode
+  if ! notebooklm_enabled; then
+    printf 'NotebookLM is not enabled here. Run ./manage.sh notebooklm-enable first.\n' >&2
+    return 1
+  fi
+  if [[ -z "$("${DOCKER[@]}" ps -q notebooklm-worker 2>/dev/null)" ]]; then
+    printf 'The notebooklm-worker container is not running. Start it with ./manage.sh start.\n' >&2
+    return 1
+  fi
+  mode="$(env_value "$ENV_FILE" NOTEBOOKLM_SESSION_MODE)"
+  printf 'Waiting up to %s seconds for a signed-in NotebookLM session.\n' "$seconds"
+  printf 'Sign in to https://notebooklm.google.com in the Chrome the worker drives;\n'
+  printf 'this command only reports the state and never stores a password.\n'
+  if [[ "${mode:-cdp}" == persistent ]]; then
+    printf 'Persistent mode runs the browser inside the container, so it needs a display there;\n'
+    printf 'see docs/NOTEBOOKLM-STUDIO.md for that session mode.\n'
+    compose run --rm -e NOTEBOOKLM_HEADLESS=false notebooklm-worker \
+      python -m app login "$seconds"
+  else
+    compose exec -T notebooklm-worker python -m app login "$seconds"
+  fi
+}
+
+notebooklm_menu() {
+  local choice
+  while true; do
+    printf '\nNotebookLM Video Manager\n'
+    printf '%s\n' '========================='
+    printf '%s\n' '1) Show NotebookLM status'
+    printf '%s\n' '2) Sign-in check and guide'
+    printf '%s\n' '3) Follow worker logs'
+    printf '%s\n' '4) Verify the API health'
+    printf '%s\n' '5) Enable the worker and start it'
+    printf '%s\n' '6) Disable the worker and stop it'
+    printf '%s\n' '0) Back'
+    read -r -p 'Choose: ' choice
+    case "$choice" in
+      1) notebooklm_status || true ;;
+      2) notebooklm_login "${NOTEBOOKLM_LOGIN_SECONDS:-600}" || true ;;
+      3) compose logs -f --tail=100 notebooklm-worker ;;
+      4)
+        if [[ -z "$(compose ps -q notebooklm-worker)" ]]; then
+          printf 'The NotebookLM worker is not running. Start it with ./manage.sh start.\n'
+        else
+          compose exec -T notebooklm-worker python -c \
+            'import json, urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:8860/healthz", timeout=5)))' \
+            || printf 'The NotebookLM worker API did not answer on :8860.\n'
+        fi
+        ;;
+      5) notebooklm_enable ;;
+      6) notebooklm_disable ;;
       0) return 0 ;;
       *) printf 'Unknown choice.\n' >&2 ;;
     esac
@@ -3688,6 +3932,12 @@ case "$command" in
   media-status) media_status ;;
   media-guide) media_guide ;;
   media-configure) media_configure ;;
+  notebooklm|notebooklm-menu) notebooklm_menu ;;
+  notebooklm-status) notebooklm_status ;;
+  notebooklm-guide) notebooklm_guide ;;
+  notebooklm-enable) notebooklm_enable ;;
+  notebooklm-disable) notebooklm_disable ;;
+  notebooklm-login) shift; notebooklm_login "${1:-600}" ;;
   pipeline-status) pipeline_status ;;
   uninstall)
     shift
@@ -3717,6 +3967,7 @@ case "$command" in
       n8n) compose logs -f --tail=100 n8n ;;
       content|content-bot) compose logs -f --tail=100 content-bot ;;
       media|media-studio) compose logs -f --tail=100 media-studio ;;
+      notebooklm|notebooklm-worker) compose logs -f --tail=100 notebooklm-worker ;;
       caddy) compose logs -f --tail=100 caddy ;;
       rustfs|s3) compose logs -f --tail=100 rustfs ;;
       *) printf 'Choose hermes, 9router, omniroute, smart-router, webui, n8n, content, media, caddy, or rustfs.\n' >&2; exit 2 ;;

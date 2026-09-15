@@ -374,29 +374,55 @@ def approval_keyboard(
     return {"inline_keyboard": rows}
 
 
-def media_choice_keyboard(draft_id: str) -> dict:
+def media_choice_keyboard(draft_id: str, *, notebooklm: bool = False) -> dict:
     """Ask how the draft should get media."""
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
-                {"text": "AI image", "callback_data": f"media:image:{draft_id}"},
-                {"text": "Send my image", "callback_data": f"media:user_image:{draft_id}"},
-            ],
+    rows = [
+        [
+            {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
+            {"text": "AI image", "callback_data": f"media:image:{draft_id}"},
+            {"text": "Send my image", "callback_data": f"media:user_image:{draft_id}"},
+        ],
+        [
+            {
+                "text": "Send several images",
+                "callback_data": f"media:user_images:{draft_id}",
+            },
+        ],
+        [
+            {
+                "text": "My video (get a prompt)",
+                "callback_data": f"media:video_prompt:{draft_id}",
+            },
+        ],
+    ]
+    if notebooklm:
+        rows.append(
             [
                 {
-                    "text": "Send several images",
-                    "callback_data": f"media:user_images:{draft_id}",
+                    "text": "🎬 NotebookLM video",
+                    "callback_data": f"media:nlm:{draft_id}",
                 },
-            ],
-            [
-                {
-                    "text": "My video (get a prompt)",
-                    "callback_data": f"media:video_prompt:{draft_id}",
-                },
-            ],
-        ]
-    }
+            ]
+        )
+    return {"inline_keyboard": rows}
+
+
+#: The three video profiles the NotebookLM worker ships.
+NOTEBOOKLM_PROFILES = (
+    ("Technical for developers", "technical_fa", "nlm_tech"),
+    ("Educational for everyone", "educational_fa", "nlm_edu"),
+    ("Short news overview", "news_fa", "nlm_news"),
+)
+
+
+def notebooklm_profile_keyboard(draft_id: str) -> dict:
+    """Pick the NotebookLM video profile before the job starts."""
+    rows = [
+        [{"text": label, "callback_data": f"media:{sub}:{draft_id}"}]
+        for label, _value, sub in NOTEBOOKLM_PROFILES
+    ]
+    rows.append([{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}])
+    return {"inline_keyboard": rows}
 
 
 def video_style_keyboard(draft_id: str, *, character: bool) -> dict:

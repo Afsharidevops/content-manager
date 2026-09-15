@@ -406,3 +406,12 @@ chat gateway, which is the first case in the table.
   immutable files under `data/media-studio/artifacts/<job_id>/`.
 - For credentials: only the operator's own Chrome holds Google cookies; the
   container stores no Google password.
+
+## Related provider
+
+Narrated overview videos can also be produced by Google NotebookLM through a
+separate worker (`notebooklm-worker`, compose profile `notebooklm`). It is an
+independent provider: Media Studio keeps handling images and recorded clips,
+and the Content Bot shows the NotebookLM button only while that worker is
+configured. Both providers can reuse the same signed-in Chrome through their
+cdp settings. See `docs/NOTEBOOKLM-STUDIO.md`.

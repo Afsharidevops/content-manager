@@ -102,8 +102,10 @@ Commands in the bot chat: `/start`, `/help`, `/status`, `/tools`, and `/instagra
 
 When Media Studio is configured (`CONTENT_MEDIA_STUDIO_URL`), every fresh
 on-demand draft and every daily proposal is followed by an "Add media to this
-post?" question with four choices (scheduled routines ask it only when they
-set `media: ask`; see "Scheduled routines" below):
+post?" question. A fifth choice, **NotebookLM video**, appears when the
+NotebookLM worker is configured (`CONTENT_NOTEBOOKLM_URL`); see
+"NotebookLM videos" below. The choices are (scheduled routines ask the
+question only when they set `media: ask`; see "Scheduled routines" below):
 
 - **Text only** - the draft stays a normal text post.
 - **AI image** - the bot submits an image job to Media Studio
@@ -134,6 +136,42 @@ The brand chip is configurable on Media Studio: `MEDIA_STUDIO_BRAND_LABEL`
 `MEDIA_STUDIO_BRAND_POSITION` (default `bottom-right`). Every AI-generated
 image and every uploaded photo is branded in a corner before it is previewed
 or published.
+
+### NotebookLM videos
+
+The **NotebookLM video** choice produces the video with Google NotebookLM
+instead of a generation API, so a NotebookLM subscription replaces per-clip
+billing. It is an independent provider: Media Studio keeps handling images and
+recorded clips, and the NotebookLM button only appears while the worker is
+configured.
+
+1. Press **NotebookLM video** on the media question.
+2. Pick a profile: **Technical for developers**, **Educational for everyone**,
+   or **Short news overview**.
+3. The ask message becomes a progress line (`⏳ Preparing the sources...`,
+   `📚 Creating the notebook...`, `📤 Uploading the sources...`,
+   `🎬 Generating the video...`, `⬇️ Downloading the output...`).
+4. The bot sends the finished video as the media preview; **Approve**
+   publishes it, **Reject** discards the draft, and a failed job offers a
+   retry with the same profile.
+
+The worker reads the draft title and body plus the original link, opens
+NotebookLM in the session you signed in to, and downloads the rendered Video
+Overview. Because NotebookLM is driven through a browser, the usual budget is
+minutes rather than seconds: `CONTENT_NOTEBOOKLM_TIMEOUT` (default 1800
+seconds) bounds the bot side.
+
+Enable it with:
+
+```bash
+./manage.sh notebooklm-enable     # profile, shared token, container
+./manage.sh notebooklm-login 15   # sign in once, then verify
+./manage.sh notebooklm-status     # profile, session mode, token state
+```
+
+`docs/NOTEBOOKLM-STUDIO.md` documents the session modes (cdp against your own
+Chrome, or a container profile), the API, the profiles and length buckets,
+selector calibration, and the failure playbook.
 
 ### Video prompt packages
 
@@ -455,7 +493,7 @@ It runs as its own `content-panel` container, keeps configuration backups under
 ## Image updates
 
 The `content-bot` image is published to Docker Hub as
-`afsharidevops/content-bot:0.4.2` (plus `:latest`) whenever Content Bot source
+`afsharidevops/content-bot:0.4.3` (plus `:latest`) whenever Content Bot source
 is pushed to the `main` branch of this repository. The server never builds the
 image locally; `install.sh` and `./manage.sh start` pull the published image.
 
@@ -471,18 +509,20 @@ required repository settings, and version bumps.
 ### Local test builds
 
 While developing, build the image locally and tag it with a `-local` suffix,
-for example `CONTENT_BOT_IMAGE_TAG=0.4.2-local`. Compose reuses that local image
+for example `CONTENT_BOT_IMAGE_TAG=0.4.3-local`. Compose reuses that local image
 on `docker compose up -d content-bot` (or `./manage.sh start`); never run
 `docker compose pull` on a `-local` tag, because it is not published to any
 registry and the pull fails with `not found`. To rebuild and switch over:
 
 ```bash
-docker build -f content-bot/Dockerfile -t afsharidevops/content-bot:0.4.2-local .
+docker build -f content-bot/Dockerfile -t afsharidevops/content-bot:0.4.3-local .
 docker compose up -d --pull never content-bot
 ```
 
 The same naming works for `afsharidevops/media-studio:0.4.0-local` with
 `-f media-studio/Dockerfile`.
+The same naming works for `afsharidevops/notebooklm-worker:0.1.0-local` with
+`-f notebooklm-worker/Dockerfile`.
 
 The `media-studio` image is published the same way as
 `afsharidevops/media-studio:0.2.0`; see

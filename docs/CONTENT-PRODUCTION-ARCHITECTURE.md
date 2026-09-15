@@ -81,6 +81,28 @@ snapshots stay in Media Studio (`data/media-studio/`). This satisfies the
   responsive), downloads, stores under `data/content-bot/media/`, and
   previews for approval.
 
+## NotebookLM worker contract
+
+The video provider behind the **NotebookLM video** button is a separate
+service with its own contract, so a browser-driven provider never leaks into
+the bot:
+
+- `POST /jobs` with `{"topic", "sources", "profile", "duration_profile",
+  "content_id"}` returns a job id.
+- `GET /jobs/<id>` returns `status` (`created`, `uploading`, `processing`,
+  `generating`, `downloading`, `ready`, `failed`, `canceled`), the current
+  `stage`, the error detail, and a log tail.
+- `GET /artifacts/<id>/<name>` downloads the finished mp4; `POST /uploads`
+  stores a source file first.
+- The worker runs one job at a time, keeps its own JSON job store, and drives
+  a Playwright session (cdp or a container profile). The bot maps each stage
+  to one chat line, downloads the artifact, stores it under
+  `data/content-bot/media/`, and previews it for approval exactly like a Media
+  Studio result.
+
+Two providers can therefore coexist: Media Studio for images and recorded
+clips, NotebookLM for narrated overviews. See `docs/NOTEBOOKLM-STUDIO.md`.
+
 ## Current implementation (Phase 1)
 
 - Link drafting with a search fallback for short pages.

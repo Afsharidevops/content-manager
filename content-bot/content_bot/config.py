@@ -65,6 +65,11 @@ class BotSettings:
     media_studio_url: str = ""
     media_studio_token: str = ""
     media_job_timeout_seconds: int = 1200
+    notebooklm_url: str = ""
+    notebooklm_token: str = ""
+    notebooklm_enabled: bool = True
+    notebooklm_timeout: int = 1800
+    notebooklm_default_profile: str = "technical_fa"
     image_driver: str = "api-image"
     video_driver: str = "flow-video"
     video_edit_driver: str = "video-edit"
@@ -129,6 +134,13 @@ class BotSettings:
             media_studio_url=_env("CONTENT_MEDIA_STUDIO_URL"),
             media_studio_token=_env("CONTENT_MEDIA_STUDIO_TOKEN"),
             media_job_timeout_seconds=_env_int("CONTENT_MEDIA_JOB_TIMEOUT_SECONDS", 1200),
+            notebooklm_url=_env("CONTENT_NOTEBOOKLM_URL"),
+            notebooklm_token=_env("CONTENT_NOTEBOOKLM_TOKEN"),
+            notebooklm_enabled=_env_bool("CONTENT_NOTEBOOKLM_ENABLED", True),
+            notebooklm_timeout=_env_int("CONTENT_NOTEBOOKLM_TIMEOUT", 1800),
+            notebooklm_default_profile=_env(
+                "CONTENT_NOTEBOOKLM_DEFAULT_PROFILE", "technical_fa"
+            ),
             image_driver=_env("CONTENT_MEDIA_IMAGE_DRIVER", "api-image"),
             video_driver=_env("CONTENT_MEDIA_VIDEO_DRIVER", "flow-video"),
             video_edit_driver=_env("CONTENT_MEDIA_VIDEO_EDIT_DRIVER", "video-edit"),

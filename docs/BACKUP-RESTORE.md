@@ -45,6 +45,7 @@ If a future deployment moves data into PostgreSQL, back it up with
 | `router` | `data/smart-router/`, `data/9router/`, `data/omniroute/` | Routing policy, observations, gateway accounts |
 | `content` | `data/content-manager/`, `data/content-bot/` | Drafts, media, Instagram state, panel queue |
 | `media` | `data/media-studio/` | Generated media and job records |
+| `notebooklm` | `data/notebooklm-worker/` | NotebookLM job records, videos, failure screenshots |
 | `panel` | `data/panel/` | Console token and edit backups |
 | `n8n` | `data/n8n/` | Workflows and credentials |
 | `openwebui` | `data/open-webui/` | Chats and users |

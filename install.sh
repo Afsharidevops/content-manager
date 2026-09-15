@@ -975,6 +975,12 @@ profiles=""
 [[ "$install_panel" == true ]] && profiles="${profiles:+$profiles,}panel"
 [[ "$install_rustfs" == true ]] && profiles="${profiles:+$profiles,}rustfs"
 
+# The NotebookLM worker is enabled and disabled by ./manage.sh, not by this
+# wizard, so keep the profile when the stack is reconfigured.
+if profile_enabled notebooklm; then
+  profiles="${profiles:+$profiles,}notebooklm"
+fi
+
 # Ask once for the zone the published services live in; every hostname the
 # wizard suggests below is derived from it, and .env keeps the answer so later
 # runs and ./manage.sh reuse the same domain.
@@ -2669,6 +2675,21 @@ fi
 if [[ "$DRY_RUN" != true && "$install_media" == true ]]; then
   install -d -m 0700 -o "$media_uid" -g "$media_gid" \
     "$ROOT_DIR/data/media-studio"
+fi
+
+# The NotebookLM worker is enabled by ./manage.sh; keep its data directory
+# owned by the identity that container runs as.
+if [[ "$DRY_RUN" != true ]] && profile_enabled notebooklm; then
+  notebooklm_run_as="$(existing_env_value NOTEBOOKLM_RUN_AS)"
+  if [[ -z "$notebooklm_run_as" ]]; then
+    if [[ "$invoking_uid" == 0 ]]; then
+      notebooklm_run_as="10006:10006"
+    else
+      notebooklm_run_as="$invoking_uid:$invoking_gid"
+    fi
+  fi
+  install -d -m 0700 -o "${notebooklm_run_as%%:*}" -g "${notebooklm_run_as##*:}" \
+    "$ROOT_DIR/data/notebooklm-worker"
 fi
 
 # RustFS keeps objects and logs in one owner-only tree. The container runs as

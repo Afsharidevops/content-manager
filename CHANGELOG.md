@@ -5,6 +5,33 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — NotebookLM Video Overviews for the Content Bot (2026-09-15)
+
+- A new optional worker (`notebooklm-worker`, compose profile `notebooklm`)
+  produces narrated overview videos with Google NotebookLM instead of a paid
+  video API. It drives the NotebookLM web app in a real browser session
+  (cdp against the operator's Chrome by default, or a container profile),
+  adds the draft title and body plus the original link as sources, renders the
+  Video Overview, and serves the mp4 as a job artifact.
+- The media question gains a fifth choice, **NotebookLM video**, with three
+  profiles (`technical_fa`, `educational_fa`, `news_fa`) and a documented
+  length-bucket API (`short`, `standard`, `deep`). The ask message is edited
+  as the job advances (`⏳ 📚 📤 🎬 ⬇️`), the finished video arrives as the
+  usual preview, and a failed job reports the worker error with a retry button
+  that reuses the stored profile.
+- NotebookLM is an independent provider next to Media Studio: the button
+  appears only when `CONTENT_NOTEBOOKLM_URL` is set, the bot keeps a shared
+  bearer token with the worker, and Media Studio keeps generating images and
+  recorded clips. `./manage.sh notebooklm-enable|status|login|disable` manages
+  the profile, the token, and the sign-in, and `docs/NOTEBOOKLM-STUDIO.md`
+  covers sessions, the API, profiles, selector calibration, and failures.
+- The worker publishes as `afsharidevops/notebooklm-worker` through
+  `.github/workflows/publish-notebooklm-worker.yml`; `data/notebooklm-worker`
+  is a scoped backup section, and selector overrides load from
+  `NOTEBOOKLM_SELECTORS_FILE` when the NotebookLM UI changes.
+- Releases: Content Bot `0.4.3` (image and workflow tag, release notes in
+  `content-bot/V0.4.3-RELEASE-NOTES.md`) and NotebookLM Worker `0.1.0`.
+
 ### Features — Content Bot scheduled proposals: media question and daily toggle (2026-09-14)
 
 - The Content Bot media question now reaches scheduled proposals, not only

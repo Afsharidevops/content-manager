@@ -172,6 +172,50 @@ class FakeMedia:
         return None
 
 
+class FakeNotebookLM:
+    """Stands in for the NotebookLM worker over the same client surface."""
+
+    def __init__(self):
+        self.submits = []
+        self.status_by_job = {}
+        self.stages = {}
+        self.errors = {}
+        self.downloads = []
+
+    def submit(self, *, topic, profile, sources=None, content_id=""):
+        self.submits.append(
+            {
+                "topic": topic,
+                "profile": profile,
+                "sources": list(sources or []),
+                "content_id": content_id,
+            }
+        )
+        job_id = f"nlm-{len(self.submits)}"
+        self.status_by_job[job_id] = "created"
+        return job_id
+
+    def job(self, job_id):
+        status = self.status_by_job.get(job_id, "created")
+        return {
+            "id": job_id,
+            "status": status,
+            "stage": self.stages.get(job_id, ""),
+            "error": self.errors.get(job_id, ""),
+            "video_path": f"/data/videos/{job_id}.mp4" if status == "ready" else "",
+        }
+
+    def download(self, job_id, name):
+        self.downloads.append((job_id, name))
+        return b"\x00\x00\x00\x18ftypmp42notebooklm"
+
+    @staticmethod
+    def pick_artifact(job):
+        from content_bot.notebooklm import NotebookLM
+
+        return NotebookLM.pick_artifact(job)
+
+
 class BotTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -764,7 +808,9 @@ def _media_settings(
         self.assertIn("connection problem", joined)
         self.assertNotIn("unhandled error", joined)
 
-class MediaFlowTestCase(unittest.TestCase):
+class MediaFlowHarness(unittest.TestCase):
+    """The shared fakes and helpers of the handler-level media tests."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -773,18 +819,37 @@ class MediaFlowTestCase(unittest.TestCase):
         self.writer = FakeWriter()
         self.media = FakeMedia()
 
-    def build_bot(self, *, artifact=("image_0.png", "image"), search=None):
+    def build_bot(self, *, artifact=("image_0.png", "image"), search=None, notebooklm=None):
         self.media = FakeMedia(artifact=artifact)
         return ContentBot(
             self.settings,
             api=self.api,
             writer=self.writer,
             media=self.media,
+            notebooklm=notebooklm,
             search_topic=search or (lambda query, **kwargs: []),
             fetch_page=lambda url: HTML_PAGE,
             fetch_feed=lambda url: b"",
             now_fn=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
         )
+
+    def media_keyboard_datas(self) -> list:
+        """Every callback data of the keyboards sent so far."""
+        datas = []
+        payloads = list(self.api.sent_messages)
+        payloads += [
+            payload
+            for method, payload in self.api.calls
+            if method == "editMessageText" and isinstance(payload, dict)
+        ]
+        for payload in payloads:
+            markup = payload.get("reply_markup") if isinstance(payload, dict) else None
+            if not isinstance(markup, dict):
+                continue
+            for row in markup.get("inline_keyboard") or []:
+                for button in row:
+                    datas.append(str(button.get("callback_data") or ""))
+        return datas
 
     def package_text(self):
         """Join every message body so package asserts cover chunked sends."""
@@ -811,6 +876,8 @@ class MediaFlowTestCase(unittest.TestCase):
         self.assertEqual(len(drafts), 1)
         return next(iter(drafts))
 
+
+class MediaFlowTestCase(MediaFlowHarness):
     def test_topic_message_searches_and_drafts(self):
         queries = []
 
@@ -2618,7 +2685,7 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         self.assertTrue(any("Unknown platform." in a.get("text", "") for a in answers))
 
 
-class UploadedVideoEditTests(MediaFlowTestCase):
+class UploadedVideoEditTests(MediaFlowHarness):
     """An operator-recorded clip is offered an edit before it can publish."""
 
     def _upload_video(self, bot, draft_id):
@@ -3055,3 +3122,160 @@ class RoutineScheduleTests(unittest.TestCase):
         self.bot.maybe_run_routines()
         self.assertEqual(self.bot.state.load().get("routine_last_run") or {}, {})
         self.assertEqual(self.writer.calls, [])
+
+
+class NotebookLMFlowTests(MediaFlowHarness):
+    """The NotebookLM button, job start, progress, result, and retry."""
+
+    def setUp(self):
+        super().setUp()
+        self.notebooklm = FakeNotebookLM()
+
+    def start(self):
+        bot = self.build_bot(notebooklm=self.notebooklm)
+        draft_id = self.send_link(bot)
+        return bot, draft_id
+
+    def choose(self, bot, draft_id, sub="nlm"):
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:{sub}:{draft_id}",
+            }
+        )
+
+    def answers(self) -> str:
+        """Every toast text the bot answered a callback with."""
+        parts = []
+        for method, payload in self.api.calls:
+            if method != "answerCallbackQuery" or not isinstance(payload, dict):
+                continue
+            text = str(payload.get("text") or "")
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
+
+    def start_job(self, bot, draft_id, sub="nlm_tech") -> str:
+        """Pick one profile and return the job id of the started job."""
+        self.choose(bot, draft_id, sub)
+        return str(bot.state.load()["drafts"][draft_id]["media"]["job_id"])
+
+    def texts(self) -> str:
+        parts = []
+        for method, payload in self.api.calls:
+            if method not in {"editMessageText", "sendMessage"}:
+                continue
+            if isinstance(payload, dict) and payload.get("text"):
+                parts.append(str(payload["text"]))
+        return "\n".join(parts)
+
+    def test_the_media_question_offers_the_button_when_configured(self):
+        bot, draft_id = self.start()
+        bot._send_media_ask(bot.state.get_draft(draft_id))
+        self.assertIn(f"media:nlm:{draft_id}", self.media_keyboard_datas())
+        self.assertIn("NotebookLM video", self.texts())
+
+    def test_the_button_is_absent_without_a_worker(self):
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        bot._send_media_ask(bot.state.get_draft(draft_id))
+        self.assertNotIn(f"media:nlm:{draft_id}", self.media_keyboard_datas())
+        self.assertNotIn("NotebookLM", self.texts())
+
+    def test_the_button_offers_the_three_profiles(self):
+        bot, draft_id = self.start()
+        self.choose(bot, draft_id)
+        datas = self.media_keyboard_datas()
+        for sub in ("nlm_tech", "nlm_edu", "nlm_news"):
+            self.assertIn(f"media:{sub}:{draft_id}", datas)
+
+    def test_a_profile_choice_starts_a_job_with_the_draft_sources(self):
+        bot, draft_id = self.start()
+        self.choose(bot, draft_id, "nlm_edu")
+        self.assertEqual(1, len(self.notebooklm.submits))
+        submit = self.notebooklm.submits[0]
+        self.assertEqual("educational_fa", submit["profile"])
+        self.assertEqual(draft_id, submit["content_id"])
+        self.assertTrue(submit["topic"])
+        kinds = [source["kind"] for source in submit["sources"]]
+        self.assertIn("text", kinds)
+        self.assertIn("auto", kinds)
+        self.assertIn("https://example.com/layers", submit["sources"][0]["value"])
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertEqual("media_running", state["status"])
+        self.assertEqual("notebooklm", state["media"]["driver"])
+        self.assertEqual("video", state["media"]["kind"])
+        self.assertEqual("educational_fa", state["media"]["profile"])
+        self.assertIn("⏳ Preparing the sources...", self.texts())
+
+    def test_the_progress_stage_edits_the_ask_message_once(self):
+        bot, draft_id = self.start()
+        job_id = self.start_job(bot, draft_id)
+        self.notebooklm.status_by_job[job_id] = "generating"
+        self.notebooklm.stages[job_id] = "Generating the video overview"
+        bot.maybe_poll_media_jobs()
+        bot.maybe_poll_media_jobs()
+        self.assertIn("🎬 Generating the video...", self.texts())
+        edited = [
+            payload["text"]
+            for method, payload in self.api.calls
+            if method == "editMessageText"
+            and isinstance(payload, dict)
+            and payload.get("text") == "🎬 Generating the video..."
+        ]
+        self.assertEqual(1, len(edited))
+        self.assertEqual("media_running", bot.state.load()["drafts"][draft_id]["status"])
+
+    def test_a_ready_job_becomes_a_video_preview(self):
+        bot, draft_id = self.start()
+        job_id = self.start_job(bot, draft_id)
+        self.notebooklm.status_by_job[job_id] = "ready"
+        bot.maybe_poll_media_jobs()
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertEqual("media_ready", state["status"])
+        self.assertEqual("video", state["media"]["kind"])
+        stored = Path(state["media"]["local_path"])
+        self.assertTrue(stored.is_file())
+        self.assertEqual(b"\x00\x00\x00\x18ftypmp42notebooklm", stored.read_bytes())
+        self.assertEqual("done", state["media"]["status"])
+        self.assertEqual("notebooklm", state["media"]["driver"])
+        preview = [
+            upload
+            for upload in self.api.uploads
+            if upload[0] == "sendVideo" and upload[1]["chat_id"] == 11
+        ]
+        self.assertEqual(1, len(preview))
+        self.assertEqual([(job_id, f"{job_id}.mp4")], self.notebooklm.downloads)
+
+    def test_a_failed_job_reports_the_worker_error_and_offers_a_retry(self):
+        bot, draft_id = self.start()
+        job_id = self.start_job(bot, draft_id)
+        self.notebooklm.status_by_job[job_id] = "failed"
+        self.notebooklm.errors[job_id] = "NotebookLM selector drifted"
+        bot.maybe_poll_media_jobs()
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertEqual("media_failed", state["status"])
+        self.assertEqual("failed", state["media"]["status"])
+        self.assertIn("NotebookLM selector drifted", self.texts())
+        self.assertIn(f"media:retry:{draft_id}", self.media_keyboard_datas())
+
+    def test_retry_starts_another_job_with_the_stored_profile(self):
+        bot, draft_id = self.start()
+        job_id = self.start_job(bot, draft_id, "nlm_news")
+        self.notebooklm.status_by_job[job_id] = "failed"
+        self.notebooklm.errors[job_id] = "session expired"
+        bot.maybe_poll_media_jobs()
+        self.choose(bot, draft_id, "retry")
+        self.assertEqual(2, len(self.notebooklm.submits))
+        self.assertEqual("news_fa", self.notebooklm.submits[1]["profile"])
+
+    def test_a_missing_worker_is_reported_without_a_job(self):
+        bot = self.build_bot()
+        draft_id = self.send_link(bot)
+        self.choose(bot, draft_id)
+        self.assertEqual([], self.notebooklm.submits)
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertIsNone(state.get("media"))
+        self.assertIn("NotebookLM worker is not configured", self.answers())

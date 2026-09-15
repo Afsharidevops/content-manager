@@ -1,13 +1,12 @@
-name: Publish Content Bot
+name: Publish NotebookLM Worker
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'content-bot/**'
-      - 'content/content_pipeline/**'
-      - '.github/workflows/publish-content-bot.yml'
+      - 'notebooklm-worker/**'
+      - '.github/workflows/publish-notebooklm-worker.yml'
       - '.dockerignore'
   workflow_dispatch:
 
@@ -15,16 +14,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: content-bot-publish-${{ github.ref }}
+  group: notebooklm-worker-publish-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     environment: dockerhub-release
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
-      IMAGE_VERSION: 0.4.3
+      IMAGE_VERSION: 0.1.0
     steps:
       - uses: actions/checkout@v7
 
@@ -47,7 +46,7 @@ jobs:
             exit 2
           fi
 
-          image="${DOCKERHUB_USERNAME}/content-bot"
+          image="${DOCKERHUB_USERNAME}/notebooklm-worker"
           {
             echo "value=$version"
             echo "image=$image"
@@ -59,14 +58,11 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Test Content Bot
+      - name: Test NotebookLM Worker
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m venv /tmp/content-bot-venv
-          /tmp/content-bot-venv/bin/pip install -e content[dev]
-          PYTHONPATH=$PWD/content:$PWD/content-bot /tmp/content-bot-venv/bin/pytest -q content/tests
-          PYTHONPATH=$PWD/content:$PWD/content-bot /tmp/content-bot-venv/bin/python -m unittest discover -s content-bot/tests
+          PYTHONPATH=$PWD/notebooklm-worker python3 -m unittest discover -s notebooklm-worker/tests -v
 
       - uses: docker/setup-qemu-action@v4
 
@@ -82,7 +78,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: content-bot/Dockerfile
+          file: notebooklm-worker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           provenance: mode=max

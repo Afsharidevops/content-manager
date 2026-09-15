@@ -666,7 +666,7 @@ services:
   # read-only from the editorial working copy.
   content-bot:
     profiles: ["content"]
-    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.4.2}
+    image: ${CONTENT_BOT_IMAGE_REPOSITORY:-afsharidevops/content-bot}:${CONTENT_BOT_IMAGE_TAG:-0.4.3}
     container_name: content-bot
     restart: unless-stopped
     user: "${CONTENT_BOT_RUN_AS:-10004:10004}"
@@ -687,6 +687,11 @@ services:
       CONTENT_MEDIA_VIDEO_DRIVER: ${CONTENT_MEDIA_VIDEO_DRIVER:-flow-video}
       CONTENT_MEDIA_VIDEO_EDIT_DRIVER: ${CONTENT_MEDIA_VIDEO_EDIT_DRIVER:-video-edit}
       CONTENT_MEDIA_JOB_TIMEOUT_SECONDS: ${CONTENT_MEDIA_JOB_TIMEOUT_SECONDS:-1200}
+      CONTENT_NOTEBOOKLM_URL: ${CONTENT_NOTEBOOKLM_URL:-http://notebooklm-worker:8860}
+      CONTENT_NOTEBOOKLM_TOKEN: ${NOTEBOOKLM_API_TOKEN:-}
+      CONTENT_NOTEBOOKLM_ENABLED: ${CONTENT_NOTEBOOKLM_ENABLED:-true}
+      CONTENT_NOTEBOOKLM_TIMEOUT: ${CONTENT_NOTEBOOKLM_TIMEOUT:-1800}
+      CONTENT_NOTEBOOKLM_DEFAULT_PROFILE: ${CONTENT_NOTEBOOKLM_DEFAULT_PROFILE:-technical_fa}
       CONTENT_SEARCH_ENABLED: ${CONTENT_SEARCH_ENABLED:-true}
       CONTENT_TOPIC_DRAFTS_ENABLED: ${CONTENT_TOPIC_DRAFTS_ENABLED:-true}
       CONTENT_SEARCH_MAX_RESULTS: ${CONTENT_SEARCH_MAX_RESULTS:-5}
@@ -808,6 +813,61 @@ services:
       - "${MEDIA_STUDIO_BIND_IP:-127.0.0.1}:${MEDIA_STUDIO_PORT:-8850}:8850"
     volumes:
       - ./data/media-studio:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    shm_size: 1gb
+    init: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [agent-net]
+
+  # NotebookLM Worker (compose profile "notebooklm"): an independent video
+  # provider that drives Google NotebookLM Video Overviews through a real
+  # browser session, so a NotebookLM subscription replaces a paid video API.
+  # The session is either a Chrome DevTools endpoint (NOTEBOOKLM_SESSION_MODE
+  # =cdp, the default) or a browser profile inside this service that the
+  # operator signs in to once with `./manage.sh notebooklm-login`
+  # (NOTEBOOKLM_SESSION_MODE=persistent). Google blocks automated sign-in, so
+  # the worker never stores a password: it only reuses a session. The image is
+  # built on GitHub Actions and published to Docker Hub.
+  notebooklm-worker:
+    profiles: ["notebooklm"]
+    image: ${NOTEBOOKLM_WORKER_IMAGE_REPOSITORY:-afsharidevops/notebooklm-worker}:${NOTEBOOKLM_WORKER_IMAGE_TAG:-0.1.0}
+    container_name: notebooklm-worker
+    restart: unless-stopped
+    user: "${NOTEBOOKLM_RUN_AS:-10006:10006}"
+    environment:
+      NOTEBOOKLM_DATA_DIR: /data
+      # The API always listens on every container interface so the rest of the
+      # stack can reach it; NOTEBOOKLM_BIND_IP controls the host port only.
+      NOTEBOOKLM_BIND_IP: 0.0.0.0
+      NOTEBOOKLM_PORT: "8860"
+      NOTEBOOKLM_API_TOKEN: ${NOTEBOOKLM_API_TOKEN:-}
+      NOTEBOOKLM_ENABLED: ${CONTENT_NOTEBOOKLM_ENABLED:-true}
+      NOTEBOOKLM_SESSION_MODE: ${NOTEBOOKLM_SESSION_MODE:-cdp}
+      NOTEBOOKLM_CDP_URL: ${NOTEBOOKLM_CDP_URL:-http://host.docker.internal:9222}
+      NOTEBOOKLM_HEADLESS: ${NOTEBOOKLM_HEADLESS:-true}
+      NOTEBOOKLM_BROWSER_PROFILE: ${CONTENT_NOTEBOOKLM_BROWSER_PROFILE:-/data/notebooklm-browser-profile}
+      NOTEBOOKLM_TIMEOUT: ${CONTENT_NOTEBOOKLM_TIMEOUT:-1800}
+      NOTEBOOKLM_STEP_TIMEOUT_SECONDS: ${NOTEBOOKLM_STEP_TIMEOUT_SECONDS:-45}
+      NOTEBOOKLM_SOURCE_TIMEOUT_SECONDS: ${NOTEBOOKLM_SOURCE_TIMEOUT_SECONDS:-300}
+      NOTEBOOKLM_VIDEO_TIMEOUT_SECONDS: ${NOTEBOOKLM_VIDEO_TIMEOUT_SECONDS:-1500}
+      NOTEBOOKLM_DOWNLOAD_TIMEOUT_SECONDS: ${NOTEBOOKLM_DOWNLOAD_TIMEOUT_SECONDS:-300}
+      NOTEBOOKLM_POLL_SECONDS: ${NOTEBOOKLM_POLL_SECONDS:-15}
+      NOTEBOOKLM_DEFAULT_PROFILE: ${CONTENT_NOTEBOOKLM_DEFAULT_PROFILE:-technical_fa}
+      NOTEBOOKLM_LOCALE: ${NOTEBOOKLM_LOCALE:-fa-IR}
+      NOTEBOOKLM_HOME_URL: ${NOTEBOOKLM_HOME_URL:-https://notebooklm.google.com/}
+      NOTEBOOKLM_KEEP_SCREENSHOTS: ${NOTEBOOKLM_KEEP_SCREENSHOTS:-true}
+      NOTEBOOKLM_UPLOAD_TTL_SECONDS: ${NOTEBOOKLM_UPLOAD_TTL_SECONDS:-86400}
+      NOTEBOOKLM_LOG_LEVEL: ${NOTEBOOKLM_LOG_LEVEL:-INFO}
+      NOTEBOOKLM_SELECTORS_FILE: ${NOTEBOOKLM_SELECTORS_FILE:-}
+      NOTEBOOKLM_TIMEZONE: ${NOTEBOOKLM_TIMEZONE:-Asia/Tehran}
+      TZ: ${N8N_TIMEZONE:-Asia/Tehran}
+    ports:
+      - "${NOTEBOOKLM_BIND_IP:-127.0.0.1}:${NOTEBOOKLM_PORT:-8860}:8860"
+    volumes:
+      - ./data/notebooklm-worker:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     shm_size: 1gb
