@@ -266,16 +266,26 @@ class PanelApp:
             log.warning("stop worker: %s", exc)
         # Start login container
         try:
+            # Use direct docker run for proper port exposure and entrypoint override
+            image = self.env_value("NOTEBOOKLM_WORKER_IMAGE_REPOSITORY", "afsharidevops/notebooklm-worker")
+            tag = self.env_value("NOTEBOOKLM_WORKER_IMAGE_TAG", "0.1.0")
+            data_dir = str(self.root / "data" / "notebooklm-worker")
             subprocess.run(
-                ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
-                 "--env-file", str(self.root / ".env"),
-                 "run", "-d", "--rm", "--name", "notebooklm-vnc-login",
+                ["docker", "run", "-d", "--rm",
+                 "--name", "notebooklm-vnc-login",
                  "-p", "8861:8861",
-                 "notebooklm-worker",
-                 "bash", "/scripts/login-vnc.sh"],
+                 "-v", f"{data_dir}:/data",
+                 "-e", f"NOTEBOOKLM_BROWSER_PROFILE=/data/notebooklm-browser-profile",
+                 "--shm-size", "1gb",
+                 "--init",
+                 "--cap-drop=ALL",
+                 "--security-opt=no-new-privileges:true",
+                 "--network", "agent-net",
+                 f"{image}:{tag}",
+                 "bash", "/app/scripts/login-vnc.sh"],
                 capture_output=True, text=True, timeout=30, cwd=str(self.root),
             )
-            time.sleep(3)
+            time.sleep(4)
             vnc_url = f"http://{vnc_host}:8861/vnc.html"
             return {
                 "ok": True,
