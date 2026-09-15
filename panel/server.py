@@ -157,28 +157,45 @@ class PanelApp:
         return status
 
     def notebooklm_set_creds(self, email: str, password: str, totp: str = "") -> dict:
+        import logging
+        log = logging.getLogger("panel.notebooklm")
         from panel.editors import EnvStore
         store = EnvStore(self.root)
         changes = 0
-        for key, value in [("NOTEBOOKLM_GOOGLE_EMAIL", email),
-                           ("NOTEBOOKLM_GOOGLE_PASSWORD", password),
-                           ("NOTEBOOKLM_GOOGLE_TOTP_SECRET", totp)]:
+        pairs = [("NOTEBOOKLM_GOOGLE_EMAIL", email),
+                 ("NOTEBOOKLM_GOOGLE_PASSWORD", password),
+                 ("NOTEBOOKLM_GOOGLE_TOTP_SECRET", totp)]
+        for key, value in pairs:
             if not value:
                 continue
             try:
-                store.write_entry(key, value)
+                store.set(key, value)
                 changes += 1
-            except Exception:
-                pass
-        return {"ok": changes > 0}
+                log.info("Saved %s to .env (value present=%s)", key, bool(value))
+            except Exception as exc:
+                log.warning("Failed to save %s: %s", key, exc)
+        # Verify by re-reading
+        saved_email = self.env_value("NOTEBOOKLM_GOOGLE_EMAIL", "")
+        saved_pass = self.env_value("NOTEBOOKLM_GOOGLE_PASSWORD", "")
+        log.info(
+            "Credential verification: email_present=%s password_present=%s",
+            bool(saved_email), bool(saved_pass),
+        )
+        return {"ok": bool(saved_email) and bool(saved_pass), "email_set": bool(saved_email),
+                "password_set": bool(saved_pass), "totp_set": bool(self.env_value("NOTEBOOKLM_GOOGLE_TOTP_SECRET", ""))}
 
     def notebooklm_run_login(self) -> dict:
-        import subprocess, time
+        import subprocess, time, logging
+        log = logging.getLogger("panel.notebooklm")
         started = time.monotonic()
         # Read credentials from .env so they are passed as -e flags
         email = self.env_value("NOTEBOOKLM_GOOGLE_EMAIL", "")
         password = self.env_value("NOTEBOOKLM_GOOGLE_PASSWORD", "")
         totp = self.env_value("NOTEBOOKLM_GOOGLE_TOTP_SECRET", "")
+        log.info(
+            "Running login-google: email_present=%s password_present=%s totp_present=%s",
+            bool(email), bool(password), bool(totp),
+        )
         try:
             cmd = [
                 "docker", "compose", "-f", str(self.root / "docker-compose.yml"),

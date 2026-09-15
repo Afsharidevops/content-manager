@@ -957,7 +957,11 @@ async function renderNotebookLM() {
             const totp = document.getElementById("login-totp").value;
             if (!email || !pass) { notify("Email and password required", "error"); return; }
             try {
-              await api("/api/notebooklm/creds", { method: "POST", body: { email, password: pass, totp } });
+              const saveResult = await api("/api/notebooklm/creds", { method: "POST", body: { email, password: pass, totp } });
+              if (!saveResult.ok) {
+                notify("Failed to save credentials: email=" + saveResult.email_set + " password=" + saveResult.password_set, "error");
+                return;
+              }
               notify("Credentials saved");
               doLogin();
             } catch (err) { notify(String(err.message), "error"); }
