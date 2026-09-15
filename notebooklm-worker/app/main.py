@@ -107,6 +107,9 @@ def main(argv: list[str] | None = None) -> int:
             "Opening NotebookLM for a manual sign-in (mode %s)", settings.session_mode
         )
         return browser.login(settings, wait_seconds=wait)
+    if command in {"login-google", "login_google"}:
+        LOGGER.info("Attempting automated Google sign-in with credentials")
+        return _login_google(settings)
     if command in {"import-session", "import_session"}:
         if len(args) < 2:
             print("Usage: python -m app import-session <session.json>", file=sys.stderr)
@@ -119,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         return browser.import_session(profile_dir, session_path)
     if command in {"serve", "run"}:
         return run_server(settings)
-    print("Usage: python -m app serve|login [seconds]|import-session <path>", file=sys.stderr)
+    print("Usage: python -m app serve|login [seconds]|login-google|import-session <path>", file=sys.stderr)
     return 2
 
 
