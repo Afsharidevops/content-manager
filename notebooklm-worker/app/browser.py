@@ -1,11 +1,12 @@
 """Playwright session helpers for NotebookLM.
 
-Two session modes exist, the same two Media Studio uses for Google:
+Two session modes exist:
 
-* ``cdp`` (default): attach to a desktop Chromium that is already signed in
-  to Google over the DevTools protocol. No credentials are stored anywhere.
-* ``persistent``: launch a container-local Chromium whose profile lives under
-  ``NOTEBOOKLM_BROWSER_PROFILE``; sign-in is completed once by the operator.
+* ``persistent`` (default): launch a container-local Chromium whose profile
+  lives under ``NOTEBOOKLM_BROWSER_PROFILE``. The session is imported once
+  from an export taken on the operator's local machine.
+* ``cdp``: attach to a desktop Chromium that is already signed in to Google
+  over the DevTools protocol. No credentials are stored anywhere.
 """
 
 from __future__ import annotations
@@ -200,6 +201,98 @@ def session_info(settings) -> dict:
         "headless": bool(settings.headless),
         "home_url": settings.home_url,
     }
+
+
+_IMPORT_STATE_KEY = "_notebooklm_session_imported"
+
+
+def import_session(profile_dir: str, session_path: str) -> int:
+    """Import cookies and localStorage from a session JSON file into a
+    Playwright persistent profile directory.
+
+    The session file must be the JSON produced by ``notebooklm-worker/scripts/export_session.py``
+    (a ``storage_state()`` snapshot).  This function creates a temporary persistent
+    context with the target profile, applies the stored state, and closes the
+    context so the profile is written to disk.  After that the worker's normal
+    ``launch_persistent_context`` picks up the session automatically.
+
+    Returns 0 on success, 1 on failure.
+    """
+    from playwright.sync_api import sync_playwright
+
+    if not os.path.isfile(session_path):
+        LOGGER.error("Session file not found: %s", session_path)
+        return 1
+
+    with open(session_path, "r", encoding="utf-8") as fh:
+        state = json.load(fh)
+
+    cookies = state.get("cookies", [])
+    origins = state.get("origins", [])
+
+    os.makedirs(profile_dir, exist_ok=True)
+    LOGGER.info(
+        "Importing %d cookies from %d origins into %s",
+        len(cookies), len(origins), profile_dir,
+    )
+
+    try:
+        with sync_playwright() as pw:
+            context = pw.chromium.launch_persistent_context(
+                user_data_dir=profile_dir,
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            # Apply cookies (Playwright's add_cookies accepts HttpOnly/Secure
+            # cookies without enforcing __Secure- / __Host- prefix rules).
+            if cookies:
+                context.add_cookies(cookies)
+
+            # Apply localStorage for each origin.
+            for entry in origins:
+                origin = entry.get("origin", "")
+                items = entry.get("localStorage", [])
+                if not origin or not items:
+                    continue
+                try:
+                    page = context.new_page()
+                    page.goto(origin, wait_until="domcontentloaded")
+                    page.wait_for_timeout(1000)
+                    for item in items:
+                        try:
+                            page.evaluate(
+                                "localStorage.setItem(arg[0], arg[1])",
+                                item["name"], item["value"],
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            LOGGER.warning(
+                                "localStorage set %r on %s: %s",
+                                item.get("name", ""), origin, exc,
+                            )
+                    page.close()
+                except Exception as exc:  # noqa: BLE001
+                    LOGGER.warning("Could not apply localStorage for %s: %s", origin, exc)
+
+            # Mark the profile as imported so the runner can verify.
+            try:
+                page = context.new_page()
+                page.goto("https://notebooklm.google.com/", wait_until="domcontentloaded")
+                page.wait_for_timeout(2000)
+                page.evaluate(
+                    "localStorage.setItem(arg[0], '1')",
+                    _IMPORT_STATE_KEY,
+                )
+                page.close()
+            except Exception as exc:
+                LOGGER.warning("Could not write import marker: %s", exc)
+
+            context.close()  # flushes cookies + localStorage to disk
+    except Exception as exc:
+        LOGGER.error("Session import failed: %s", exc)
+        return 1
+
+    LOGGER.info("Session imported; the worker will reuse it on next start")
+    return 0
 
 
 def login(settings, wait_seconds: int = 600) -> int:

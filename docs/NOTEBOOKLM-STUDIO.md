@@ -57,72 +57,110 @@ never jump from `created` straight to `ready` or move backwards.
 
 - A Google account with NotebookLM access (a Pro subscription raises the
   limits; the free tier works for short videos).
-- One browser session that is already signed in to `notebooklm.google.com`.
-  The worker reuses that session and never stores a password.
+- A signed-in Google session (obtained once via the panel or an export).
 - The `notebooklm` compose profile enabled, and about 1 GB of RAM plus disk
   space for the Chromium sandbox and the stored videos.
+- **No Chrome installation is needed on the Docker host.**  The worker runs
+  its own Chromium inside the container (installed via Playwright at build
+  time).
 
 ## 3. Session modes
 
-Google blocks automated sign-in, so the worker reuses a session that a human
-created. Two modes exist, the same two Media Studio uses for Google:
+The worker drives a real Chromium browser through Playwright.  Google does not
+publish a public API for NotebookLM and blocks automated sign-in, so the
+browser session must be set up once.  Two session modes exist:
 
-### cdp (default, recommended on servers)
+### persistent (default, recommended)
+
+`NOTEBOOKLM_SESSION_MODE=persistent` launches a container-local Chromium whose
+profile lives in `NOTEBOOKLM_BROWSER_PROFILE` (default
+`/data/notebooklm-browser-profile`, persisted in
+`data/notebooklm-worker/notebooklm-browser-profile`).  The session is obtained
+once; after that the worker reuses it for every job.
+
+**Two ways to obtain the session:**
+
+#### A. Auto login with Google credentials (easiest)
+
+1. Open the Content Console → **NotebookLM** view.
+2. Fill in your Google email, password and (optional) TOTP secret.
+3. Click **Save & sign in**.
+   The worker runs `login-google`, which opens Chromium headlessly,
+   navigates to accounts.google.com, types the credentials, and handles
+   2FA/TOTP if configured.
+4. If the login succeeds the session is saved in the profile.  If it hits a
+   CAPTCHA challenge the output tells you what to do next.
+
+From the CLI:
+
+```bash
+./manage.sh notebooklm-login-google
+```
+
+Requires `NOTEBOOKLM_GOOGLE_EMAIL` and `NOTEBOOKLM_GOOGLE_PASSWORD` in `.env`.
+
+> **Why this works:** the Container runs Chromium with Playwright's
+> `launch_persistent_context` and the same anti-detection flags that
+> normal browser automation uses.  Simple email+password flows typically
+> succeed.  2FA requires either a TOTP secret in `.env` or manual
+> intervention.
+
+#### B. Session import (any OS, no local install)
+
+If auto login fails or you prefer a manual path, export the session from any
+browser on any OS (Windows, macOS, Linux) with a single command:
+
+```bash
+pip install playwright        # one-time
+playwright install chromium   # one-time
+python notebooklm-worker/scripts/export_session.py
+```
+
+The script opens a Chromium window at `notebooklm.google.com`.  Sign in, then
+press Enter.  A `notebooklm-session.json` file is saved.
+
+Transfer the file to the server and import it:
+
+```bash
+./manage.sh notebooklm-import-session notebooklm-session.json
+```
+
+Or open the Content Console → **NotebookLM** view and paste the file content
+into the text area under *Import session*, then click **Import and apply**.
+
+#### C. Manual DevTools paste (no install at all)
+
+1. Open `notebooklm.google.com` in any Chrome/Chromium browser, sign in.
+2. Press F12 → **Application** → **Cookies** → `notebooklm.google.com`.
+3. Right-click any cookie → **Copy all**.
+4. Paste into a JSON file or directly into the panel's import text area
+   together with localStorage (Application → Local Storage → same copy/paste
+   pattern).
+
+The panel accepts the full `storage_state()` JSON format that Playwright
+produces (cookies + origins array).
+
+### cdp (advanced, requires Chrome on the host)
 
 `NOTEBOOKLM_SESSION_MODE=cdp` attaches Playwright to a Chromium that is
-already running with the DevTools protocol open, and opens a new tab for each
-job. The browser stays yours: the worker never closes it, never touches the
-profile, and never sees a credential.
-
-Start that Chromium on the Docker host:
+already running on the Docker host with the DevTools protocol open.  This mode
+is kept for debugging and special setups.
 
 ```bash
 google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.chrome-debug"
-# or: chromium --remote-debugging-port=9222 --user-data-dir="$HOME/.chrome-debug"
+# in .env
+NOTEBOOKLM_SESSION_MODE=cdp
 ```
 
-Sign in to `https://notebooklm.google.com` in that window, then verify:
+Then sign in to NotebookLM in that Chrome window and verify:
 
 ```bash
 ./manage.sh notebooklm-login 15
 ```
 
-The container reaches the host through `host.docker.internal` (compose adds
-the host-gateway mapping), so the default
-`NOTEBOOKLM_CDP_URL=http://host.docker.internal:9222` needs no change.
-
-When Chrome runs on another machine, expose its debugging port and point the
-worker at it:
-
-```bash
-# on the machine with the signed-in Chrome
-google-chrome --remote-debugging-port=9222 --remote-debugging-address=0.0.0.0
-# in .env
-NOTEBOOKLM_CDP_URL=http://192.168.1.20:9222
-```
-
-Keep that port on a trusted network only: an open DevTools port gives full
-control over the browser profile.
-
-### persistent (one profile inside the container)
-
-`NOTEBOOKLM_SESSION_MODE=persistent` launches a container-local Chromium whose
-profile lives in `NOTEBOOKLM_BROWSER_PROFILE` (default
-`/data/notebooklm-browser-profile`, persisted in
-`data/notebooklm-worker/notebooklm-browser-profile`). The sign-in is completed
-once in that browser.
-
-```bash
-NOTEBOOKLM_SESSION_MODE=persistent
-NOTEBOOKLM_HEADLESS=false        # a visible window is needed for the sign-in
-./manage.sh notebooklm-login 600
-```
-
-A container without a display cannot show that window, so persistent mode is
-for hosts that already run an X server, a VNC session, or a remote-desktop
-container, or for a one-time profile that you copy into
-`data/notebooklm-worker/notebooklm-browser-profile`. On a headless server use
-cdp mode.
+> **Note:** CDP mode requires Chrome to be installed and maintained on the
+> host, which adds a manual step.  Use it only when the container-local
+> Chromium has compatibility issues.
 
 ## 4. Enable, verify, disable
 
@@ -139,7 +177,21 @@ cdp mode.
 1. adds `notebooklm` to `COMPOSE_PROFILES`;
 2. generates `NOTEBOOKLM_API_TOKEN` when it is empty (the worker and the bot
    share that bearer token);
-3. starts `notebooklm-worker` and prints the sign-in steps.
+3. starts `notebooklm-worker` and prints the next steps.
+
+After enabling, open the **Content Console (Panel) → NotebookLM** view to
+sign in.  Or use the CLI:
+
+```bash
+# auto login with Google credentials (if configured in .env)
+./manage.sh notebooklm-login-google
+
+# or import a session file
+./manage.sh notebooklm-import-session session.json
+
+# or legacy interactive check
+./manage.sh notebooklm-login 15
+```
 
 The bot only offers the button when `CONTENT_NOTEBOOKLM_URL` is set. Enable and
 disable it without touching the worker:
@@ -392,7 +444,7 @@ enough to update the shipped defaults.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `The Google session is signed out` | the attached browser lost its session | sign in again, then `./manage.sh notebooklm-login 15` |
-| `Executable doesn't exist` / connection refused on 9222 | the DevTools browser is not running, or cdp mode cannot reach it | start Chromium with `--remote-debugging-port=9222`, check `NOTEBOOKLM_CDP_URL` |
+| `Executable doesn't exist` / connection refused on 9222 | the DevTools browser is not running, or CDP mode cannot reach it | switch to persistent mode (`NOTEBOOKLM_SESSION_MODE=persistent`) or start Chromium with `--remote-debugging-port=9222` |
 | `The connected Chrome has no open window` | the browser has no window | open one window in that Chrome |
 | `job timed out` in the chat | the render exceeded `CONTENT_NOTEBOOKLM_TIMEOUT` | raise both budgets (`NOTEBOOKLM_TIMEOUT`, `CONTENT_NOTEBOOKLM_TIMEOUT`) or pick `short` |
 | job fails on one step, screenshot shows a new layout | selector drift | calibrate with section 9 |

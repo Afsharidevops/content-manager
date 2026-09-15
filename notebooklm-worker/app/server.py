@@ -92,6 +92,22 @@ class NotebookLMHandler(BaseHTTPRequestHandler):
         expected = f"Bearer {token}"
         return hmac.compare_digest(header.encode(), expected.encode())
 
+    def _check_signed_in(self) -> bool | None:
+        """Best-effort: None = unknown, True/False = session valid or not.
+        A full check requires browser overhead, so this stays heuristics."""
+        if str(getattr(self.settings, "session_mode", "")).lower() != "persistent":
+            return None
+        import os
+        profile_dir = (
+            getattr(self.settings, "browser_profile", None)
+            or os.path.join(getattr(self.settings, "data_dir", "/data"), "notebooklm-browser-profile")
+        )
+        if not os.path.isdir(profile_dir):
+            return None
+        # Local Storage leveldb exists -> a profile was used
+        ls_dir = os.path.join(profile_dir, "Default", "Local Storage", "leveldb")
+        return os.path.isdir(ls_dir) or None
+
     def do_GET(self) -> None:  # noqa: N802 - the name is fixed by http.server
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
@@ -105,6 +121,8 @@ class NotebookLMHandler(BaseHTTPRequestHandler):
                     "version": __version__,
                     "counts": self.store.counts(),
                     "enabled": bool(self.settings.enabled),
+                    "session_mode": self.settings.session_mode,
+                    "signed_in": self._check_signed_in(),
                 },
             )
             return

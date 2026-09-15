@@ -119,6 +119,114 @@ class PanelApp:
 
     # ---------------------------------------------------------------- views
 
+
+    # -------------------------------------------------------- NotebookLM
+
+    def notebooklm_status(self) -> dict:
+        profiles = {p.strip() for p in self.env_value("COMPOSE_PROFILES").split(",") if p.strip()}
+        enabled = "notebooklm" in profiles
+        status = {
+            "enabled": enabled,
+            "session_mode": self.env_value("NOTEBOOKLM_SESSION_MODE", "persistent"),
+            "worker_running": False,
+            "signed_in": None,
+            "error": "",
+            "google_creds_set": bool(self.env_value("NOTEBOOKLM_GOOGLE_EMAIL")),
+            "google_creds_email": self.env_value("NOTEBOOKLM_GOOGLE_EMAIL", "")[:3] + "..." if self.env_value("NOTEBOOKLM_GOOGLE_EMAIL") else "",
+        }
+        if not enabled:
+            return status
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", "notebooklm-worker"],
+                capture_output=True, text=True, timeout=10,
+            )
+            status["worker_running"] = result.stdout.strip() == "true"
+        except Exception as exc:
+            status["error"] = f"status: {exc}"
+        if status["worker_running"]:
+            try:
+                import urllib.request
+                resp = urllib.request.urlopen("http://notebooklm-worker:8860/healthz", timeout=5)
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode())
+                    status["signed_in"] = data.get("signed_in", None)
+            except Exception:
+                pass
+        return status
+
+    def notebooklm_set_creds(self, email: str, password: str, totp: str = "") -> dict:
+        from panel.editors import EnvStore
+        store = EnvStore(self.root)
+        changes = 0
+        for key, value in [("NOTEBOOKLM_GOOGLE_EMAIL", email),
+                           ("NOTEBOOKLM_GOOGLE_PASSWORD", password),
+                           ("NOTEBOOKLM_GOOGLE_TOTP_SECRET", totp)]:
+            if not value:
+                continue
+            try:
+                store.write_entry(key, value)
+                changes += 1
+            except Exception:
+                pass
+        return {"ok": changes > 0}
+
+    def notebooklm_run_login(self) -> dict:
+        import subprocess, time
+        started = time.monotonic()
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
+                 "--env-file", str(self.root / ".env"),
+                 "run", "--rm", "--no-deps", "notebooklm-worker",
+                 "python", "-m", "app", "login-google"],
+                capture_output=True, text=True, timeout=300,
+                cwd=str(self.root),
+            )
+            return {
+                "ok": result.returncode == 0,
+                "returncode": result.returncode,
+                "output": result.stdout.strip()[-3000:] if result.stdout.strip() else "",
+                "error": result.stderr.strip()[-2000:] if result.stderr.strip() else "",
+                "duration": round(time.monotonic() - started, 1),
+            }
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "login timed out after 300s", "duration": 300}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "duration": round(time.monotonic() - started, 1)}
+
+    def notebooklm_import_session(self, session_data: dict) -> dict:
+        import subprocess, time, json
+        data_dir = self.root / "data" / "notebooklm-worker"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        session_path = data_dir / "import-session.json"
+        try:
+            session_path.write_text(json.dumps(session_data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            return {"ok": False, "error": f"save: {exc}"}
+        started = time.monotonic()
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "-f", str(self.root / "docker-compose.yml"),
+                 "--env-file", str(self.root / ".env"),
+                 "run", "--rm", "--no-deps", "notebooklm-worker",
+                 "python", "-m", "app", "import-session", "/data/import-session.json"],
+                capture_output=True, text=True, timeout=60,
+                cwd=str(self.root),
+            )
+            return {
+                "ok": result.returncode == 0,
+                "returncode": result.returncode,
+                "output": result.stdout.strip()[-3000:] if result.stdout.strip() else "",
+                "error": result.stderr.strip()[-2000:] if result.stderr.strip() else "",
+                "duration": round(time.monotonic() - started, 1),
+            }
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "import timed out", "duration": 60}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "duration": round(time.monotonic() - started, 1)}
+
     def instagram_view(self) -> dict:
         """Instagram publishing credential state, without ever returning it."""
         token = self.env_value("INSTAGRAM_ACCESS_TOKEN")
@@ -575,6 +683,31 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "actions": self.app.actions.listing(),
                 },
             )
+            return
+        if method == "GET" and parts == ["notebooklm"]:
+            self._send_json(HTTPStatus.OK, self.app.notebooklm_status())
+            return
+        if method == "POST" and parts == ["notebooklm", "creds"]:
+            self._require_csrf()
+            body = self._read_body()
+            result = self.app.notebooklm_set_creds(
+                email=str(body.get("email", "")),
+                password=str(body.get("password", "")),
+                totp=str(body.get("totp", "")),
+            )
+            self._send_json(HTTPStatus.OK, result)
+            return
+        if method == "POST" and parts == ["notebooklm", "login"]:
+            self._require_csrf()
+            result = self.app.notebooklm_run_login()
+            self._send_json(HTTPStatus.OK, result)
+            return
+        if method == "POST" and parts == ["notebooklm", "import-session"]:
+            self._require_csrf()
+            body = self._read_body()
+            session_data = body.get("session", {})
+            result = self.app.notebooklm_import_session(session_data)
+            self._send_json(HTTPStatus.OK, result)
             return
         if method == "GET" and parts == ["config"]:
             self._send_json(HTTPStatus.OK, {"files": self.app.config.listing()})

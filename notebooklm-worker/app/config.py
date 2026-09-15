@@ -46,7 +46,7 @@ class Settings:
     api_token: str = ""
     enabled: bool = True
     browser_profile: str = "/data/notebooklm-browser-profile"
-    session_mode: str = "cdp"
+    session_mode: str = "persistent"
     cdp_url: str = "http://host.docker.internal:9222"
     headless: bool = True
     home_url: str = "https://notebooklm.google.com/"
@@ -62,6 +62,10 @@ class Settings:
     log_level: str = "INFO"
     keep_screenshots: bool = True
     upload_ttl_seconds: int = 86400
+    session_import_path: str = ""
+    google_email: str = ""
+    google_password: str = ""
+    google_totp_secret: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -74,8 +78,12 @@ class Settings:
             browser_profile=_env(
                 "NOTEBOOKLM_BROWSER_PROFILE", "/data/notebooklm-browser-profile"
             ),
-            session_mode=_env("NOTEBOOKLM_SESSION_MODE", "cdp").lower(),
+            session_mode=_env("NOTEBOOKLM_SESSION_MODE", "persistent").lower(),
             cdp_url=_env("NOTEBOOKLM_CDP_URL", "http://host.docker.internal:9222"),
+            session_import_path=_env("NOTEBOOKLM_SESSION_IMPORT", ""),
+            google_email=_env("NOTEBOOKLM_GOOGLE_EMAIL", ""),
+            google_password=_env("NOTEBOOKLM_GOOGLE_PASSWORD", ""),
+            google_totp_secret=_env("NOTEBOOKLM_GOOGLE_TOTP_SECRET", ""),
             headless=_env_bool("NOTEBOOKLM_HEADLESS", True),
             home_url=_env("NOTEBOOKLM_HOME_URL", "https://notebooklm.google.com/"),
             timeout_seconds=_env_int("NOTEBOOKLM_TIMEOUT", 1800),

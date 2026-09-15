@@ -825,11 +825,17 @@ services:
   # NotebookLM Worker (compose profile "notebooklm"): an independent video
   # provider that drives Google NotebookLM Video Overviews through a real
   # browser session, so a NotebookLM subscription replaces a paid video API.
-  # The session is either a Chrome DevTools endpoint (NOTEBOOKLM_SESSION_MODE
-  # =cdp, the default) or a browser profile inside this service that the
-  # operator signs in to once with `./manage.sh notebooklm-login`
-  # (NOTEBOOKLM_SESSION_MODE=persistent). Google blocks automated sign-in, so
-  # the worker never stores a password: it only reuses a session. The image is
+  # The session mode (NOTEBOOKLM_SESSION_MODE):
+  #
+  # - "persistent" (default): runs Chromium inside the container with a
+  #   browser profile stored in data/notebooklm-worker. The session is
+  #   imported once through the Content Console (NotebookLM view).
+  #
+  # - "cdp": attaches to an external Chrome on the Docker host via the
+  #   DevTools protocol (NOTEBOOKLM_CDP_URL, default host.docker.internal:9222).
+  #
+  # Google blocks automated sign-in, so the worker never stores a password.
+  # The image is
   # built on GitHub Actions and published to Docker Hub.
   notebooklm-worker:
     profiles: ["notebooklm"]
@@ -845,7 +851,7 @@ services:
       NOTEBOOKLM_PORT: "8860"
       NOTEBOOKLM_API_TOKEN: ${NOTEBOOKLM_API_TOKEN:-}
       NOTEBOOKLM_ENABLED: ${CONTENT_NOTEBOOKLM_ENABLED:-true}
-      NOTEBOOKLM_SESSION_MODE: ${NOTEBOOKLM_SESSION_MODE:-cdp}
+      NOTEBOOKLM_SESSION_MODE: ${NOTEBOOKLM_SESSION_MODE:-persistent}
       NOTEBOOKLM_CDP_URL: ${NOTEBOOKLM_CDP_URL:-http://host.docker.internal:9222}
       NOTEBOOKLM_HEADLESS: ${NOTEBOOKLM_HEADLESS:-true}
       NOTEBOOKLM_BROWSER_PROFILE: ${CONTENT_NOTEBOOKLM_BROWSER_PROFILE:-/data/notebooklm-browser-profile}

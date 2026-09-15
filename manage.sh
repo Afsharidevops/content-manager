@@ -133,8 +133,10 @@ NotebookLM video automation:
   notebooklm-status           NotebookLM worker, session mode and bot link (no secrets)
   notebooklm-guide            Print the NotebookLM guide pointer
   notebooklm-login [SECONDS]  Open NotebookLM in the worker browser and verify the sign-in
+  notebooklm-login-google     Attempt automated sign-in with Google credentials from .env
   notebooklm-enable           Enable the profile, store the shared token and start the worker
   notebooklm-disable          Stop the worker and disable its profile
+  notebooklm-import-session   Import a session JSON file into the browser profile
 
 Backup and restore automation:
   backup [--only SECTION[,...]] [--destination DIR] [--label NAME]
@@ -1696,7 +1698,7 @@ media_status() {
   freeze="$(env_value "$ENV_FILE" MEDIA_STUDIO_FREEZE_ON_READY)"
   printf 'Media Studio status\n'
   printf '  Enabled drivers: %s\n' "${drivers:-api-image,api-video,flow-video,video-edit}"
-  printf '  Session mode: %s\n' "${mode:-cdp}"
+  printf '  Session mode: %s\n' "${mode:-persistent}"
   printf '  Writer endpoint: %s\n' "${writer:-not configured}"
   video="$(env_value "$ENV_FILE" MEDIA_STUDIO_VIDEO_BASE_URL)"
   [[ -n "$video" ]] || video="$writer"
@@ -1762,7 +1764,7 @@ pipeline_status() {
     else
       printf '  API token: NOT synced; the worker rejects the bot. Run ./manage.sh notebooklm-enable.\n'
     fi
-    printf '  Session mode: %s (verify with ./manage.sh notebooklm-login 15)\n' "${nlm_mode:-cdp}"
+    printf '  Session mode: %s (verify with ./manage.sh notebooklm-login 15)\n' "${nlm_mode:-persistent}"
     if [[ "$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_ENABLED)" == false ]]; then
       printf '  WARNING: CONTENT_NOTEBOOKLM_ENABLED=false, so the bot hides the button.\n'
     fi
@@ -1944,8 +1946,8 @@ notebooklm_status() {
     printf '  Compose profile: not enabled; run ./manage.sh notebooklm-enable to start it\n'
   fi
   printf '  Worker URL: %s\n' "$bot_url"
-  printf '  Session mode: %s\n' "${mode:-cdp}"
-  case "${mode:-cdp}" in
+  printf '  Session mode: %s\n' "${mode:-persistent}"
+  case "${mode:-persistent}" in
     cdp)
       cdp_url="$(env_value "$ENV_FILE" NOTEBOOKLM_CDP_URL)"
       [[ -n "$cdp_url" ]] || cdp_url=http://host.docker.internal:9222
@@ -2016,7 +2018,7 @@ notebooklm_login() {
   printf 'Waiting up to %s seconds for a signed-in NotebookLM session.\n' "$seconds"
   printf 'Sign in to https://notebooklm.google.com in the Chrome the worker drives;\n'
   printf 'this command only reports the state and never stores a password.\n'
-  if [[ "${mode:-cdp}" == persistent ]]; then
+  if [[ "${mode:-persistent}" == persistent ]]; then
     printf 'Persistent mode runs the browser inside the container, so it needs a display there;\n'
     printf 'see docs/NOTEBOOKLM-STUDIO.md for that session mode.\n'
     compose run --rm -e NOTEBOOKLM_HEADLESS=false notebooklm-worker \
@@ -2024,6 +2026,40 @@ notebooklm_login() {
   else
     compose exec -T notebooklm-worker python -m app login "$seconds"
   fi
+}
+
+notebooklm_login_google() {
+  # Automated Google sign-in with credentials from .env
+  if ! notebooklm_enabled; then
+    printf 'NotebookLM is not enabled here. Run ./manage.sh notebooklm-enable first.\n' >&2
+    return 1
+  fi
+  printf 'Attempting automated Google sign-in with credentials from .env...\n'
+  compose run --rm --no-deps notebooklm-worker python -m app login-google
+  return $?
+}
+
+notebooklm_import_session() {
+  # Import a session JSON file into the browser profile
+  local session_file="${1:-}"
+  if [[ -z "$session_file" ]]; then
+    printf 'Usage: ./manage.sh notebooklm-import-session <session.json>\n' >&2
+    return 2
+  fi
+  if [[ ! -f "$session_file" ]]; then
+    printf 'File not found: %s\n' "$session_file" >&2
+    return 1
+  fi
+  if ! notebooklm_enabled; then
+    printf 'NotebookLM is not enabled here. Run ./manage.sh notebooklm-enable first.\n' >&2
+    return 1
+  fi
+  # Copy to data dir so the container can access it
+  mkdir -p "$ROOT_DIR/data/notebooklm-worker"
+  cp "$session_file" "$ROOT_DIR/data/notebooklm-worker/import-session.json"
+  printf 'Importing session from %s...\n' "$session_file"
+  compose run --rm --no-deps notebooklm-worker python -m app import-session /data/import-session.json
+  return $?
 }
 
 notebooklm_menu() {
@@ -3938,6 +3974,8 @@ case "$command" in
   notebooklm-enable) notebooklm_enable ;;
   notebooklm-disable) notebooklm_disable ;;
   notebooklm-login) shift; notebooklm_login "${1:-600}" ;;
+  notebooklm-login-google|notebooklm_login_google) notebooklm_login_google ;;
+  notebooklm-import-session) shift; notebooklm_import_session "$@" ;;
   pipeline-status) pipeline_status ;;
   uninstall)
     shift

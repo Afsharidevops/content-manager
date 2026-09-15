@@ -10,6 +10,7 @@ const VIEWS = [
   { id: "storage", label: "Storage", title: "Object storage (S3)", hint: "Shared S3 block, RustFS state and the per-service storage matrix." },
   { id: "backups", label: "Backups", title: "Backups", hint: "Stack archives with their sections, sizes and creation times." },
   { id: "logs", label: "Logs", title: "Service logs", hint: "Tail docker compose logs without leaving the console." },
+  { id: "notebooklm", label: "NotebookLM", title: "NotebookLM video", hint: "Session management, credential sign-in and session import for the Google NotebookLM video provider." },
   { id: "actions", label: "Actions", title: "Stack actions", hint: "A fixed whitelist of compose and manage.sh actions. Nothing else runs." },
 ];
 
@@ -163,6 +164,7 @@ async function loadView() {
     else if (currentView === "backups") await renderBackups();
     else if (currentView === "logs") await renderLogs();
     else if (currentView === "actions") await renderActions();
+    else if (currentView === "notebooklm") await renderNotebookLM();
   } catch (error) {
     if (String(error.message) === "session expired") return;
     page.replaceChildren(h("div", { class: "banner error", text: String(error.message) }));
@@ -855,6 +857,126 @@ async function renderLogs() {
   );
   select.value = services.includes("content-bot") ? "content-bot" : services[0] || "";
   if (services.length) load();
+}
+
+async function renderNotebookLM() {
+  const [status, actions] = await Promise.all([
+    api("/api/notebooklm").catch(() => ({ enabled: false })),
+    api("/api/actions").catch(() => ({ enabled: false, actions: [] })),
+  ]);
+  const output = h("pre", { class: "hidden", style: "max-height:400px;overflow:auto" });
+
+  let loginSpinner = null;
+  async function doLogin() {
+    loginSpinner = h("span", { class: "muted", text: " Running login… (may take up to 5 minutes)" });
+    document.getElementById("login-status").replaceChildren(loginSpinner);
+    try {
+      const result = await api("/api/notebooklm/login", { method: "POST" });
+      output.classList.remove("hidden");
+      output.textContent = [
+        `Login: ${result.ok ? "ok" : "failed"} (exit ${result.returncode}, ${result.duration || "?"})`,
+        result.output || "",
+        result.error || "",
+      ].join("\n\n");
+      notify(`Login ${result.ok ? "succeeded" : "failed"}`, result.ok ? "" : "error");
+    } catch (error) {
+      output.classList.remove("hidden");
+      output.textContent = String(error.message);
+      notify(String(error.message), "error");
+    } finally {
+      if (loginSpinner) loginSpinner.remove();
+    }
+  }
+
+  function renderSessionPaste() {
+    return h("div", null,
+      h("p", { class: "muted small" },
+        "Paste the content of <code>notebooklm-session.json</code> from the export script, or the full cookies+localStorage JSON."),
+      h("textarea", {
+        id: "session-paste",
+        style: "width:100%;min-height:120px",
+        placeholder: '{\n  "cookies": [...],\n  "origins": [...]\n}',
+      }),
+      h("div", { class: "row", style: "margin-top:10px" },
+        h("button", {
+          class: "btn primary",
+          type: "button",
+          text: "Import and apply",
+          onclick: async () => {
+            const textarea = document.getElementById("session-paste");
+            try {
+              const data = JSON.parse(textarea.value);
+              output.classList.remove("hidden");
+              output.textContent = "Importing session...";
+              const result = await api("/api/notebooklm/import-session", { method: "POST", body: { session: data } });
+              output.textContent = [
+                `Import: ${result.ok ? "ok" : "failed"} (exit ${result.returncode}, ${result.duration || "?"})`,
+                result.output || "",
+                result.error || "",
+              ].join("\n\n");
+              notify(result.ok ? "Session imported" : "Import failed", result.ok ? "" : "error");
+            } catch (err) {
+              output.textContent = "Invalid JSON: " + String(err.message);
+            }
+          },
+        }),
+      ),
+    );
+  }
+
+  page.replaceChildren(
+    h("div", { class: "grid cols-4" },
+      h("section", { class: "card" },
+        h("h3", { text: "Status" }),
+        h("div", { class: "row" },
+          h("span", { class: "chip " + (status.enabled ? "ok" : ""), text: status.enabled ? "enabled" : "disabled" }),
+          h("span", { class: "chip " + (status.worker_running ? "ok" : "warn"), text: status.worker_running ? "worker running" : "worker stopped" }),
+          h("span", { class: "chip " + (status.signed_in ? "ok" : (status.signed_in === false ? "warn" : "")), text: status.signed_in ? "signed in" : (status.signed_in === false ? "not signed in" : "unknown") }),
+          h("code", { text: status.session_mode }),
+          status.google_creds_set ? h("span", { class: "chip ok", text: "creds: " + status.google_creds_email }) : null,
+        ),
+        (!status.enabled)
+          ? h("div", { class: "muted small", style: "margin-top:10px" }, "NotebookLM profile is not enabled. Run ", h("code", { text: "notebooklm-enable" }), " in manage.sh or toggle the compose profile.")
+          : null,
+      ),
+      h("section", { class: "card" },
+        h("h3", { text: "Auto login (Google credentials)" }),
+        h("p", { class: "muted small" },
+          "Enter your Google credentials so the worker can sign in automatically. TOTP secret is optional (2FA)."),
+        h("label", { text: "Email" }),
+        h("input", { id: "login-email", type: "email", placeholder: "user@gmail.com", style: "width:100%" }),
+        h("label", { text: "Password", style: "margin-top:8px" }),
+        h("input", { id: "login-pass", type: "password", placeholder: "App password or regular password", style: "width:100%" }),
+        h("label", { text: "TOTP secret (optional)", style: "margin-top:8px" }),
+        h("input", { id: "login-totp", type: "password", placeholder: "JBSWY3DPEHPK3PXP", style: "width:100%" }),
+        h("div", { id: "login-status", style: "margin-top:8px" }),
+        h("div", { class: "row", style: "margin-top:8px" },
+          h("button", { class: "btn primary", type: "button", text: "Save & sign in", onclick: async () => {
+            const email = document.getElementById("login-email").value;
+            const pass = document.getElementById("login-pass").value;
+            const totp = document.getElementById("login-totp").value;
+            if (!email || !pass) { notify("Email and password required", "error"); return; }
+            try {
+              await api("/api/notebooklm/creds", { method: "POST", body: { email, password: pass, totp } });
+              notify("Credentials saved");
+              doLogin();
+            } catch (err) { notify(String(err.message), "error"); }
+          }}),
+        ),
+      ),
+      h("section", { class: "card" },
+        h("h3", { text: "Import session" }),
+        h("p", { class: "muted small" },
+          "If auto login fails, export the session from your browser on any OS:",
+          h("pre", { style: "font-size:11px" },
+            "pip install playwright\nplaywright install chromium\npython notebooklm-worker/scripts/export_session.py\n\nThen copy the JSON content and paste it below."
+          ),
+        ),
+        renderSessionPaste(),
+      ),
+    ),
+    h("div", { style: "margin-top:12px" }, card("Output", output)),
+  );
 }
 
 async function renderActions() {
