@@ -640,15 +640,19 @@ class NotebookEditor:
         fill_first(self.page, selectors, text, step=step)
         return None
 
-    def _wait_for_url_input(self, dialog, timeout: float = 5) -> None:
-        """Wait for a URL input field to appear after clicking Websites."""
-        LOGGER.info("Waiting for URL input field to appear...")
-        deadline = time.time() + timeout
+    def _wait_for_website_url_mode(self, dialog, timeout: float = 15) -> None:
+        """Wait for the Websites URL entry mode to be ready inside the dialog.
+        Handles lazy render, discover mode detection, and produces a DOM dump before failure."""
+        import time as _time
+        LOGGER.info("Waiting for website URL input mode...")
+        # URL field selectors (the actual input the user should type into)
         url_selectors = [
             "textarea[placeholder*='link' i]",
             "textarea[placeholder*='URL' i]",
+            "textarea[placeholder*='Paste' i]",
             "textarea[placeholder*='paste' i]",
             "textarea[aria-label*='Enter URLs' i]",
+            "textarea[aria-label*='link' i]",
             "input[placeholder*='link' i]",
             "input[placeholder*='URL' i]",
             "input[placeholder*='paste' i]",
@@ -656,7 +660,16 @@ class NotebookEditor:
             "input[type='url']",
             "div[contenteditable='true']",
         ]
-        while time.time() < deadline:
+        # Detect discover mode (search for sources, not URL entry)
+        discover_indicators = [
+            "button:has-text('Search the web')",
+            "button:has-text('search')",
+            "[aria-label*='search' i]",
+        ]
+        deadline = _time.time() + timeout
+        dumped_before = False
+        while _time.time() < deadline:
+            # Check for URL input first
             for sel in url_selectors:
                 try:
                     node = dialog.locator(sel).first
@@ -665,8 +678,57 @@ class NotebookEditor:
                         return
                 except Exception:
                     pass
-            time.sleep(0.5)
-        LOGGER.warning("URL input did not appear within %.1fs", timeout)
+            # If not found, detect discover mode
+            for sel in discover_indicators:
+                try:
+                    node = dialog.locator(sel).first
+                    if node is not None and node.is_visible():
+                        LOGGER.warning("In discover/search mode instead of URL entry mode")
+                        break
+                except Exception:
+                    pass
+            # Dump DOM once before full timeout
+            if _time.time() > deadline - 5 and not dumped_before:
+                dumped_before = True
+                LOGGER.warning("URL input not found - dumping dialog state")
+                self._dump_dialog_inputs(dialog, tag="WEBSITE MODE FAILED")
+                try:
+                    full_text = dialog.text_content(timeout=2000) or ""
+                    LOGGER.info("WEBSITE DIALOG FULL TEXT:\n%s", full_text[:800])
+                except Exception:
+                    pass
+                # Active tab check
+                try:
+                    tabs = dialog.locator("[role='tab'], .mat-tab-label, [aria-selected]")
+                    for i in range(min(tabs.count(), 10)):
+                        try:
+                            t = tabs.nth(i)
+                            if t.is_visible():
+                                txt = (t.text_content(timeout=300) or '')[:60]
+                                sel = t.get_attribute("aria-selected") or "?"
+                                cls = (t.get_attribute("class") or '')[:40]
+                                LOGGER.info("  TAB[%d]: text=%r aria-selected=%s class=%r", i, txt, sel, cls)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                # Dump ALL buttons
+                try:
+                    btns = dialog.locator("button, [role='button']")
+                    for i in range(min(btns.count(), 20)):
+                        try:
+                            b = btns.nth(i)
+                            if b.is_visible():
+                                txt = (b.text_content(timeout=300) or '')[:60]
+                                aria = (b.get_attribute('aria-label') or '')[:40]
+                                cls = (b.get_attribute('class') or '')[:40]
+                                LOGGER.info("  BTN[%d]: text=%r aria=%r class=%r", i, txt, aria, cls)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            _time.sleep(0.5)
+        LOGGER.warning("Website URL mode did not activate within %.1fs", timeout)
 
     # ------------------------------------------------------------ sources
 
@@ -740,79 +802,10 @@ class NotebookEditor:
         dialog = self._wait_for_source_dialog()
         source_key = "source_youtube" if kind == "youtube" else "source_website"
         self._click_in_dialog(self.selectors[source_key], step=f"choose {kind}")
-        # ---- THOROUGH DOM DUMP AFTER CLICKING WEBSITES ----
-        self.page.wait_for_timeout(1500)
+        # Wait for URL input mode (handles lazy render + discover mode detection)
+        self._wait_for_website_url_mode(dialog)
+        # URL input is inside the dialog
         if dialog is not None:
-            LOGGER.info("===== SOURCE WEBSITE DIALOG DUMP =====")
-            # Full dialog text content
-            try:
-                full_text = dialog.text_content(timeout=2000) or ""
-                LOGGER.info("SOURCE WEBSITE DIALOG TEXT:\n%s", full_text[:500])
-            except Exception as e:
-                LOGGER.warning("dialog text_content failed: %s", e)
-            # Active tab check
-            try:
-                tabs = dialog.locator("[role='tab'], .mat-tab-label, [aria-selected]")
-                for i in range(min(tabs.count(), 10)):
-                    try:
-                        t = tabs.nth(i)
-                        if t.is_visible():
-                            txt = (t.text_content(timeout=300) or '')[:60]
-                            sel = t.get_attribute("aria-selected") or "?"
-                            cls = (t.get_attribute("class") or '')[:40]
-                            LOGGER.info("  TAB[%d]: text=%r aria-selected=%s class=%r", i, txt, sel, cls)
-                    except Exception:
-                        pass
-            except Exception as e:
-                LOGGER.warning("tab check failed: %s", e)
-            # Dump all input-like elements
-            for tag_name in ["input", "textarea", "div[contenteditable]", "button", "mat-form-field"]:
-                try:
-                    els = dialog.locator(tag_name)
-                    for i in range(min(els.count(), 15)):
-                        try:
-                            el = els.nth(i)
-                            if el.is_visible():
-                                tag = el.evaluate("el => el.tagName").lower()
-                                txt = (el.text_content(timeout=300) or '')[:60].strip()
-                                ph = (el.get_attribute("placeholder") or '')[:40]
-                                aria = (el.get_attribute("aria-label") or '')[:40]
-                                role = (el.get_attribute("role") or '')[:20]
-                                cls = (el.get_attribute("class") or '')[:40]
-                                val = (el.get_attribute("value") or '')[:40]
-                                typ = (el.get_attribute("type") or '')[:20]
-                                LOGGER.info(
-                                    "  %s[%d]: tag=%s type=%r placeholder=%r aria=%r role=%r class=%r value=%r text=%r",
-                                    tag_name.upper(), i, tag, typ, ph, aria, role, cls, val, txt,
-                                )
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            # Second dump after 5s (lazy render check)
-            LOGGER.info("Waiting 5s for lazy render...")
-            _time.sleep(5)
-            LOGGER.info("===== SOURCE WEBSITE DIALOG DUMP (after 5s) =====")
-            for tag_name in ["input", "textarea", "div[contenteditable]"]:
-                try:
-                    els = dialog.locator(tag_name)
-                    for i in range(min(els.count(), 10)):
-                        try:
-                            el = els.nth(i)
-                            if el.is_visible():
-                                tag = el.evaluate("el => el.tagName").lower()
-                                ph = (el.get_attribute("placeholder") or '')[:40]
-                                aria = (el.get_attribute("aria-label") or '')[:40]
-                                cls = (el.get_attribute("class") or '')[:40]
-                                LOGGER.info(
-                                    "  %s[%d]: tag=%s placeholder=%r aria=%r class=%r",
-                                    tag_name.upper(), i, tag, ph, aria, cls,
-                                )
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            LOGGER.info("===== END DIALOG DUMP =====")
             self._fill_in_dialog(dialog, self.selectors["url_input"], url, step=f"{kind} url")
         else:
             fill_first(self.page, self.selectors["url_input"], url, step=f"{kind} url")
