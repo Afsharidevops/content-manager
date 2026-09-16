@@ -728,6 +728,7 @@ class NotebookEditor:
             LOGGER.info("FILE SOURCE ADDED SUCCESS: path=%s (size unknown)", path)
 
     def add_link(self, url: str, *, kind: str = "website") -> None:
+        import time as _time
         dismiss_overlays(self.page)
         self.page.wait_for_timeout(300)
         # Open the source dialog
@@ -739,12 +740,79 @@ class NotebookEditor:
         dialog = self._wait_for_source_dialog()
         source_key = "source_youtube" if kind == "youtube" else "source_website"
         self._click_in_dialog(self.selectors[source_key], step=f"choose {kind}")
-        # Wait for URL input to appear after clicking source type
+        # ---- THOROUGH DOM DUMP AFTER CLICKING WEBSITES ----
+        self.page.wait_for_timeout(1500)
         if dialog is not None:
-            self._wait_for_url_input(dialog)
-        self.page.wait_for_timeout(500)
-        if dialog is not None:
-            self._dump_dialog_inputs(dialog, tag="WEBSITE DIALOG FIELDS")
+            LOGGER.info("===== SOURCE WEBSITE DIALOG DUMP =====")
+            # Full dialog text content
+            try:
+                full_text = dialog.text_content(timeout=2000) or ""
+                LOGGER.info("SOURCE WEBSITE DIALOG TEXT:\n%s", full_text[:500])
+            except Exception as e:
+                LOGGER.warning("dialog text_content failed: %s", e)
+            # Active tab check
+            try:
+                tabs = dialog.locator("[role='tab'], .mat-tab-label, [aria-selected]")
+                for i in range(min(tabs.count(), 10)):
+                    try:
+                        t = tabs.nth(i)
+                        if t.is_visible():
+                            txt = (t.text_content(timeout=300) or '')[:60]
+                            sel = t.get_attribute("aria-selected") or "?"
+                            cls = (t.get_attribute("class") or '')[:40]
+                            LOGGER.info("  TAB[%d]: text=%r aria-selected=%s class=%r", i, txt, sel, cls)
+                    except Exception:
+                        pass
+            except Exception as e:
+                LOGGER.warning("tab check failed: %s", e)
+            # Dump all input-like elements
+            for tag_name in ["input", "textarea", "div[contenteditable]", "button", "mat-form-field"]:
+                try:
+                    els = dialog.locator(tag_name)
+                    for i in range(min(els.count(), 15)):
+                        try:
+                            el = els.nth(i)
+                            if el.is_visible():
+                                tag = el.evaluate("el => el.tagName").lower()
+                                txt = (el.text_content(timeout=300) or '')[:60].strip()
+                                ph = (el.get_attribute("placeholder") or '')[:40]
+                                aria = (el.get_attribute("aria-label") or '')[:40]
+                                role = (el.get_attribute("role") or '')[:20]
+                                cls = (el.get_attribute("class") or '')[:40]
+                                val = (el.get_attribute("value") or '')[:40]
+                                typ = (el.get_attribute("type") or '')[:20]
+                                LOGGER.info(
+                                    "  %s[%d]: tag=%s type=%r placeholder=%r aria=%r role=%r class=%r value=%r text=%r",
+                                    tag_name.upper(), i, tag, typ, ph, aria, role, cls, val, txt,
+                                )
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            # Second dump after 5s (lazy render check)
+            LOGGER.info("Waiting 5s for lazy render...")
+            _time.sleep(5)
+            LOGGER.info("===== SOURCE WEBSITE DIALOG DUMP (after 5s) =====")
+            for tag_name in ["input", "textarea", "div[contenteditable]"]:
+                try:
+                    els = dialog.locator(tag_name)
+                    for i in range(min(els.count(), 10)):
+                        try:
+                            el = els.nth(i)
+                            if el.is_visible():
+                                tag = el.evaluate("el => el.tagName").lower()
+                                ph = (el.get_attribute("placeholder") or '')[:40]
+                                aria = (el.get_attribute("aria-label") or '')[:40]
+                                cls = (el.get_attribute("class") or '')[:40]
+                                LOGGER.info(
+                                    "  %s[%d]: tag=%s placeholder=%r aria=%r class=%r",
+                                    tag_name.upper(), i, tag, ph, aria, cls,
+                                )
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            LOGGER.info("===== END DIALOG DUMP =====")
             self._fill_in_dialog(dialog, self.selectors["url_input"], url, step=f"{kind} url")
         else:
             fill_first(self.page, self.selectors["url_input"], url, step=f"{kind} url")
