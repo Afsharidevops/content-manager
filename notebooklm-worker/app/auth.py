@@ -88,7 +88,7 @@ def login_with_credentials(
 
     # Already signed in?
     url = str(page.url or "")
-    if "notebooklm.google.com" in url:
+    if "notebook.google.com" in url or "notebooklm.google.com" in url:
         LOGGER.info("Appears already signed in to NotebookLM")
         return 0
 
@@ -163,7 +163,7 @@ def login_with_credentials(
         return 1
 
     final_url = str(page.url or "")
-    if "notebooklm.google.com" in final_url and "/" in final_url.split("//", 1)[-1]:
+    if "notebook.google.com" in final_url or "notebooklm.google.com" in final_url and "/" in final_url.split("//", 1)[-1]:
         LOGGER.info("Sign-in successful (url=%s)", final_url)
         return 0
 
@@ -179,7 +179,7 @@ def verify_session(page) -> bool:
     """Check whether the persistent context has a valid NotebookLM session."""
     from app.browser import signed_in
     try:
-        page.goto("https://notebooklm.google.com/", wait_until="domcontentloaded", timeout=30000)
+        page.goto("https://notebook.google.com/", wait_until="domcontentloaded", timeout=30000)
         time.sleep(3)
         return signed_in(page)
     except Exception as exc:

@@ -11,14 +11,14 @@ Usage:
     python export_session.py [output.json]
 
 Steps:
-    1. A Chromium browser window opens at notebooklm.google.com.
+    1. A Chromium browser window opens at notebook.google.com.
     2. Sign in to your Google account (use an existing session if prompted).
     3. Return to this terminal and press Enter.
     4. A JSON file is saved with the session cookies and storage.
     5. Upload this file in the Content Console (NotebookLM view).
 
 If you prefer not to install Playwright locally, you can also:
-    - Open notebooklm.google.com in Chrome, press F12 → Application → Cookies,
+    - Open notebook.google.com in Chrome, press F12 → Application → Cookies,
       export cookies + localStorage manually.
     - Or run the script inside Docker: docker run --rm -it -v $PWD:/out
       -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix
@@ -46,7 +46,7 @@ def main() -> None:
     print("NotebookLM Session Exporter")
     print("=" * 60)
     print()
-    print("A Chromium browser will open at notebooklm.google.com")
+    print("A Chromium browser will open at notebook.google.com")
     print("Sign in to your Google account in that browser window.")
     print("After signing in, return to THIS terminal and press Enter.")
     print()
@@ -55,7 +55,7 @@ def main() -> None:
         browser = p.chromium.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
-        page.goto("https://notebooklm.google.com/")
+        page.goto("https://notebook.google.com/")
         
         input("Press Enter after signing in... ")
         

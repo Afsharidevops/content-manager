@@ -62,7 +62,7 @@ def _login_google(settings) -> int:
 
     with _persistent_page(settings) as page:
         configure_page(page, settings)
-        page.goto("https://notebooklm.google.com/", wait_until="domcontentloaded", timeout=30000)
+        page.goto(settings.home_url, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(3000)
 
         if signed_in(page):
