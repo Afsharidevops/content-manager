@@ -240,7 +240,19 @@ def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0)
         except Exception as log_err:
             LOGGER.warning("Debug button dump failed: %s", log_err)
         raise NotebookLMError(step, f"no control matched {selectors}")
-    node.click()
+    try:
+        node.click(timeout=5000)
+    except Exception:
+        # If popover/overlay blocks click, dismiss overlays and force click
+        try:
+            page.evaluate("""
+                document.querySelectorAll('.cdk-overlay-popover, .cdk-overlay-pane, [popover]')
+                    .forEach(el => el.remove());
+            """)
+            page.wait_for_timeout(500)
+            node.click(force=True, timeout=5000)
+        except Exception as e2:
+            raise NotebookLMError(step, f"click failed: {e2}")
     return node
 
 
