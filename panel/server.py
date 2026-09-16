@@ -236,20 +236,23 @@ class PanelApp:
         except Exception as exc:
             return {"ok": False, "error": str(exc), "duration": round(time.monotonic() - started, 1)}
 
-    def notebooklm_start_vnc_login(self) -> dict:
+    def notebooklm_start_vnc_login(self, client_host: str = "") -> dict:
         import subprocess, time, logging, socket
         log = logging.getLogger("panel.notebooklm")
         # Detect host IP for the VNC URL
         vnc_host = self.env_value("NOTEBOOKLM_PUBLIC_URL", "")
+        if not vnc_host and client_host:
+            # Use the Host header from the user's HTTP request (most reliable)
+            vnc_host = client_host.split(":")[0].strip()
         if not vnc_host:
             bind_ip = self.env_value("PANEL_BIND_IP", "0.0.0.0")
             if bind_ip in ("0.0.0.0", "::", "127.0.0.1", ""):
                 try:
-                    tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    tmp.settimeout(3)
-                    tmp.connect(("8.8.8.8", 80))
-                    bind_ip = tmp.getsockname()[0]
-                    tmp.close()
+                    _tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    _tmp.settimeout(3)
+                    _tmp.connect(("8.8.8.8", 80))
+                    bind_ip = _tmp.getsockname()[0]
+                    _tmp.close()
                 except Exception:
                     bind_ip = socket.gethostbyname(socket.gethostname())
             vnc_host = bind_ip
@@ -870,7 +873,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
         if method == "POST" and parts == ["notebooklm", "start-vnc-login"]:
             self._require_csrf()
-            result = self.app.notebooklm_start_vnc_login()
+            result = self.app.notebooklm_start_vnc_login(client_host=self.headers.get("Host", ""))
             self._send_json(HTTPStatus.OK, result)
             return
         if method == "POST" and parts == ["notebooklm", "stop-vnc-login"]:
