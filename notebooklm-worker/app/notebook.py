@@ -220,6 +220,17 @@ def find_first(page, selectors: list[str], *, timeout: float = 0.0, poll: float 
 
 
 def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0):
+    # Dismiss any overlays that could block clicks (usage popups, tooltips, etc.)
+    try:
+        dismissed = page.evaluate("""
+            document.querySelectorAll('.cdk-overlay-popover, .cdk-overlay-pane, [popover], .cdk-global-overlay-wrapper')
+                .forEach(el => el.remove());
+            document.querySelectorAll('[aria-label*="Close" i], button[aria-label*="close" i]')
+                .forEach(el => { if(el.offsetParent !== null) el.click(); });
+        """)
+        page.wait_for_timeout(300)
+    except Exception:
+        pass
     node = find_first(page, selectors, timeout=timeout)
     if node is None:
         # Debug: log visible buttons to help with future UI changes
@@ -240,19 +251,15 @@ def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0)
         except Exception as log_err:
             LOGGER.warning("Debug button dump failed: %s", log_err)
         raise NotebookLMError(step, f"no control matched {selectors}")
+    # Try normal click, fall back to force click on failure
     try:
-        node.click(timeout=5000)
+        node.click(timeout=3000)
     except Exception:
-        # If popover/overlay blocks click, dismiss overlays and force click
         try:
-            page.evaluate("""
-                document.querySelectorAll('.cdk-overlay-popover, .cdk-overlay-pane, [popover]')
-                    .forEach(el => el.remove());
-            """)
             page.wait_for_timeout(500)
-            node.click(force=True, timeout=5000)
+            node.click(force=True, timeout=5000, no_wait_after=True)
         except Exception as e2:
-            raise NotebookLMError(step, f"click failed: {e2}")
+            raise NotebookLMError(step, f"click failed after overlay dismiss: {e2}")
     return node
 
 
