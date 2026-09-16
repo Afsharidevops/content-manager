@@ -319,7 +319,12 @@ def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0)
                 node.click(force=True, timeout=5000, no_wait_after=True)
                 return node
             except Exception as e2:
-                raise NotebookLMError(step, f"click failed: {e2}")
+                # Last resort: JavaScript click bypasses all overlays
+                try:
+                    page.evaluate("(el) => el.click()", node)
+                    return node
+                except Exception as e3:
+                    raise NotebookLMError(step, f"click failed (JS fallback): {e3}")
     return node
 
 
