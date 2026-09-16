@@ -21,7 +21,10 @@ echo "Starting x11vnc :$VNC_PORT ..."
 x11vnc -display ":$DISPLAY_NUM" -forever -nopw -quiet -rfbport "$VNC_PORT" & X11VNC_PID=$!; sleep 1
 
 echo "Starting Chromium..."
-DISPLAY=":$DISPLAY_NUM" chromium --no-sandbox --disable-blink-features=AutomationControlled \
+CHROME_BIN=$(python3 -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()" 2>/dev/null || which chromium || true) \
+[ -z "$CHROME_BIN" ] && { echo "ERROR chromium not found"; exit 1; } \
+echo "CHROME $CHROME_BIN" \
+DISPLAY=":$DISPLAY_NUM" "$CHROME_BIN" --no-sandbox --disable-blink-features=AutomationControlled \
     --disable-dev-shm-usage --disable-extensions --window-size=1280,1024 \
     --user-data-dir="$PROFILE_DIR" "https://notebooklm.google.com/" & CHROMIUM_PID=$!
 
