@@ -270,22 +270,42 @@ class PanelApp:
             image = self.env_value("NOTEBOOKLM_WORKER_IMAGE_REPOSITORY", "afsharidevops/notebooklm-worker")
             tag = self.env_value("NOTEBOOKLM_WORKER_IMAGE_TAG", "0.1.0")
             data_dir = str(self.root / "data" / "notebooklm-worker")
+            # Inline VNC command (verified working)
+            import shlex
+            vnc_cmd = (
+                "CHROME=$(python3 -c "
+                "'from playwright.sync_api import sync_playwright; "
+                "p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()'"
+                "); "
+                "rm -f /data/.login-done; "
+                "mkdir -p /data/notebooklm-browser-profile; "
+                "Xvfb :99 -screen 0 1280x1024x24 & "
+                "sleep 2; "
+                "x11vnc -display :99 -forever -nopw -quiet -rfbport 5900 & "
+                "sleep 2; "
+                "DISPLAY=:99 $CHROME --no-sandbox "
+                "--disable-blink-features=AutomationControlled "
+                "--disable-dev-shm-usage --disable-extensions "
+                "--window-size=1280,1024 "
+                "--user-data-dir=/data/notebooklm-browser-profile "
+                "https://notebooklm.google.com/ & "
+                "sleep 4; "
+                "websockify --web /opt/novnc 8861 localhost:5900 & "
+                "sleep 2; "
+                "echo READY http://0.0.0.0:8861/vnc.html; "
+                "while [ ! -f /data/.login-done ]; do sleep 2; done"
+            )
             subprocess.run(
                 ["docker", "run", "-d", "--rm",
                  "--name", "notebooklm-vnc-login",
                  "-p", "8861:8861",
                  "-v", f"{data_dir}:/data",
-                 "-e", f"NOTEBOOKLM_BROWSER_PROFILE=/data/notebooklm-browser-profile",
                  "--shm-size", "1gb",
-                 "--init",
-                 "--cap-drop=ALL",
-                 "--security-opt=no-new-privileges:true",
-                 "--network", "agent-net",
                  f"{image}:{tag}",
-                 "bash", "/app/scripts/login-vnc.sh"],
+                 "bash", "-c", vnc_cmd],
                 capture_output=True, text=True, timeout=30, cwd=str(self.root),
             )
-            time.sleep(4)
+            time.sleep(8)
             vnc_url = f"http://{vnc_host}:8861/vnc.html"
             return {
                 "ok": True,
