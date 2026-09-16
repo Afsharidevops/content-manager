@@ -43,12 +43,13 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[role='button']:has-text('Add source')",
         "[aria-label*='Add source' i]",
         "[aria-label*='source' i]",
-        "button:has-text('add')",
+        ".add-source-button",
+        "[aria-label*='افزودن منبع' i]",
         "button:has-text('افزودن')",
-        "[aria-label*='افزودن' i]",
+        "button:has-text('add_source')",
+        "button:has-text('add source')",
         "mat-icon:has-text('add')",
-        ".mat-icon:has-text('add')",
-        "button.mat-mdc-icon-button",
+        "[aria-label*='افزودن' i]",
     ],
     "source_file": [
         "button:has-text('Upload files')",
@@ -76,15 +77,17 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='video' i]",
     ],
     "source_text": [
+        "button.drop-zone-icon-button",
+        "mat-stroked-button.drop-zone-icon-button",
+        "button.mat-mdc-outlined-button:has-text('Copied text')",
+        "button.mat-mdc-outlined-button:has-text('متن')",
         "button:has-text('Copied text')",
         "[role='menuitem']:has-text('Copied text')",
         "[role='button']:has-text('Copied text')",
+        "[aria-label*='paste' i]",
         "[aria-label*='text' i]",
         "button:has-text('paste')",
         "button:has-text('متن')",
-        "button.drop-zone-icon-button",
-        "mat-stroked-button.drop-zone-icon-button",
-        "[aria-label*='paste' i]",
     ],
     "file_input": ["input[type='file']"],
     "url_input": [
@@ -107,6 +110,9 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('افزودن')",
         "[aria-label*='add' i]",
         "button:has-text('ایجاد')",
+        "button.mat-mdc-outlined-button:has-text('Save')",
+        "button.mat-mdc-outlined-button:has-text('ذخیره')",
+        "button.mat-mdc-outlined-button:has-text('تایید')",
     ],
     "dialog_close": [
         "[role='dialog'] button[aria-label*='Close' i]",
@@ -382,6 +388,8 @@ class NotebookEditor:
     # ------------------------------------------------------------ sources
 
     def add_material(self, material: sources_mod.Material) -> None:
+        LOGGER.info("Adding material kind=%s value=%s", material.kind, 
+                     getattr(material, 'value', '')[:80] or getattr(material, 'path', '')[:80] or '')
         if material.kind == "file":
             self.add_file(material.path)
         elif material.kind == "url":
@@ -392,6 +400,7 @@ class NotebookEditor:
             self.add_text(material.value)
 
     def add_file(self, path: str) -> None:
+        LOGGER.info("add_file: path=%s", path)
         click_first(self.page, self.selectors["add_source"], step="open add source")
         click_first(self.page, self.selectors["source_file"], step="choose upload files")
         node = find_first(self.page, self.selectors["file_input"], timeout=20)
@@ -411,7 +420,23 @@ class NotebookEditor:
         self._close_dialog()
 
     def add_text(self, text: str) -> None:
+        LOGGER.info("add_text: text=%s", text[:80])
         click_first(self.page, self.selectors["add_source"], step="open add source")
+        # Debug: log all visible buttons in the source picker dialog
+        try:
+            buttons = self.page.locator("button, [role='menuitem'], [role='button']")
+            for i in range(min(buttons.count(), 20)):
+                try:
+                    b = buttons.nth(i)
+                    if b.is_visible():
+                        txt = (b.text_content(timeout=300) or '')[:60]
+                        aria = (b.get_attribute("aria-label") or '')[:40]
+                        cls = (b.get_attribute("class") or '')[:40]
+                        LOGGER.info("  source-picker btn[%d] text=%r aria=%r class=%r", i, txt, aria, cls)
+                except Exception:
+                    pass
+        except Exception as log_err:
+            LOGGER.warning("add_text button debug failed: %s", log_err)
         click_first(self.page, self.selectors["source_text"], step="choose copied text")
         fill_first(self.page, self.selectors["text_input"], text, step="paste text")
         click_first(self.page, self.selectors["source_confirm"], step="insert text")
