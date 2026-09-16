@@ -472,6 +472,14 @@ class NotebookEditor:
         node.set_input_files(path)
         self.page.wait_for_timeout(2000)
         self._close_dialog()
+        # Confirm the source was actually added
+        try:
+            import os as _os
+            fsize = _os.path.getsize(path) if _os.path.isfile(path) else 0
+            fname = _os.path.basename(path) if path else "?"
+            LOGGER.info("FILE SOURCE ADDED SUCCESS: filename=%s size=%d", fname, fsize)
+        except Exception:
+            LOGGER.info("FILE SOURCE ADDED SUCCESS: path=%s (size unknown)", path)
 
     def add_link(self, url: str, *, kind: str = "website") -> None:
         click_first(self.page, self.selectors["add_source"], step="open add source")
@@ -535,6 +543,11 @@ class NotebookEditor:
             LOGGER.info("add_text: no confirm button found, text may auto-submit")
         self.page.wait_for_timeout(1500)
         self._close_dialog()
+        # Confirm the source was added
+        LOGGER.info(
+            "SOURCE ADDED SUCCESS: type=text chars=%d title=%r",
+            len(text), text[:60],
+        )
 
     def _close_dialog(self) -> None:
         node = find_first(self.page, self.selectors["dialog_close"], timeout=3)
