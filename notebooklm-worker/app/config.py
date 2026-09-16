@@ -49,7 +49,7 @@ class Settings:
     session_mode: str = "persistent"
     cdp_url: str = "http://host.docker.internal:9222"
     headless: bool = True
-    home_url: str = "https://notebooklm.google.com/"
+    home_url: str = "https://notebook.google.com/"
     timeout_seconds: int = 1800
     step_timeout_seconds: int = 45
     source_timeout_seconds: int = 300
@@ -85,7 +85,7 @@ class Settings:
             google_password=_env("NOTEBOOKLM_GOOGLE_PASSWORD", ""),
             google_totp_secret=_env("NOTEBOOKLM_GOOGLE_TOTP_SECRET", ""),
             headless=_env_bool("NOTEBOOKLM_HEADLESS", True),
-            home_url=_env("NOTEBOOKLM_HOME_URL", "https://notebooklm.google.com/"),
+            home_url=_env("NOTEBOOKLM_HOME_URL", "https://notebook.google.com/"),
             timeout_seconds=_env_int("NOTEBOOKLM_TIMEOUT", 1800),
             step_timeout_seconds=_env_int("NOTEBOOKLM_STEP_TIMEOUT_SECONDS", 45),
             source_timeout_seconds=_env_int("NOTEBOOKLM_SOURCE_TIMEOUT_SECONDS", 300),

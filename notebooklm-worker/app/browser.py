@@ -23,7 +23,7 @@ LOGGER = logging.getLogger("notebooklm.browser")
 SIGNED_OUT_RE = re.compile(
     r"accounts\.google\.com|/v3/signin|ServiceLogin|/signin/", re.IGNORECASE
 )
-NOTEBOOKLM_RE = re.compile(r"^https?://notebooklm\.google\.com/", re.IGNORECASE)
+NOTEBOOKLM_RE = re.compile(r"^https?://(notebooklm|notebook)\.google\.com/", re.IGNORECASE)
 
 
 class SessionError(RuntimeError):
@@ -132,7 +132,7 @@ def signed_in(page) -> bool:
         return False
     if not is_notebooklm_url(url):
         return False
-    for selector in ("text=Create new", "text=New notebook", "text=Notebooks"):
+    for selector in ("text=Create new", "text=New notebook", "text=Notebooks", ".create-new-button", "[aria-label*='Create new' i]", "[aria-label*='notebook' i]"):
         try:
             if page.locator(selector).first.is_visible(timeout=1500):
                 return True
@@ -276,7 +276,7 @@ def import_session(profile_dir: str, session_path: str) -> int:
             # Mark the profile as imported so the runner can verify.
             try:
                 page = context.new_page()
-                page.goto("https://notebooklm.google.com/", wait_until="domcontentloaded")
+                page.goto(settings.home_url, wait_until="domcontentloaded")
                 page.wait_for_timeout(2000)
                 page.evaluate(
                     "localStorage.setItem(arg[0], '1')",
@@ -321,7 +321,7 @@ def login(settings, wait_seconds: int = 600) -> int:
         if last != "signed in":
             print(
                 "Sign-in was not detected. Open the browser, sign in to "
-                "https://notebooklm.google.com/, then rerun this command.",
+                "the NotebookLM home page, then rerun this command.",
                 flush=True,
             )
             return 1

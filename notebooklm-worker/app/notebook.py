@@ -24,6 +24,11 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('New notebook')",
         "[role='button']:has-text('Create new')",
         "button[jsname]:has-text('add')",
+        ".create-new-button",
+        ".create-new-action-button",
+        "[aria-label*='notebook' i]",
+        "button:has-text('add')",
+        "mat-card:has-text('add')",
     ],
     "notebook_title": [
         "input[aria-label*='notebook title' i]",
