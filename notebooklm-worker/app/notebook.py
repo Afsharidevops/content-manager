@@ -77,17 +77,18 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='video' i]",
     ],
     "source_text": [
-        "button.drop-zone-icon-button",
-        "mat-stroked-button.drop-zone-icon-button",
-        "button.mat-mdc-outlined-button:has-text('Copied text')",
-        "button.mat-mdc-outlined-button:has-text('متن')",
-        "button:has-text('Copied text')",
-        "[role='menuitem']:has-text('Copied text')",
-        "[role='button']:has-text('Copied text')",
+        ".add-source-link",
         "[aria-label*='paste' i]",
         "[aria-label*='text' i]",
+        "[aria-label*='source' i]:has-text('افزودن')",
+        "[aria-label*='upload' i]",
+        "button:has-text('Copied text')",
         "button:has-text('paste')",
         "button:has-text('متن')",
+        "button.mat-mdc-outlined-button:has-text('Copied text')",
+        "button.mat-mdc-outlined-button:has-text('متن')",
+        "button.drop-zone-icon-button",
+        "mat-stroked-button.drop-zone-icon-button",
     ],
     "file_input": ["input[type='file']"],
     "url_input": [
@@ -99,7 +100,11 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
     "text_input": [
         "[role='dialog'] textarea",
         "[role='dialog'] [contenteditable='true']",
+        "[role='dialog'] input[type='text']",
         "textarea",
+        "[contenteditable='true']",
+        "[role='textbox']",
+        "input:not([type='file']):not([type='hidden']):not([type='submit'])",
     ],
     "source_confirm": [
         "[role='dialog'] button:has-text('Insert')",
@@ -107,6 +112,10 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[role='dialog'] button:has-text('Upload')",
         "button:has-text('Insert')",
         "button:has-text('Add')",
+        "button:has-text('submit')",
+        "button:has-text('افزودن')",
+        "[role='button']:has-text('Add')",
+        "button[type='submit']",
         "button:has-text('افزودن')",
         "[aria-label*='add' i]",
         "button:has-text('ایجاد')",
@@ -385,6 +394,28 @@ class NotebookEditor:
         except Exception as error:  # noqa: BLE001 - a default title is acceptable
             LOGGER.warning("Notebook title could not be set: %s", error)
 
+    def _log_source_picker_elements(self) -> None:
+        """Log all visible interactive elements for diagnosing UI changes."""
+        import json
+        try:
+            elements = self.page.locator("button, [role='menuitem'], [role='button'], input, textarea, [contenteditable='true'], [role='textbox']")
+            for i in range(min(elements.count(), 30)):
+                try:
+                    el = elements.nth(i)
+                    if el.is_visible():
+                        tag = el.evaluate("el => el.tagName").lower()
+                        txt = (el.text_content(timeout=300) or '')[:60].strip()
+                        aria = (el.get_attribute("aria-label") or '')[:60]
+                        cls = (el.get_attribute("class") or '')[:50]
+                        ph = el.get_attribute("placeholder") or ''
+                        typ = el.get_attribute("type") or ''
+                        LOGGER.info("  picker[%d] tag=%s text=%r aria=%r class=%r placeholder=%r type=%r",
+                                    i, tag, txt, aria, cls, ph, typ)
+                except Exception:
+                    pass
+        except Exception as log_err:
+            LOGGER.warning("_log_source_picker_elements failed: %s", log_err)
+
     # ------------------------------------------------------------ sources
 
     def add_material(self, material: sources_mod.Material) -> None:
@@ -421,25 +452,55 @@ class NotebookEditor:
 
     def add_text(self, text: str) -> None:
         LOGGER.info("add_text: text=%s", text[:80])
-        click_first(self.page, self.selectors["add_source"], step="open add source")
-        # Debug: log all visible buttons in the source picker dialog
+        # Open the source panel (may already be open)
         try:
-            buttons = self.page.locator("button, [role='menuitem'], [role='button']")
-            for i in range(min(buttons.count(), 20)):
-                try:
-                    b = buttons.nth(i)
-                    if b.is_visible():
-                        txt = (b.text_content(timeout=300) or '')[:60]
-                        aria = (b.get_attribute("aria-label") or '')[:40]
-                        cls = (b.get_attribute("class") or '')[:40]
-                        LOGGER.info("  source-picker btn[%d] text=%r aria=%r class=%r", i, txt, aria, cls)
-                except Exception:
-                    pass
-        except Exception as log_err:
-            LOGGER.warning("add_text button debug failed: %s", log_err)
-        click_first(self.page, self.selectors["source_text"], step="choose copied text")
-        fill_first(self.page, self.selectors["text_input"], text, step="paste text")
-        click_first(self.page, self.selectors["source_confirm"], step="insert text")
+            click_first(self.page, self.selectors["add_source"], step="open add source")
+        except NotebookLMError:
+            LOGGER.info("add_text: add_source click failed, panel may already be open")
+        # Debug: log all interactive elements for diagnosis
+        self._log_source_picker_elements()
+        # Try the "source_text" selectors first (covers old UI + .add-source-link)
+        source_btn = find_first(self.page, self.selectors["source_text"], timeout=5)
+        if source_btn is not None:
+            source_btn.click()
+            self.page.wait_for_timeout(1500)
+        else:
+            LOGGER.info("add_text: no source_text button, looking for direct text input")
+        # Find a text input/textarea/editor
+        text_node = find_first(self.page, self.selectors["text_input"], timeout=10)
+        if text_node is None:
+            # Last resort: try to find any visible input in the source panel
+            LOGGER.info("add_text: no text_input found, dumping all inputs")
+            try:
+                inputs = self.page.locator("input, textarea, [contenteditable='true'], [role='textbox']")
+                for i in range(min(inputs.count(), 20)):
+                    try:
+                        el = inputs.nth(i)
+                        if el.is_visible():
+                            tag = el.evaluate("el => el.tagName")
+                            typ = el.get_attribute("type") or ""
+                            ph = el.get_attribute("placeholder") or ""
+                            aria = el.get_attribute("aria-label") or ""
+                            LOGGER.info("  input[%d] tag=%s type=%r placeholder=%r aria=%r", i, tag, typ, ph, aria)
+                    except Exception:
+                        pass
+            except Exception as log_err:
+                LOGGER.warning("add_text input debug failed: %s", log_err)
+            raise NotebookLMError("paste text", "no text input matched")
+        # Fill the text
+        try:
+            text_node.fill("")
+            text_node.fill(text)
+        except Exception:
+            text_node.click()
+            self.page.keyboard.press("Control+A")
+            self.page.keyboard.type(text, delay=5)
+        self.page.wait_for_timeout(500)
+        # Try to confirm/submit
+        try:
+            click_first(self.page, self.selectors["source_confirm"], step="insert text", timeout=5)
+        except NotebookLMError:
+            LOGGER.info("add_text: no confirm button found, text may auto-submit")
         self.page.wait_for_timeout(1500)
         self._close_dialog()
 
