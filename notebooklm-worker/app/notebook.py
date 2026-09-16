@@ -52,9 +52,12 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='افزودن' i]",
     ],
     "source_file": [
+        "button.drop-zone-icon-button:has-text('بارگذاری')",
+        "button:has-text('بارگذاری فایل')",
+        "button:has-text('Upload files')",
+        "button:has-text('Upload')",
         ".add-source-link",
         "[aria-label*='source' i]:has-text('افزودن')",
-        "button:has-text('Upload files')",
         "[role='menuitem']:has-text('Upload')",
         "[role='button']:has-text('Upload')",
         "[aria-label*='upload' i]",
@@ -63,15 +66,17 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('آپلود')",
     ],
     "source_website": [
+        "button.drop-zone-icon-button:has-text('وب‌سایت‌ها')",
+        "button:has-text('وب‌سایت‌ها')",
         "button:has-text('Websites')",
         "button:has-text('Website')",
         "[role='button']:has-text('Websites')",
         "[role='button']:has-text('Website')",
-        "button:has-text('وب‌سایت')",
         "button:has-text('وب')",
         "[aria-label*='website' i]",
         "[aria-label*='link' i]",
         "button:has-text('link')",
+        "button.drop-zone-icon-button:nth-of-type(2)",
     ],
     "source_youtube": [
         "button:has-text('YouTube')",
@@ -81,12 +86,13 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='video' i]",
     ],
     "source_text": [
+        "button.drop-zone-icon-button:has-text('نوشتار کپی‌شده')",
+        "button:has-text('نوشتار کپی‌شده')",
+        "button.drop-zone-icon-button:has-text('Copied text')",
+        "button:has-text('Copied text')",
         ".add-source-link",
         "[aria-label*='paste' i]",
         "[aria-label*='text' i]",
-        "[aria-label*='source' i]:has-text('افزودن')",
-        "[aria-label*='upload' i]",
-        "button:has-text('Copied text')",
         "button:has-text('paste')",
         "button:has-text('متن')",
         "button.mat-mdc-outlined-button:has-text('Copied text')",
@@ -96,14 +102,16 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
     ],
     "file_input": ["input[type='file']"],
     "url_input": [
+        "input[aria-label*='URL' i]",
+        "input[placeholder*='link' i]",
+        "input[placeholder*='URL' i]",
+        "input[placeholder*='paste' i]",
+        "input[type='url']",
+        "textarea[aria-label*='URL' i]",
         "textarea[placeholder*='link' i]",
         "textarea[placeholder*='URL' i]",
         "textarea[aria-label*='Enter URLs' i]",
-        "textarea[aria-label*='link' i]",
-        "input[type='url']",
-        "input[placeholder*='link' i]",
-        "input[placeholder*='URL' i]",
-        "input[aria-label*='URL' i]",
+        "textarea.cdk-textarea-autosize",
     ],
     "text_input": [
         "[role='dialog'] textarea",
@@ -237,6 +245,9 @@ def dismiss_overlays(page) -> int:
         "button:has-text('متوجه شدم')",
         "button:has-text('باشه')",
         ".mat-mdc-dialog-actions button",
+        "button:has-text('بستن')",
+        "button.close-button",
+        ".closepanel-button",
         "[role='dialog'] button:has-text('Close')",
         "button[aria-label*='cancel' i]",
         "button[aria-label*='بستن' i]",
@@ -286,6 +297,16 @@ def dismiss_overlays(page) -> int:
         page.wait_for_timeout(500)
         _log_overlay_state(page, "after backdrop click")
         return dismissed
+    # 3b. Try to hide xap-uploader-dropzone (drag-drop overlay that blocks clicks)
+    try:
+        dz = page.locator(".xap-uploader-dropzone.drop-zone")
+        if dz.count() > 0 and dz.first.is_visible():
+            page.evaluate("el => el.style.display = 'none'", dz.first)
+            LOGGER.info("Hidden xap-uploader-dropzone overlay")
+            page.wait_for_timeout(300)
+            dismissed += 1
+    except Exception:
+        pass
     # 4. Last resort: remove only popover/notification overlays (NOT mat-dialogs)
     try:
         removed = page.evaluate("""
