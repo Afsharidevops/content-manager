@@ -82,6 +82,9 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='text' i]",
         "button:has-text('paste')",
         "button:has-text('متن')",
+        "button.drop-zone-icon-button",
+        "mat-stroked-button.drop-zone-icon-button",
+        "[aria-label*='paste' i]",
     ],
     "file_input": ["input[type='file']"],
     "url_input": [
@@ -167,6 +170,63 @@ class NotebookLMError(RuntimeError):
     def __init__(self, step: str, message: str) -> None:
         super().__init__(f"{step}: {message}")
         self.step = step
+def dismiss_overlays(page) -> int:
+    """Try to close any popups/overlays blocking interaction. Returns number dismissed."""
+    dismissed = 0
+    # 1. Look for close/X buttons in visible overlays
+    close_selectors = [
+        "button[aria-label*='Close' i]",
+        "button[aria-label*='close' i]",
+        "[aria-label*='بستن' i]",
+        "button:has-text('Got it')",
+        "button:has-text('OK')",
+        "button:has-text('Dismiss')",
+        "button:has-text('متوجه شدم')",
+        "button:has-text('باشه')",
+        ".mat-mdc-dialog-actions button",
+        "[role='dialog'] button:has-text('Close')",
+    ]
+    for sel in close_selectors:
+        try:
+            nodes = page.locator(sel)
+            for i in range(min(nodes.count(), 5)):
+                try:
+                    if nodes.nth(i).is_visible():
+                        nodes.nth(i).click(timeout=1000)
+                        dismissed += 1
+                        page.wait_for_timeout(300)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    # 2. Try Escape key to dismiss dialogs
+    if dismissed == 0:
+        try:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+        except Exception:
+            pass
+    # 3. Last resort: remove overlay DOM elements (may break Angular state)
+    if dismissed == 0:
+        try:
+            removed = page.evaluate("""
+                (function() {
+                    let count = 0;
+                    document.querySelectorAll('.cdk-overlay-popover, .cdk-overlay-pane, [popover], .cdk-global-overlay-wrapper')
+                        .forEach(el => { el.remove(); count++; });
+                    return count;
+                })()
+            """)
+            if removed:
+                LOGGER.info("Removed %d overlay DOM elements as last resort", removed)
+                page.wait_for_timeout(500)
+                dismissed = removed
+        except Exception:
+            pass
+    return dismissed
+
+
+
 
 
 def load_selectors(path: str = "") -> dict[str, list[str]]:
@@ -220,17 +280,9 @@ def find_first(page, selectors: list[str], *, timeout: float = 0.0, poll: float 
 
 
 def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0):
-    # Dismiss any overlays that could block clicks (usage popups, tooltips, etc.)
-    try:
-        dismissed = page.evaluate("""
-            document.querySelectorAll('.cdk-overlay-popover, .cdk-overlay-pane, [popover], .cdk-global-overlay-wrapper')
-                .forEach(el => el.remove());
-            document.querySelectorAll('[aria-label*="Close" i], button[aria-label*="close" i]')
-                .forEach(el => { if(el.offsetParent !== null) el.click(); });
-        """)
-        page.wait_for_timeout(300)
-    except Exception:
-        pass
+    # First dismiss any overlays that could block clicks
+    dismiss_overlays(page)
+    # Find the target element
     node = find_first(page, selectors, timeout=timeout)
     if node is None:
         # Debug: log visible buttons to help with future UI changes
@@ -251,15 +303,23 @@ def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0)
         except Exception as log_err:
             LOGGER.warning("Debug button dump failed: %s", log_err)
         raise NotebookLMError(step, f"no control matched {selectors}")
-    # Try normal click, fall back to force click on failure
-    try:
-        node.click(timeout=3000)
-    except Exception:
+    # Try normal click
+    for attempt in range(2):
         try:
-            page.wait_for_timeout(500)
-            node.click(force=True, timeout=5000, no_wait_after=True)
-        except Exception as e2:
-            raise NotebookLMError(step, f"click failed after overlay dismiss: {e2}")
+            node.click(timeout=3000)
+            return node
+        except Exception:
+            # Maybe overlay appeared between dismiss and click - dismiss again and retry
+            dismiss_overlays(page)
+            page.wait_for_timeout(300)
+            if attempt == 0:
+                continue
+            # Final attempt: force click (bypasses overlay interception)
+            try:
+                node.click(force=True, timeout=5000, no_wait_after=True)
+                return node
+            except Exception as e2:
+                raise NotebookLMError(step, f"click failed: {e2}")
     return node
 
 
