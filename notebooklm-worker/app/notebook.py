@@ -520,12 +520,11 @@ class NotebookEditor:
         except NotebookLMError:
             # New UI fallback: click "افزودن منبع" (add-source-link)
             LOGGER.info("add_file: source_file selectors failed, trying add-source-link")
-            link = find_first(self.page, [".add-source-link", "[aria-label*='source' i]:has-text('افزودن')"], timeout=5)
-            if link is not None:
-                link.click()
-                self.page.wait_for_timeout(1500)
-            else:
-                raise
+            _log_overlay_state(self.page, "before add-source-link click")
+            click_first(self.page, [".add-source-link", "[aria-label*='source' i]:has-text('افزودن')"], 
+                        step="click add-source-link (file fallback)", timeout=10)
+            self.page.wait_for_timeout(1500)
+            _log_overlay_state(self.page, "after add-source-link click")
         node = find_first(self.page, self.selectors["file_input"], timeout=20)
         if node is None:
             raise NotebookLMError("upload source", "no file input matched")
@@ -564,11 +563,10 @@ class NotebookEditor:
         # Debug: log all interactive elements for diagnosis
         self._log_source_picker_elements()
         # Try the "source_text" selectors first (covers old UI + .add-source-link)
-        source_btn = find_first(self.page, self.selectors["source_text"], timeout=5)
-        if source_btn is not None:
-            source_btn.click()
+        try:
+            click_first(self.page, self.selectors["source_text"], step="choose source type", timeout=10)
             self.page.wait_for_timeout(1500)
-        else:
+        except NotebookLMError:
             LOGGER.info("add_text: no source_text button, looking for direct text input")
         # Find a text input/textarea/editor
         text_node = find_first(self.page, self.selectors["text_input"], timeout=10)
