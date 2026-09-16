@@ -42,26 +42,46 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('Add sources')",
         "[role='button']:has-text('Add source')",
         "[aria-label*='Add source' i]",
+        "[aria-label*='source' i]",
+        "button:has-text('add')",
+        "button:has-text('افزودن')",
+        "[aria-label*='افزودن' i]",
+        "mat-icon:has-text('add')",
+        ".mat-icon:has-text('add')",
+        "button.mat-mdc-icon-button",
     ],
     "source_file": [
         "button:has-text('Upload files')",
         "[role='menuitem']:has-text('Upload')",
         "[role='button']:has-text('Upload')",
+        "[aria-label*='upload' i]",
+        "[aria-label*='file' i]",
+        "button:has-text('file')",
+        "button:has-text('آپلود')",
     ],
     "source_website": [
         "button:has-text('Website')",
         "[role='menuitem']:has-text('Website')",
         "[role='button']:has-text('Website')",
+        "[aria-label*='website' i]",
+        "[aria-label*='link' i]",
+        "button:has-text('link')",
+        "button:has-text('وب')",
     ],
     "source_youtube": [
         "button:has-text('YouTube')",
         "[role='menuitem']:has-text('YouTube')",
         "[role='button']:has-text('YouTube')",
+        "[aria-label*='youtube' i]",
+        "[aria-label*='video' i]",
     ],
     "source_text": [
         "button:has-text('Copied text')",
         "[role='menuitem']:has-text('Copied text')",
         "[role='button']:has-text('Copied text')",
+        "[aria-label*='text' i]",
+        "button:has-text('paste')",
+        "button:has-text('متن')",
     ],
     "file_input": ["input[type='file']"],
     "url_input": [
@@ -80,6 +100,10 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[role='dialog'] button:has-text('Add')",
         "[role='dialog'] button:has-text('Upload')",
         "button:has-text('Insert')",
+        "button:has-text('Add')",
+        "button:has-text('افزودن')",
+        "[aria-label*='add' i]",
+        "button:has-text('ایجاد')",
     ],
     "dialog_close": [
         "[role='dialog'] button[aria-label*='Close' i]",
@@ -89,12 +113,18 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('Studio')",
         "[role='button']:has-text('Studio')",
         "[aria-label*='Studio' i]",
+        "[aria-label*='lab' i]",
+        "button:has-text('Notebook')",
+        "button:has-text('defter')",
     ],
     "video_overview": [
         "button:has-text('Video Overview')",
         "[role='button']:has-text('Video Overview')",
         "[aria-label*='Video Overview' i]",
         "text=Video Overview",
+        "button:has-text('Generate')",
+        "[aria-label*='generate' i]",
+        "[aria-label*='overview' i]",
     ],
     "video_customize": [
         "button:has-text('Customize')",
@@ -192,6 +222,23 @@ def find_first(page, selectors: list[str], *, timeout: float = 0.0, poll: float 
 def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0):
     node = find_first(page, selectors, timeout=timeout)
     if node is None:
+        # Debug: log visible buttons to help with future UI changes
+        try:
+            buttons = page.locator("button, [role='button'], mat-card, [role='menuitem']")
+            visible = []
+            for i in range(min(buttons.count(), 30)):
+                try:
+                    b = buttons.nth(i)
+                    if b.is_visible():
+                        txt = b.text_content(timeout=500)[:60] if b.text_content(timeout=500) else ""
+                        aria = b.get_attribute("aria-label") or ""
+                        cls = (b.get_attribute("class") or "")[:40]
+                        visible.append(f"btn[{i}] text={txt!r} aria={aria!r} class={cls!r}")
+                except Exception:
+                    pass
+            LOGGER.warning("Visible controls at '%s' step:\n%s", step, "\n".join(visible))
+        except Exception as log_err:
+            LOGGER.warning("Debug button dump failed: %s", log_err)
         raise NotebookLMError(step, f"no control matched {selectors}")
     node.click()
     return node
@@ -220,6 +267,15 @@ class NotebookEditor:
     # ---------------------------------------------------------- notebook
 
     def create_notebook(self, title: str) -> None:
+        # Check if we are already on a notebook page
+        current_url = str(self.page.url or "")
+        if "/notebook/" in current_url or "/note/" in current_url:
+            LOGGER.info("Already inside a notebook (%s), skipping creation", current_url)
+            return
+        # Look for existing notebook title input or add source - already in a notebook?
+        if find_first(self.page, self.selectors["add_source"], timeout=2) is not None:
+            LOGGER.info("Add source button found - already inside a notebook, skipping creation")
+            return
         click_first(self.page, self.selectors["new_notebook"], step="create notebook")
         self.page.wait_for_timeout(2500)
         self.set_title(title)
