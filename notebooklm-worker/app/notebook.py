@@ -102,16 +102,17 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
     ],
     "file_input": ["input[type='file']"],
     "url_input": [
+        "textarea[aria-label='نشانی‌های وب را وارد کنید']",
+        "textarea[placeholder*='پیوندهای موردنظرتان']",
+        "textarea[aria-label*='نشانی' i]",
+        "textarea[aria-label*='Enter URLs' i]",
+        "textarea[placeholder*='link' i]",
+        "textarea[placeholder*='URL' i]",
+        "textarea[placeholder*='paste' i]",
         "input[aria-label*='URL' i]",
         "input[placeholder*='link' i]",
         "input[placeholder*='URL' i]",
-        "input[placeholder*='paste' i]",
         "input[type='url']",
-        "textarea[aria-label*='URL' i]",
-        "textarea[placeholder*='link' i]",
-        "textarea[placeholder*='URL' i]",
-        "textarea[aria-label*='Enter URLs' i]",
-        "textarea.cdk-textarea-autosize",
     ],
     "text_input": [
         "[role='dialog'] textarea",
@@ -297,16 +298,6 @@ def dismiss_overlays(page) -> int:
         page.wait_for_timeout(500)
         _log_overlay_state(page, "after backdrop click")
         return dismissed
-    # 3b. Try to hide xap-uploader-dropzone (drag-drop overlay that blocks clicks)
-    try:
-        dz = page.locator(".xap-uploader-dropzone.drop-zone")
-        if dz.count() > 0 and dz.first.is_visible():
-            page.evaluate("el => el.style.display = 'none'", dz.first)
-            LOGGER.info("Hidden xap-uploader-dropzone overlay")
-            page.wait_for_timeout(300)
-            dismissed += 1
-    except Exception:
-        pass
     # 4. Last resort: remove only popover/notification overlays (NOT mat-dialogs)
     try:
         removed = page.evaluate("""
@@ -546,17 +537,30 @@ class NotebookEditor:
                     inside = dialog.locator(selector)
                     if inside.count() > 0 and inside.first.is_visible():
                         LOGGER.info("  dialog btn found: selector=%r", selector)
-                        inside.first.click(timeout=3000)
+                        try:
+                            inside.first.click(timeout=3000)
+                        except Exception:
+                            try:
+                                inside.first.click(force=True, timeout=3000, no_wait_after=True)
+                            except Exception:
+                                inside.first.evaluate("el => el.click()")
                         self.page.wait_for_timeout(500)
                         return
                 except Exception:
                     pass
-        # Fallback: global search (no dismiss_overlays)
+        # Fallback: global search with force/JS click (bypasses xap-uploader-dropzone)
         for selector in selectors:
             try:
                 btn = self.page.locator(selector)
                 if btn.count() > 0 and btn.first.is_visible():
-                    btn.first.click(timeout=3000)
+                    try:
+                        btn.first.click(timeout=3000)
+                    except Exception:
+                        # Dropzone may block — use force then JS click
+                        try:
+                            btn.first.click(force=True, timeout=3000, no_wait_after=True)
+                        except Exception:
+                            btn.first.evaluate("el => el.click()")
                     self.page.wait_for_timeout(500)
                     return
             except Exception:
@@ -825,6 +829,10 @@ class NotebookEditor:
         self._click_in_dialog(self.selectors[source_key], step=f"choose {kind}")
         # Wait for URL input mode (handles lazy render + discover mode detection)
         self._wait_for_website_url_mode(dialog)
+        # Dump what's visible after clicking website button
+        LOGGER.info("WEBSITE MODE AFTER CLICK:")
+        if dialog is not None:
+            self._dump_dialog_inputs(dialog, tag="WEBSITE MODE")
         # URL input is inside the dialog
         if dialog is not None:
             self._fill_in_dialog(dialog, self.selectors["url_input"], url, step=f"{kind} url")
