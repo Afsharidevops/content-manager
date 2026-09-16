@@ -52,6 +52,8 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='افزودن' i]",
     ],
     "source_file": [
+        ".add-source-link",
+        "[aria-label*='source' i]:has-text('افزودن')",
         "button:has-text('Upload files')",
         "[role='menuitem']:has-text('Upload')",
         "[role='button']:has-text('Upload')",
@@ -419,21 +421,51 @@ class NotebookEditor:
     # ------------------------------------------------------------ sources
 
     def add_material(self, material: sources_mod.Material) -> None:
-        LOGGER.info("Adding material kind=%s value=%s", material.kind, 
-                     getattr(material, 'value', '')[:80] or getattr(material, 'path', '')[:80] or '')
-        if material.kind == "file":
-            self.add_file(material.path)
-        elif material.kind == "url":
+        import os
+        kind = material.kind
+        value_hint = (getattr(material, 'value', '') or '')[:80]
+        path = getattr(material, 'path', '') or ''
+        _, ext = os.path.splitext(path)
+        if kind == "file":
+            flow = "add_file"
+        elif kind == "url":
+            flow = "add_link(website)"
+        elif kind == "youtube":
+            flow = "add_link(youtube)"
+        else:
+            flow = "add_text"
+        LOGGER.info(
+            "SOURCE ROUTER: type=%s ext=%s path=%s value_hint=%r title=%s selected=%s",
+            kind, ext, path, value_hint, material.title, flow,
+        )
+        LOGGER.info("Adding material kind=%s flow=%s", kind, flow)
+        if kind == "file":
+            self.add_file(path)
+        elif kind == "url":
             self.add_link(material.value, kind="website")
-        elif material.kind == "youtube":
+        elif kind == "youtube":
             self.add_link(material.value, kind="youtube")
         else:
             self.add_text(material.value)
 
     def add_file(self, path: str) -> None:
         LOGGER.info("add_file: path=%s", path)
-        click_first(self.page, self.selectors["add_source"], step="open add source")
-        click_first(self.page, self.selectors["source_file"], step="choose upload files")
+        try:
+            click_first(self.page, self.selectors["add_source"], step="open add source")
+        except NotebookLMError:
+            LOGGER.info("add_file: add_source click failed, panel may already be open")
+        # Try the source_file selectors (old UI "Upload files" button)
+        try:
+            click_first(self.page, self.selectors["source_file"], step="choose upload files")
+        except NotebookLMError:
+            # New UI fallback: click "افزودن منبع" (add-source-link)
+            LOGGER.info("add_file: source_file selectors failed, trying add-source-link")
+            link = find_first(self.page, [".add-source-link", "[aria-label*='source' i]:has-text('افزودن')"], timeout=5)
+            if link is not None:
+                link.click()
+                self.page.wait_for_timeout(1500)
+            else:
+                raise
         node = find_first(self.page, self.selectors["file_input"], timeout=20)
         if node is None:
             raise NotebookLMError("upload source", "no file input matched")
