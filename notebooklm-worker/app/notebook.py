@@ -142,7 +142,9 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
     ],
     "dialog_close": [
         "[role='dialog'] button[aria-label*='Close' i]",
+        "[role='dialog'] button[aria-label*='بستن' i]",
         "[aria-label*='Close' i]",
+        "[aria-label*='بستن' i]",
     ],
     "studio_tab": [
         "[aria-label*='استودیو' i]",
@@ -166,6 +168,8 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='overview' i]",
     ],
     "video_customize": [
+        "button:has-text('سفارشی‌سازی')",
+        "button:has-text('ویرایش')",
         "button:has-text('Customize')",
         "[role='button']:has-text('Customize')",
         "button:has-text('Edit')",
@@ -177,22 +181,33 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "textarea",
     ],
     "video_generate": [
+        "[role='dialog'] button:has-text('ساختن')",
+        "[role='dialog'] button:has-text('ایجاد')",
+        "[role='dialog'] button:has-text('تولید')",
         "[role='dialog'] button:has-text('Generate')",
+        "button:has-text('ساختن')",
+        "button:has-text('ایجاد')",
+        "button:has-text('تولید')",
         "button:has-text('Generate')",
         "[role='button']:has-text('Generate')",
     ],
     "video_ready": [
         "[role='dialog'] video",
         "video",
+        "button:has-text('دانلود')",
         "button:has-text('Download')",
         "[aria-label*='Download' i]",
+        "[aria-label*='دانلود' i]",
     ],
     "video_menu": [
         "button[aria-label*='More' i]",
         "button[aria-label*='menu' i]",
+        "button[aria-label*='بیشتر' i]",
         "button:has-text('more_vert')",
     ],
     "video_download": [
+        "[role='menuitem']:has-text('دانلود')",
+        "button:has-text('دانلود')",
         "[role='menuitem']:has-text('Download')",
         "button:has-text('Download')",
         "[role='menuitem']:has-text('download')",
