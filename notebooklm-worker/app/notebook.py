@@ -601,11 +601,72 @@ class NotebookEditor:
                 except Exception:
                     pass
             time.sleep(0.5)
-        # Debug dump on failure
+        # Comprehensive dump on failure
+        LOGGER.warning("URL INPUT NOT FOUND - dumping all input fields in dialog")
         self._dump_dialog_inputs(dialog, tag=f"FAILED {step}")
+        # Also dump all dialog buttons
+        try:
+            btns = dialog.locator("button, [role='button']")
+            for i in range(min(btns.count(), 15)):
+                try:
+                    b = btns.nth(i)
+                    if b.is_visible():
+                        txt = (b.text_content(timeout=300) or '')[:60]
+                        aria = (b.get_attribute('aria-label') or '')[:40]
+                        cls = (b.get_attribute('class') or '')[:40]
+                        LOGGER.info("  DIALOG BTN[%d]: text=%r aria=%r class=%r", i, txt, aria, cls)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Also dump all visible elements with their tag names
+        try:
+            all_el = dialog.locator("*")
+            LOGGER.info("DIALOG ALL ELEMENTS (visible):")
+            for i in range(min(all_el.count(), 30)):
+                try:
+                    el = all_el.nth(i)
+                    if el.is_visible():
+                        tag = el.evaluate("el => el.tagName").lower()
+                        txt = (el.text_content(timeout=200) or '')[:40].strip()
+                        cls = (el.get_attribute('class') or '')[:40]
+                        if tag in ('input','textarea','div','mat-form-field','mat-dialog-content','mat-label','label','span','p','h1','h2','h3'):
+                            LOGGER.info("  ALL[%d]: tag=%s class=%r text=%r", i, tag, cls, txt)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # Fallback to global search
         fill_first(self.page, selectors, text, step=step)
         return None
+
+    def _wait_for_url_input(self, dialog, timeout: float = 5) -> None:
+        """Wait for a URL input field to appear after clicking Websites."""
+        LOGGER.info("Waiting for URL input field to appear...")
+        deadline = time.time() + timeout
+        url_selectors = [
+            "textarea[placeholder*='link' i]",
+            "textarea[placeholder*='URL' i]",
+            "textarea[placeholder*='paste' i]",
+            "textarea[aria-label*='Enter URLs' i]",
+            "input[placeholder*='link' i]",
+            "input[placeholder*='URL' i]",
+            "input[placeholder*='paste' i]",
+            "input[placeholder*='links' i]",
+            "input[type='url']",
+            "div[contenteditable='true']",
+        ]
+        while time.time() < deadline:
+            for sel in url_selectors:
+                try:
+                    node = dialog.locator(sel).first
+                    if node is not None and node.is_visible():
+                        LOGGER.info("URL input appeared: selector=%r", sel)
+                        return
+                except Exception:
+                    pass
+            time.sleep(0.5)
+        LOGGER.warning("URL input did not appear within %.1fs", timeout)
 
     # ------------------------------------------------------------ sources
 
@@ -678,8 +739,10 @@ class NotebookEditor:
         dialog = self._wait_for_source_dialog()
         source_key = "source_youtube" if kind == "youtube" else "source_website"
         self._click_in_dialog(self.selectors[source_key], step=f"choose {kind}")
-        # URL input is inside the dialog — search scoped to dialog
-        self.page.wait_for_timeout(1000)
+        # Wait for URL input to appear after clicking source type
+        if dialog is not None:
+            self._wait_for_url_input(dialog)
+        self.page.wait_for_timeout(500)
         if dialog is not None:
             self._dump_dialog_inputs(dialog, tag="WEBSITE DIALOG FIELDS")
             self._fill_in_dialog(dialog, self.selectors["url_input"], url, step=f"{kind} url")
