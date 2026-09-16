@@ -554,6 +554,59 @@ class NotebookEditor:
             pass
         raise NotebookLMError(step, f"no control matched inside dialog {selectors}")
 
+    def _dump_dialog_inputs(self, dialog, tag: str = "FIELDS") -> None:
+        """Log all input-like elements inside the dialog for diagnosis."""
+        try:
+            inputs = dialog.locator("input, textarea, [contenteditable='true'], [role='textbox']")
+            for i in range(min(inputs.count(), 15)):
+                try:
+                    el = inputs.nth(i)
+                    if el.is_visible():
+                        tag_name = el.evaluate("el => el.tagName").lower()
+                        typ = (el.get_attribute("type") or el.get_attribute("inputtype") or "")[:20]
+                        ph = (el.get_attribute("placeholder") or "")[:50]
+                        aria = (el.get_attribute("aria-label") or "")[:50]
+                        role = (el.get_attribute("role") or "")[:20]
+                        cls = (el.get_attribute("class") or "")[:40]
+                        txt = (el.text_content(timeout=300) or "")[:60].strip()
+                        LOGGER.info(
+                            "  %s[%d]: tag=%s type=%r placeholder=%r aria=%r role=%r class=%r text=%r",
+                            tag, i, tag_name, typ, ph, aria, role, cls, txt,
+                        )
+                except Exception:
+                    pass
+        except Exception as log_err:
+            LOGGER.warning("_dump_dialog_inputs failed: %s", log_err)
+
+    def _fill_in_dialog(self, dialog, selectors: list[str], text: str, *, step: str, timeout: float = 10) -> None:
+        """Find an input inside dialog and fill it. No dismiss_overlays."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            for selector in selectors:
+                try:
+                    node = dialog.locator(selector).first
+                    if node is not None and node.is_visible():
+                        LOGGER.info("URL INPUT FOUND: selector=%r tag=%s placeholder=%r",
+                                     selector,
+                                     node.evaluate("el => el.tagName").lower(),
+                                     node.get_attribute("placeholder") or "",
+                        )
+                        try:
+                            node.fill(text)
+                        except Exception:
+                            node.click()
+                            node.evaluate("el => el.value = ''")
+                            self.page.keyboard.type(text, delay=5)
+                        return node
+                except Exception:
+                    pass
+            time.sleep(0.5)
+        # Debug dump on failure
+        self._dump_dialog_inputs(dialog, tag=f"FAILED {step}")
+        # Fallback to global search
+        fill_first(self.page, selectors, text, step=step)
+        return None
+
     # ------------------------------------------------------------ sources
 
     def add_material(self, material: sources_mod.Material) -> None:
@@ -622,11 +675,16 @@ class NotebookEditor:
         except NotebookLMError:
             LOGGER.info("add_link: add_source click failed, dialog may already be open")
         # Wait for dialog, then click source type inside it (no dismiss!)
-        self._wait_for_source_dialog()
+        dialog = self._wait_for_source_dialog()
         source_key = "source_youtube" if kind == "youtube" else "source_website"
         self._click_in_dialog(self.selectors[source_key], step=f"choose {kind}")
-        # URL input is inside same dialog
-        fill_first(self.page, self.selectors["url_input"], url, step=f"{kind} url")
+        # URL input is inside the dialog — search scoped to dialog
+        self.page.wait_for_timeout(1000)
+        if dialog is not None:
+            self._dump_dialog_inputs(dialog, tag="WEBSITE DIALOG FIELDS")
+            self._fill_in_dialog(dialog, self.selectors["url_input"], url, step=f"{kind} url")
+        else:
+            fill_first(self.page, self.selectors["url_input"], url, step=f"{kind} url")
         click_first(self.page, self.selectors["source_confirm"], step=f"add {kind}")
         self.page.wait_for_timeout(1500)
         self._close_dialog()
