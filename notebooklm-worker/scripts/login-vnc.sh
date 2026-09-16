@@ -9,6 +9,10 @@ NOVNC_PORT="${NOVNC_PORT:-8861}"
 PROFILE_DIR="${NOTEBOOKLM_BROWSER_PROFILE:-$DATA_DIR/notebooklm-browser-profile}"
 SIGNAL_FILE="$DATA_DIR/.login-done"
 mkdir -p "$PROFILE_DIR"
+# Clean up lock files from previous Chromium instances that can cause black screen
+rm -f "$PROFILE_DIR"/Singleton*
+rm -rf "$PROFILE_DIR"/.com.google.Chrome*
+find "$PROFILE_DIR" -name 'LOCK' -delete 2>/dev/null || true
 rm -f "$SIGNAL_FILE"
 
 cleanup() { kill "$CHROMIUM_PID" "$WS_PID" "$X11VNC_PID" "$XVFB_PID" 2>/dev/null || true; wait 2>/dev/null || true; }
@@ -19,6 +23,9 @@ Xvfb ":$DISPLAY_NUM" -screen 0 1280x1024x24 & XVFB_PID=$!; sleep 1
 
 echo "Starting x11vnc :$VNC_PORT ..."
 x11vnc -display ":$DISPLAY_NUM" -forever -nopw -quiet -rfbport "$VNC_PORT" & X11VNC_PID=$!; sleep 1
+
+echo "Starting window manager..."
+fluxbox -display ":$DISPLAY_NUM" 2>/dev/null & sleep 1
 
 echo "Starting Chromium..."
 CHROME_BIN=$(python3 -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()" 2>/dev/null || which chromium || true) \
