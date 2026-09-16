@@ -63,13 +63,15 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('آپلود')",
     ],
     "source_website": [
+        "button:has-text('Websites')",
         "button:has-text('Website')",
-        "[role='menuitem']:has-text('Website')",
+        "[role='button']:has-text('Websites')",
         "[role='button']:has-text('Website')",
+        "button:has-text('وب‌سایت')",
+        "button:has-text('وب')",
         "[aria-label*='website' i]",
         "[aria-label*='link' i]",
         "button:has-text('link')",
-        "button:has-text('وب')",
     ],
     "source_youtube": [
         "button:has-text('YouTube')",
@@ -94,6 +96,10 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
     ],
     "file_input": ["input[type='file']"],
     "url_input": [
+        "textarea[placeholder*='link' i]",
+        "textarea[placeholder*='URL' i]",
+        "textarea[aria-label*='Enter URLs' i]",
+        "textarea[aria-label*='link' i]",
         "input[type='url']",
         "input[placeholder*='link' i]",
         "input[placeholder*='URL' i]",
@@ -280,18 +286,18 @@ def dismiss_overlays(page) -> int:
         page.wait_for_timeout(500)
         _log_overlay_state(page, "after backdrop click")
         return dismissed
-    # 4. Last resort: remove overlay DOM elements (may break Angular state)
+    # 4. Last resort: remove only popover/notification overlays (NOT mat-dialogs)
     try:
         removed = page.evaluate("""
             (function() {
                 let count = 0;
-                document.querySelectorAll('.cdk-overlay-backdrop, .cdk-overlay-pane, [popover], .cdk-global-overlay-wrapper')
+                document.querySelectorAll('.cdk-overlay-popover, [popover], .notification-overlay')
                     .forEach(el => { el.remove(); count++; });
                 return count;
             })()
         """)
         if removed:
-            LOGGER.info("Removed %d overlay DOM elements as last resort", removed)
+            LOGGER.info("Removed %d popover DOM elements as last resort", removed)
             page.wait_for_timeout(500)
             dismissed = removed
     except Exception:
@@ -474,6 +480,80 @@ class NotebookEditor:
         except Exception as log_err:
             LOGGER.warning("_log_source_picker_elements failed: %s", log_err)
 
+    def _wait_for_source_dialog(self, timeout: float = 10) -> object | None:
+        """Wait for the Angular Material source dialog to appear. Returns the dialog element."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                dialog = self.page.locator("mat-dialog-container, [role='dialog']")
+                if dialog.count() > 0:
+                    for i in range(dialog.count()):
+                        d = dialog.nth(i)
+                        if d.is_visible():
+                            LOGGER.info("SOURCE DIALOG: opened=true")
+                            return d
+            except Exception:
+                pass
+            time.sleep(0.5)
+        LOGGER.warning("SOURCE DIALOG: not opened (timeout %.1fs)", timeout)
+        return None
+
+    def _click_in_dialog(self, selectors: list[str], *, step: str, timeout: float = 10) -> None:
+        """Find and click a button inside the source dialog. Does NOT dismiss overlays."""
+        # First wait for the dialog
+        dialog = self._wait_for_source_dialog(timeout=timeout)
+        if dialog is not None:
+            # Log all buttons inside the dialog for diagnosis
+            try:
+                btns = dialog.locator("button, [role='menuitem'], [role='button']")
+                for i in range(min(btns.count(), 20)):
+                    try:
+                        b = btns.nth(i)
+                        if b.is_visible():
+                            txt = (b.text_content(timeout=300) or '')[:60]
+                            aria = (b.get_attribute('aria-label') or '')[:40]
+                            cls = (b.get_attribute('class') or '')[:40]
+                            LOGGER.info("  SOURCE DIALOG BUTTONS[%d]: text=%r aria=%r class=%r", i, txt, aria, cls)
+                    except Exception:
+                        pass
+            except Exception as log_err:
+                LOGGER.warning("dialog button log failed: %s", log_err)
+        if dialog is not None:
+            # Scoped search: try finding inside dialog first
+            for selector in selectors:
+                try:
+                    inside = dialog.locator(selector)
+                    if inside.count() > 0 and inside.first.is_visible():
+                        LOGGER.info("  dialog btn found: selector=%r", selector)
+                        inside.first.click(timeout=3000)
+                        self.page.wait_for_timeout(500)
+                        return
+                except Exception:
+                    pass
+        # Fallback: global search (no dismiss_overlays)
+        for selector in selectors:
+            try:
+                btn = self.page.locator(selector)
+                if btn.count() > 0 and btn.first.is_visible():
+                    btn.first.click(timeout=3000)
+                    self.page.wait_for_timeout(500)
+                    return
+            except Exception:
+                pass
+        # Debug: log what's available
+        try:
+            vis = []
+            for i in range(min(self.page.locator("button, [role='menuitem'], [role='button']").count(), 30)):
+                el = self.page.locator("button, [role='menuitem'], [role='button']").nth(i)
+                if el.is_visible():
+                    txt = (el.text_content(timeout=300) or '')[:60]
+                    aria = (el.get_attribute('aria-label') or '')[:40]
+                    vis.append(f"text={txt!r} aria={aria!r}")
+            LOGGER.warning("Visible controls inside dialog:\n%s", "\n".join(vis[:15]))
+        except Exception:
+            pass
+        raise NotebookLMError(step, f"no control matched inside dialog {selectors}")
+
     # ------------------------------------------------------------ sources
 
     def add_material(self, material: sources_mod.Material) -> None:
@@ -510,21 +590,14 @@ class NotebookEditor:
         LOGGER.info("add_file: path=%s", path)
         dismiss_overlays(self.page)
         self.page.wait_for_timeout(300)
+        # Open the source dialog
         try:
             click_first(self.page, self.selectors["add_source"], step="open add source")
         except NotebookLMError:
-            LOGGER.info("add_file: add_source click failed, panel may already be open")
-        # Try the source_file selectors (old UI "Upload files" button)
-        try:
-            click_first(self.page, self.selectors["source_file"], step="choose upload files")
-        except NotebookLMError:
-            # New UI fallback: click "افزودن منبع" (add-source-link)
-            LOGGER.info("add_file: source_file selectors failed, trying add-source-link")
-            _log_overlay_state(self.page, "before add-source-link click")
-            click_first(self.page, [".add-source-link", "[aria-label*='source' i]:has-text('افزودن')"], 
-                        step="click add-source-link (file fallback)", timeout=10)
-            self.page.wait_for_timeout(1500)
-            _log_overlay_state(self.page, "after add-source-link click")
+            LOGGER.info("add_file: add_source click failed, dialog may already be open")
+        # Wait for dialog, then click source type inside it (no dismiss!)
+        self._wait_for_source_dialog()
+        self._click_in_dialog(self.selectors["source_file"], step="choose upload files")
         node = find_first(self.page, self.selectors["file_input"], timeout=20)
         if node is None:
             raise NotebookLMError("upload source", "no file input matched")
@@ -543,9 +616,16 @@ class NotebookEditor:
     def add_link(self, url: str, *, kind: str = "website") -> None:
         dismiss_overlays(self.page)
         self.page.wait_for_timeout(300)
-        click_first(self.page, self.selectors["add_source"], step="open add source")
-        key = "source_youtube" if kind == "youtube" else "source_website"
-        click_first(self.page, self.selectors[key], step=f"choose {kind}")
+        # Open the source dialog
+        try:
+            click_first(self.page, self.selectors["add_source"], step="open add source")
+        except NotebookLMError:
+            LOGGER.info("add_link: add_source click failed, dialog may already be open")
+        # Wait for dialog, then click source type inside it (no dismiss!)
+        self._wait_for_source_dialog()
+        source_key = "source_youtube" if kind == "youtube" else "source_website"
+        self._click_in_dialog(self.selectors[source_key], step=f"choose {kind}")
+        # URL input is inside same dialog
         fill_first(self.page, self.selectors["url_input"], url, step=f"{kind} url")
         click_first(self.page, self.selectors["source_confirm"], step=f"add {kind}")
         self.page.wait_for_timeout(1500)
@@ -555,19 +635,14 @@ class NotebookEditor:
         LOGGER.info("add_text: text=%s", text[:80])
         dismiss_overlays(self.page)
         self.page.wait_for_timeout(300)
-        # Open the source panel (may already be open)
+        # Open the source dialog
         try:
             click_first(self.page, self.selectors["add_source"], step="open add source")
         except NotebookLMError:
-            LOGGER.info("add_text: add_source click failed, panel may already be open")
-        # Debug: log all interactive elements for diagnosis
-        self._log_source_picker_elements()
-        # Try the "source_text" selectors first (covers old UI + .add-source-link)
-        try:
-            click_first(self.page, self.selectors["source_text"], step="choose source type", timeout=10)
-            self.page.wait_for_timeout(1500)
-        except NotebookLMError:
-            LOGGER.info("add_text: no source_text button, looking for direct text input")
+            LOGGER.info("add_text: add_source click failed, dialog may already be open")
+        # Wait for dialog, then click source type inside it (no dismiss!)
+        self._wait_for_source_dialog()
+        self._click_in_dialog(self.selectors["source_text"], step="choose copied text")
         # Find a text input/textarea/editor
         text_node = find_first(self.page, self.selectors["text_input"], timeout=10)
         if text_node is None:
