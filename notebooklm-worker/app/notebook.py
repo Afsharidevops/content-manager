@@ -822,7 +822,13 @@ class NotebookEditor:
         if node is None:
             raise NotebookLMError("upload source", "no file input matched")
         node.set_input_files(path)
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_timeout(3000)
+        # Try confirm button inside dialog (file may auto-upload in new UI)
+        try:
+            self._click_in_dialog(self.selectors["source_confirm"], step="confirm file", timeout=3)
+            self.page.wait_for_timeout(1000)
+        except NotebookLMError:
+            LOGGER.info("add_file: no confirm button, file may auto-upload")
         self._close_dialog()
         # Confirm the source was actually added
         try:
@@ -857,7 +863,7 @@ class NotebookEditor:
             self._fill_in_dialog(dialog, self.selectors["url_input"], url, step=f"{kind} url")
         else:
             fill_first(self.page, self.selectors["url_input"], url, step=f"{kind} url")
-        click_first(self.page, self.selectors["source_confirm"], step=f"add {kind}")
+        self._click_in_dialog(self.selectors["source_confirm"], step=f"confirm {kind}")
         self.page.wait_for_timeout(1500)
         self._close_dialog()
 
@@ -905,7 +911,7 @@ class NotebookEditor:
         self.page.wait_for_timeout(500)
         # Try to confirm/submit
         try:
-            click_first(self.page, self.selectors["source_confirm"], step="insert text", timeout=5)
+            self._click_in_dialog(self.selectors["source_confirm"], step="confirm text", timeout=5)
         except NotebookLMError:
             LOGGER.info("add_text: no confirm button found, text may auto-submit")
         self.page.wait_for_timeout(1500)
