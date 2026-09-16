@@ -145,6 +145,7 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='Close' i]",
     ],
     "studio_tab": [
+        "[aria-label*='استودیو' i]",
         "button:has-text('Studio')",
         "[role='button']:has-text('Studio')",
         "[aria-label*='Studio' i]",
@@ -153,6 +154,9 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('defter')",
     ],
     "video_overview": [
+        "[aria-label*='مرور ویدیویی' i]",
+        "[class*='create-artifact']:has-text('مرور ویدیویی')",
+        "button:has-text('مرور ویدیویی')",
         "button:has-text('Video Overview')",
         "[role='button']:has-text('Video Overview')",
         "[aria-label*='Video Overview' i]",
