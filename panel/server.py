@@ -132,7 +132,7 @@ class PanelApp:
             "signed_in": None,
             "error": "",
             "google_creds_set": bool(self.env_value("NOTEBOOKLM_GOOGLE_EMAIL")),
-            "google_creds_email": self.env_value("NOTEBOOKLM_GOOGLE_EMAIL", "")[:3] + "..." if self.env_value("NOTEBOOKLM_GOOGLE_EMAIL") else "",
+            "google_creds_email": (self.env_value("NOTEBOOKLM_GOOGLE_EMAIL", "") or "").split("@")[0] + "@..." if self.env_value("NOTEBOOKLM_GOOGLE_EMAIL") else "",
         }
         if not enabled:
             return status
@@ -278,7 +278,7 @@ class PanelApp:
                 "p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()'"
                 "); "
                 "rm -f /data/.login-done; "
-                "mkdir -p /data/notebooklm-browser-profile; "
+                "mkdir -p /data/notebooklm-browser-profile; chmod 777 /data/notebooklm-browser-profile; "
                 "# Clean up Chromium lock files from previous runs "
                 "rm -f /data/notebooklm-browser-profile/Singleton*; "
                 "rm -rf /data/notebooklm-browser-profile/.com.google.Chrome*; "
@@ -295,10 +295,13 @@ class PanelApp:
                 "# Launch Chromium (headed, visible via VNC) "
                 "DISPLAY=:99 $CHROME --no-sandbox "
                 "--disable-blink-features=AutomationControlled "
-                "--disable-dev-shm-usage --disable-extensions "
-                "--window-size=1280,1024 "
+                "--disable-dev-shm-usage "
+                "--window-size=1280,1024 " 
+                "--window-position=0,0 "
                 "--user-data-dir=/data/notebooklm-browser-profile "
                 "--disable-gpu "
+                "--no-first-run --no-default-browser-check "
+                "--disable-component-update "
                 "https://notebooklm.google.com/ & "
                 "sleep 4; "
                 "# Start noVNC WebSocket proxy "

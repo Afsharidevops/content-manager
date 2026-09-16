@@ -32,8 +32,8 @@ CHROME_BIN=$(python3 -c "from playwright.sync_api import sync_playwright; p=sync
 [ -z "$CHROME_BIN" ] && { echo "ERROR chromium not found"; exit 1; } \
 echo "CHROME $CHROME_BIN" \
 DISPLAY=":$DISPLAY_NUM" "$CHROME_BIN" --no-sandbox --disable-blink-features=AutomationControlled \
-    --disable-dev-shm-usage --disable-extensions --window-size=1280,1024 \
-    --user-data-dir="$PROFILE_DIR" "https://notebooklm.google.com/" & CHROMIUM_PID=$!
+    --disable-dev-shm-usage --window-size=1280,1024 --window-position=0,0 \
+    --user-data-dir="$PROFILE_DIR" --disable-gpu --no-first-run --disable-component-update "https://notebooklm.google.com/" & CHROMIUM_PID=$!
 
 echo "Starting websockify :$NOVNC_PORT -> :$VNC_PORT ..."
 websockify --web /opt/novnc "$NOVNC_PORT" "localhost:$VNC_PORT" & WS_PID=$!; sleep 2
