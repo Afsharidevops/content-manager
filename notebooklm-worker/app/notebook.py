@@ -187,8 +187,38 @@ class NotebookLMError(RuntimeError):
     def __init__(self, step: str, message: str) -> None:
         super().__init__(f"{step}: {message}")
         self.step = step
+def _log_overlay_state(page, tag: str = ""):
+    """Log active dialog/overlay elements for diagnosis."""
+    try:
+        backdrops = page.locator(".cdk-overlay-backdrop:not([style*='display: none']):not([hidden])")
+        dialogs = page.locator("[role='dialog']")
+        containers = page.locator(".cdk-overlay-container")
+        panes = page.locator(".cdk-overlay-pane:not([style*='display: none']):not([hidden])")
+        text = ""
+        for i in range(min(dialogs.count(), 3)):
+            try:
+                d = dialogs.nth(i)
+                if d.is_visible():
+                    t = (d.text_content(timeout=300) or "")[:120].strip()
+                    if t:
+                        text += f"  dialog[{i}]: {t}\n"
+            except Exception:
+                pass
+        LOGGER.info(
+            "OVERLAY STATE%s: backdrops=%d dialogs=%d panes=%d\n%s",
+            f" ({tag})" if tag else "",
+            backdrops.count() if backdrops.count() else 0,
+            dialogs.count() if dialogs.count() else 0,
+            panes.count() if panes.count() else 0,
+            text,
+        )
+    except Exception:
+        pass
+
+
 def dismiss_overlays(page) -> int:
     """Try to close any popups/overlays blocking interaction. Returns number dismissed."""
+    _log_overlay_state(page, "before dismiss")
     dismissed = 0
     # 1. Look for close/X buttons in visible overlays
     close_selectors = [
@@ -202,6 +232,10 @@ def dismiss_overlays(page) -> int:
         "button:has-text('باشه')",
         ".mat-mdc-dialog-actions button",
         "[role='dialog'] button:has-text('Close')",
+        "button[aria-label*='cancel' i]",
+        "button[aria-label*='بستن' i]",
+        "mat-icon:has-text('close')",
+        ".cdk-overlay-pane button.mat-icon-button",
     ]
     for sel in close_selectors:
         try:
@@ -216,30 +250,52 @@ def dismiss_overlays(page) -> int:
                     pass
         except Exception:
             pass
-    # 2. Try Escape key to dismiss dialogs
-    if dismissed == 0:
+    if dismissed > 0:
+        page.wait_for_timeout(500)
+        _log_overlay_state(page, "after close buttons")
+        return dismissed
+    # 2. Try Escape key to dismiss dialogs (multiple times for stacked overlays)
+    for _ in range(2):
         try:
             page.keyboard.press("Escape")
-            page.wait_for_timeout(300)
+            page.wait_for_timeout(400)
         except Exception:
             pass
-    # 3. Last resort: remove overlay DOM elements (may break Angular state)
-    if dismissed == 0:
-        try:
-            removed = page.evaluate("""
-                (function() {
-                    let count = 0;
-                    document.querySelectorAll('.cdk-overlay-popover, .cdk-overlay-pane, [popover], .cdk-global-overlay-wrapper')
-                        .forEach(el => { el.remove(); count++; });
-                    return count;
-                })()
-            """)
-            if removed:
-                LOGGER.info("Removed %d overlay DOM elements as last resort", removed)
-                page.wait_for_timeout(500)
-                dismissed = removed
-        except Exception:
-            pass
+    page.wait_for_timeout(300)
+    _log_overlay_state(page, "after Escape")
+    # 3. Click on backdrop to dismiss (Material CDK closes on backdrop click)
+    try:
+        backdrop = page.locator(".cdk-overlay-backdrop")
+        for i in range(min(backdrop.count(), 3)):
+            try:
+                if backdrop.nth(i).is_visible():
+                    backdrop.nth(i).click(timeout=1000, force=True)
+                    dismissed += 1
+                    page.wait_for_timeout(300)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if dismissed > 0:
+        page.wait_for_timeout(500)
+        _log_overlay_state(page, "after backdrop click")
+        return dismissed
+    # 4. Last resort: remove overlay DOM elements (may break Angular state)
+    try:
+        removed = page.evaluate("""
+            (function() {
+                let count = 0;
+                document.querySelectorAll('.cdk-overlay-backdrop, .cdk-overlay-pane, [popover], .cdk-global-overlay-wrapper')
+                    .forEach(el => { el.remove(); count++; });
+                return count;
+            })()
+        """)
+        if removed:
+            LOGGER.info("Removed %d overlay DOM elements as last resort", removed)
+            page.wait_for_timeout(500)
+            dismissed = removed
+    except Exception:
+        pass
     return dismissed
 
 
@@ -421,6 +477,8 @@ class NotebookEditor:
     # ------------------------------------------------------------ sources
 
     def add_material(self, material: sources_mod.Material) -> None:
+        dismiss_overlays(self.page)
+        self.page.wait_for_timeout(300)
         import os
         kind = material.kind
         value_hint = (getattr(material, 'value', '') or '')[:80]
@@ -450,6 +508,8 @@ class NotebookEditor:
 
     def add_file(self, path: str) -> None:
         LOGGER.info("add_file: path=%s", path)
+        dismiss_overlays(self.page)
+        self.page.wait_for_timeout(300)
         try:
             click_first(self.page, self.selectors["add_source"], step="open add source")
         except NotebookLMError:
@@ -482,6 +542,8 @@ class NotebookEditor:
             LOGGER.info("FILE SOURCE ADDED SUCCESS: path=%s (size unknown)", path)
 
     def add_link(self, url: str, *, kind: str = "website") -> None:
+        dismiss_overlays(self.page)
+        self.page.wait_for_timeout(300)
         click_first(self.page, self.selectors["add_source"], step="open add source")
         key = "source_youtube" if kind == "youtube" else "source_website"
         click_first(self.page, self.selectors[key], step=f"choose {kind}")
@@ -492,6 +554,8 @@ class NotebookEditor:
 
     def add_text(self, text: str) -> None:
         LOGGER.info("add_text: text=%s", text[:80])
+        dismiss_overlays(self.page)
+        self.page.wait_for_timeout(300)
         # Open the source panel (may already be open)
         try:
             click_first(self.page, self.selectors["add_source"], step="open add source")
@@ -550,13 +614,31 @@ class NotebookEditor:
         )
 
     def _close_dialog(self) -> None:
-        node = find_first(self.page, self.selectors["dialog_close"], timeout=3)
+        # Try close button (old dialog pattern)
+        node = find_first(self.page, self.selectors["dialog_close"], timeout=2)
         if node is not None:
             try:
                 node.click()
-            except Exception:  # noqa: BLE001 - the dialog may already be gone
+                self.page.wait_for_timeout(500)
+                return
+            except Exception:
                 pass
-        self.page.wait_for_timeout(500)
+        # Try Escape to dismiss
+        try:
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(400)
+        except Exception:
+            pass
+        # Try backdrop click to dismiss
+        try:
+            backdrop = self.page.locator(".cdk-overlay-backdrop")
+            if backdrop.count() > 0 and backdrop.first.is_visible():
+                backdrop.first.click(force=True, timeout=1000)
+                self.page.wait_for_timeout(400)
+        except Exception:
+            pass
+        # Log what's left
+        _log_overlay_state(self.page, "after _close_dialog")
 
     def wait_for_sources(self, *, timeout: int = 0) -> None:
         """Wait until the source list stops showing progress indicators."""
