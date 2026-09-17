@@ -339,54 +339,121 @@ def download_video(page, target_path: str, settings, selectors: dict) -> str:
     os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
     timeout = max(30, settings.download_timeout_seconds) * 1000
 
-    menu = find_first(page, selectors["video_menu"], timeout=8)
-    if menu is not None:
-        try:
+    # Strategy 1: extract video src directly via JS (bypasses UI click chain)
+    try:
+        # Find the artifact container
+        artifact_node = None
+        for sel in selectors.get("video_artifact", []):
+            try:
+                nodes = page.locator(sel)
+                for i in range(min(nodes.count(), 5)):
+                    if nodes.nth(i).is_visible():
+                        artifact_node = nodes.nth(i)
+                        break
+                if artifact_node:
+                    break
+            except Exception:
+                continue
+        if artifact_node is not None:
+            try:
+                html = artifact_node.evaluate("(el) => el.outerHTML.substring(0, 2000)")
+                LOGGER.info("ARTIFACT DOM: %s", html)
+            except Exception:
+                pass
+            # Extract video src (works for blob URLs too)
+            try:
+                video_src = artifact_node.evaluate("""(el) => {
+                    const v = el.querySelector('video');
+                    return v ? (v.currentSrc || v.src || '') : '';
+                }""")
+                if video_src:
+                    LOGGER.info("VIDEO DIRECT SRC found, downloading via fetch...")
+                    b64result = page.evaluate("""async (url) => {
+                        const r = await fetch(url);
+                        const blob = await r.blob();
+                        return await new Promise((res, rej) => {
+                            const reader = new FileReader();
+                            reader.onload = () => res(reader.result);
+                            reader.onerror = () => rej('FileReader error');
+                            reader.readAsDataURL(blob);
+                        });
+                    }""", video_src)
+                    if b64result and b64result.startswith("data:"):
+                        import base64
+                        _, b64 = b64result.split(",", 1)
+                        raw = base64.b64decode(b64)
+                        with open(target_path, "wb") as f:
+                            f.write(raw)
+                        LOGGER.info("VIDEO DOWNLOADED via direct fetch: %d bytes", len(raw))
+                        _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
+                        return target_path
+            except Exception as e1:
+                LOGGER.info("Direct src extraction failed: %s", e1)
+    except Exception as e2:
+        LOGGER.info("Artifact processing failed: %s", e2)
+
+    # Strategy 2: find menu button inside the artifact and use it
+    try:
+        if artifact_node:
+            menu_btn = artifact_node.locator(
+                "button[aria-label*='More' i], button[aria-label*='menu' i], "
+                "button[aria-label*='\\u0628\\u06cc\\u0634\\u062a\\u0631' i], "
+                "button[aria-label*='more' i]"
+            )
+            if menu_btn.count() > 0 and menu_btn.first.is_visible():
+                menu_btn.first.click()
+                page.wait_for_timeout(1000)
+                with page.expect_download(timeout=timeout) as download_info:
+                    click_first(page, selectors["video_download"], step="download video (artifact menu)")
+                download = download_info.value
+                download.save_as(target_path)
+                LOGGER.info("VIDEO DOWNLOADED via artifact menu")
+                _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
+                return target_path
+    except Exception as e3:
+        LOGGER.info("Artifact menu download failed: %s", e3)
+
+    # Strategy 3: global menu + download (original approach)
+    try:
+        menu = find_first(page, selectors["video_menu"], timeout=8)
+        if menu is not None:
             menu.click()
             page.wait_for_timeout(800)
             with page.expect_download(timeout=timeout) as download_info:
                 click_first(page, selectors["video_download"], step="download video")
             download = download_info.value
             download.save_as(target_path)
-            # Trim last N seconds if configured
-            if getattr(settings, "trim_last_seconds", 0) > 0:
-                try:
-                    probe = subprocess.run(
-                        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                         "-of", "default=noprint_wrappers=1:nokey=1", target_path],
-                        capture_output=True, text=True, timeout=30,
-                    )
-                    total = float(probe.stdout.strip() or 0)
-                    if total > settings.trim_last_seconds + 1:
-                        _trim_video(target_path, total - settings.trim_last_seconds)
-                    else:
-                        LOGGER.info("Video too short (%.1fs) to trim %ds", total, settings.trim_last_seconds)
-                except Exception as exc:
-                    LOGGER.warning("Could not probe/trim video: %s", exc)
+            LOGGER.info("VIDEO DOWNLOADED via global menu")
+            _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
             return target_path
-        except Exception as error:  # noqa: BLE001 - fall back to a direct button
-            LOGGER.info("Video menu download failed (%s); trying a direct control", error)
+        else:
+            with page.expect_download(timeout=timeout) as download_info:
+                click_first(page, selectors["video_download"], step="download video (direct)")
+            download = download_info.value
+            download.save_as(target_path)
+            LOGGER.info("VIDEO DOWNLOADED via direct button")
+            _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
+            return target_path
+    except Exception as e4:
+        LOGGER.warning("All download strategies failed: %s", e4)
 
+    raise NotebookLMError("download video", "could not download the generated video")
+
+
+def _try_trim(path: str, trim_last: int) -> None:
+    """Trim last N seconds from video if ffmpeg/ffprobe are available."""
+    if trim_last <= 0:
+        return
     try:
-        with page.expect_download(timeout=timeout) as download_info:
-            click_first(page, selectors["video_download"], step="download video")
-        download = download_info.value
-        download.save_as(target_path)
-        # Trim last N seconds if configured
-        if getattr(settings, "trim_last_seconds", 0) > 0:
-            try:
-                probe = subprocess.run(
-                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                     "-of", "default=noprint_wrappers=1:nokey=1", target_path],
-                    capture_output=True, text=True, timeout=30,
-                )
-                total = float(probe.stdout.strip() or 0)
-                if total > settings.trim_last_seconds + 1:
-                    _trim_video(target_path, total - settings.trim_last_seconds)
-                else:
-                    LOGGER.info("Video too short (%.1fs) to trim %ds", total, settings.trim_last_seconds)
-            except Exception as exc:
-                LOGGER.warning("Could not probe/trim video: %s", exc)
-        return target_path
-    except Exception as error:  # noqa: BLE001
-        raise NotebookLMError("download video", str(error)) from error
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=30,
+        )
+        total = float(probe.stdout.strip() or 0)
+        if total > trim_last + 1:
+            _trim_video(path, total - trim_last)
+        else:
+            LOGGER.info("Video too short (%.1fs) to trim %ds", total, trim_last)
+    except Exception as exc:
+        LOGGER.warning("Could not probe/trim video: %s", exc)
