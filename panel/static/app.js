@@ -1196,6 +1196,7 @@ async function renderNotebookLM() {
     ),
     h("div", { style: "margin-top:12px" }, card("Output", output)),
   );
+  if (config && !config.error) renderNlmConfigForm(config);
 }
 
 async function renderActions() {
@@ -1241,6 +1242,7 @@ async function renderActions() {
       : h("div", { class: "banner", text: "Actions are disabled (PANEL_ACTIONS_ENABLED=false). Read-only views stay available." }),
     h("div", { style: "margin-top:12px" }, card("Output", output)),
   );
+  if (config && !config.error) renderNlmConfigForm(config);
 }
 
 async function runActionInto(output, name, label, confirmFirst, params) {
@@ -1320,6 +1322,7 @@ async function renderStorage() {
     ),
     h("div", { style: "margin-top:12px" }, card("Output", output)),
   );
+  if (config && !config.error) renderNlmConfigForm(config);
 }
 
 /* Archives record UTC timestamps; trimming the fraction keeps the card narrow. */
