@@ -110,7 +110,20 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
             node.click()
             page.wait_for_timeout(300)
             node.fill("")
+            page.wait_for_timeout(100)
             node.fill(prompt)
+            page.wait_for_timeout(200)
+            # Fire native input/change events so Angular/React sees the new value
+            try:
+                node.evaluate("(el) => { el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); }")
+            except Exception:
+                pass
+            # Log the actual value to confirm prompt was set
+            try:
+                val = node.input_value(timeout=500)
+                LOGGER.info("PROMPT VALUE SET: chars=%d preview=%r", len(val), val[:80])
+            except Exception:
+                pass
         except Exception as error:  # noqa: BLE001
             LOGGER.warning("Video prompt could not be typed: %s", error)
             # Fallback: keyboard type
