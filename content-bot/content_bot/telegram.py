@@ -390,8 +390,12 @@ def media_choice_keyboard(draft_id: str, *, notebooklm: bool = False) -> dict:
         ],
         [
             {
-                "text": "My video (get a prompt)",
-                "callback_data": f"media:video_prompt:{draft_id}",
+                "text": "📤 My video",
+                "callback_data": f"media:user_video:{draft_id}",
+            },
+            {
+                "text": "📝 Get a prompt",
+                "callback_data": f"media:get_prompt:{draft_id}",
             },
         ],
     ]

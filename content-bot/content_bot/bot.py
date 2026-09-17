@@ -1803,6 +1803,30 @@ class ContentBot:
         if sub == "user_images":
             self._begin_user_image_wait(record, query_id, multi=True)
             return
+        if sub == "get_prompt":
+            # Immediately generate and send the prompt package, no duration/style selection
+            self.state.update_draft(draft_id, {"video_style": "ai"})
+            self._send_video_prompt_package(
+                draft_id,
+                query_id=query_id,
+                seconds=15,
+            )
+            return
+        if sub == "user_video":
+            ask_id = record.get("ask_message_id")
+            chat_id = record.get("chat_id")
+            if chat_id is None or ask_id is None:
+                self._safe_answer(query_id, "No active media question was found.")
+                return
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "Send me the video file. It will be processed and attached to the post.",
+                telegram_mod.upload_wait_keyboard(draft_id),
+            )
+            self.state.update_draft(draft_id, {"status": "media_awaiting_video"})
+            self._safe_answer(query_id, "Send the video file.")
+            return
         if sub == "video_prompt":
             ask_id = record.get("ask_message_id")
             chat_id = record.get("chat_id")
