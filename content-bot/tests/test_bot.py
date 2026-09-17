@@ -3146,6 +3146,17 @@ class NotebookLMFlowTests(MediaFlowHarness):
             }
         )
 
+    def choose_duration(self, bot, draft_id, dur_key="3min"):
+        """Select a duration after choosing a profile."""
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:nlm_dur_{dur_key}:{draft_id}",
+            }
+        )
+
     def answers(self) -> str:
         """Every toast text the bot answered a callback with."""
         parts = []
@@ -3158,8 +3169,9 @@ class NotebookLMFlowTests(MediaFlowHarness):
         return "\n".join(parts)
 
     def start_job(self, bot, draft_id, sub="nlm_tech") -> str:
-        """Pick one profile and return the job id of the started job."""
+        """Pick one profile + duration and return the job id of the started job."""
         self.choose(bot, draft_id, sub)
+        self.choose_duration(bot, draft_id)
         return str(bot.state.load()["drafts"][draft_id]["media"]["job_id"])
 
     def texts(self) -> str:
@@ -3193,12 +3205,17 @@ class NotebookLMFlowTests(MediaFlowHarness):
 
     def test_a_profile_choice_starts_a_job_with_the_draft_sources(self):
         bot, draft_id = self.start()
+        # First choose a profile
         self.choose(bot, draft_id, "nlm_edu")
+        # The draft stores the chosen profile, no submit yet
+        # Then choose a duration to actually start the job
+        self.choose_duration(bot, draft_id)
         self.assertEqual(1, len(self.notebooklm.submits))
         submit = self.notebooklm.submits[0]
         self.assertEqual("educational_fa", submit["profile"])
         self.assertEqual(draft_id, submit["content_id"])
         self.assertTrue(submit["topic"])
+        self.assertEqual(submit.get("duration_profile", ""), "3min")
         kinds = [source["kind"] for source in submit["sources"]]
         self.assertIn("text", kinds)
         self.assertIn("auto", kinds)
