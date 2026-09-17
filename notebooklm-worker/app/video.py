@@ -338,133 +338,149 @@ def download_video(page, target_path: str, settings, selectors: dict) -> str:
     """Download the finished overview to ``target_path`` and return the path."""
     os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
     
-    # Wait a moment for the artifact to fully render
+    # Wait for artifact to fully render
     page.wait_for_timeout(3000)
+    _dump_network_and_screenshot(page, settings, tag="download-start")
     
-    # Step 1: Log ALL artifact-like elements to find the right one
-    LOGGER.info("=== Scanning DOM for artifact candidates ===")
+    # Step 1: Comprehensive DOM scan - log ALL visible elements on the page
+    LOGGER.info("=== FULL PAGE DOM SCAN ===")
     try:
-        candidates = page.evaluate("""() => {
-            const all = document.querySelectorAll('[class*="artifact"], [class*="overview"], [class*="studio"] > div, mat-card, section[class*="card"]');
-            return Array.from(all).map(el => ({
-                tag: el.tagName,
-                cls: (el.className || '').substring(0, 120),
-                text: (el.textContent || '').trim().substring(0, 200),
-                aria: el.getAttribute('aria-label') || '',
-                role: el.getAttribute('role') || '',
-                childBtns: el.querySelectorAll('button').length,
-                hasVideo: !!el.querySelector('video'),
-                hasPlay: !!(el.querySelector('[class*="play"]') || el.querySelector('[aria-label*="play" i]')),
-                childLinks: el.querySelectorAll('a').length,
-                rect: (function() { const r = el.getBoundingClientRect(); return {w: r.width, h: r.height, t: r.top, l: r.left}; })(),
-                visible: el.offsetParent !== null,
-            }));
-        }""")
-        LOGGER.info("Found %d artifact candidates:", len(candidates))
-        for i, c in enumerate(candidates):
-            if c.get('visible') and (c.get('hasVideo') or c.get('hasPlay') or '\\u0645\\u0631\\u0648\\u0631' in c.get('text','') or 'Video Overview' in c.get('text','') or c.get('childBtns',0) > 0):
-                LOGGER.info("  [%d] tag=%-6s cls=%-40s visible=%s hasVideo=%s hasPlay=%s btns=%d text=%s",
-                    i, c.get('tag',''), c.get('cls','')[:40], c.get('visible'), c.get('hasVideo'), c.get('hasPlay'), c.get('childBtns',0), c.get('text','')[:80])
-    except Exception as e:
-        LOGGER.info("Candidate scan failed: %s", e)
-    
-    # Step 2: Find the actual generated card
-    artifact_card = None
-    try:
-        card_info = page.evaluate("""() => {
-            // Strategy A: find element containing play button + overview text
-            const playEls = document.querySelectorAll('[aria-label*="play" i], [class*="play"], button:has(svg)');
-            for (const p of playEls) {
-                const parent = p.closest('[class*="artifact"], [class*="card"], mat-card, [class*="overview"], section, [class*="studio"] > div');
-                if (parent) {
-                    const txt = parent.textContent || '';
-                    if (txt.includes('\\u0645\\u0631\\u0648\\u0631') || txt.includes('Video Overview') || parent.querySelector('video')) {
-                        return {
-                            tag: parent.tagName,
-                            cls: (parent.className || '').substring(0, 120),
-                            outerHTML: parent.outerHTML.substring(0, 2500),
-                        };
-                    }
+        dom = page.evaluate("""() => {
+            const results = [];
+            // Scan all visible elements in the main page area (not header/sidebar)
+            const all = document.querySelectorAll('body *');
+            for (const el of all) {
+                if (!el.offsetParent) continue; // skip hidden
+                const tag = el.tagName.toLowerCase();
+                if (['script','style','meta','link','noscript'].includes(tag)) continue;
+                const cls = (el.className || '').substring(0, 100);
+                const txt = (el.textContent || '').trim().substring(0, 120);
+                const aria = el.getAttribute('aria-label') || '';
+                const role = el.getAttribute('role') || '';
+                const hasVideo = !!el.querySelector('video') || tag === 'video';
+                const hasBtn = el.querySelectorAll('button').length > 0 || tag === 'button';
+                const rect = el.getBoundingClientRect();
+                // Only log interesting elements
+                if (hasVideo || hasBtn || aria || (txt && cls) || 
+                    cls.includes('artifact') || cls.includes('card') || cls.includes('overview') ||
+                    cls.includes('studio') || cls.includes('generated')) {
+                    results.push({
+                        tag: tag, cls: cls.substring(0, 80), txt: txt.substring(0, 100),
+                        aria: aria.substring(0, 50), role: role,
+                        w: Math.round(rect.width), h: Math.round(rect.height),
+                        t: Math.round(rect.top), l: Math.round(rect.left),
+                        hasVideo: hasVideo, hasBtn: hasBtn,
+                    });
                 }
             }
-            // Strategy B: find any visible card with video
-            const cards = document.querySelectorAll('mat-card, [class*="card"], section, [class*="artifact"]');
-            for (const c of cards) {
-                if (c.offsetParent !== null && (c.querySelector('video') || c.querySelector('[class*="play"]'))) {
+            return results;
+        }""")
+        LOGGER.info("Page has %d interesting visible elements:", len(dom))
+        for i, d in enumerate(dom):
+            LOGGER.info("  [%d] <%-6s> cls=%-30s aria=%s txt=%s hasV=%s hasB=%s rect=%dx%d at (%d,%d)",
+                i, d.get('tag',''), d.get('cls',''), d.get('aria',''), d.get('txt','')[:50],
+                d.get('hasVideo'), d.get('hasBtn'),
+                d.get('w',0), d.get('h',0), d.get('l',0), d.get('t',0))
+    except Exception as e:
+        LOGGER.info("DOM scan failed: %s", e)
+    
+    # Step 2: Find ALL artifact-like elements and log them with full detail
+    LOGGER.info("=== DEEP ARTIFACT SCAN ===")
+    try:
+        artifacts = page.evaluate("""() => {
+            const results = [];
+            const all = document.querySelectorAll('[class*="artifact"], [class*="overview"], [class*="card"], mat-card, [class*="studio"] > *, [class*="generated"], [class*="result"], [class*="output"]');
+            for (const el of all) {
+                if (!el.offsetParent) continue;
+                const rect = el.getBoundingClientRect();
+                if (rect.width < 50 || rect.height < 20) continue; // too small
+                const btns = el.querySelectorAll('button');
+                const btnInfo = Array.from(btns).slice(0, 5).map(b => ({
+                    text: (b.textContent || '').trim().substring(0, 40),
+                    aria: b.getAttribute('aria-label') || '',
+                    cls: (b.className || '').substring(0, 40),
+                }));
+                results.push({
+                    tag: el.tagName,
+                    cls: (el.className || '').substring(0, 150),
+                    txt: (el.textContent || '').trim().substring(0, 300),
+                    aria: el.getAttribute('aria-label') || '',
+                    role: el.getAttribute('role') || '',
+                    rect: {w: Math.round(rect.width), h: Math.round(rect.height), t: Math.round(rect.top), l: Math.round(rect.left)},
+                    hasVideo: !!el.querySelector('video'),
+                    hasSVG: !!el.querySelector('svg'),
+                    hasPlayEl: !!(el.querySelector('[class*="play"]') || el.querySelector('[aria-label*="play" i]')),
+                    btns: btnInfo,
+                });
+            }
+            return results;
+        }""")
+        LOGGER.info("Found %d artifact-like containers:", len(artifacts))
+        for i, a in enumerate(artifacts):
+            LOGGER.info("  [%d] <%-6s> cls=%-50s rect=%dx%d play=%s video=%s",
+                i, a.get('tag',''), a.get('cls','')[:50],
+                a.get('rect',{}).get('w',0), a.get('rect',{}).get('h',0),
+                a.get('hasPlayEl'), a.get('hasVideo'))
+            # Log first 200 chars of text
+            txt = a.get('txt','')
+            if txt:
+                LOGGER.info("       text: %s", txt[:150])
+            # Log buttons
+            for b in a.get('btns',[]):
+                LOGGER.info("       btn: text=%s aria=%s cls=%s", b.get('text','')[:30], b.get('aria','')[:30], b.get('cls','')[:30])
+    except Exception as e:
+        LOGGER.info("Artifact scan failed: %s", e)
+    
+    # Step 3: Try to find video element anywhere on the page
+    LOGGER.info("=== VIDEO ELEMENT SEARCH ===")
+    try:
+        video_src = page.evaluate("""() => {
+            const v = document.querySelector('video');
+            if (v) {
+                const src = v.currentSrc || v.src || '';
+                if (src) {
                     return {
-                        tag: c.tagName,
-                        cls: (c.className || '').substring(0, 120),
-                        outerHTML: c.outerHTML.substring(0, 2500),
+                        src: src,
+                        rect: (function(){const r=v.getBoundingClientRect(); return {w:r.width,h:r.height,t:r.top,l:r.left};})(),
+                        visible: v.offsetParent !== null,
+                        paused: v.paused,
                     };
                 }
             }
             return null;
         }""")
-        if card_info:
-            LOGGER.info("=== GENERATED CARD FOUND ===")
-            LOGGER.info("tag=%s cls=%s", card_info.get('tag',''), card_info.get('cls','')[:80])
-            LOGGER.info("CARD HTML:\n%s", card_info.get('outerHTML',''))
-            artifact_card = card_info
+        if video_src:
+            LOGGER.info("VIDEO ELEMENT: src=%s rect=%dx%d visible=%s paused=%s",
+                video_src.get('src','')[:150],
+                video_src.get('rect',{}).get('w',0),
+                video_src.get('rect',{}).get('h',0),
+                video_src.get('visible'), video_src.get('paused'))
+        else:
+            LOGGER.info("No video element found on page")
     except Exception as e:
-        LOGGER.info("Card detection failed: %s", e)
+        LOGGER.info("Video search failed: %s", e)
     
-    # Step 3: If we found a card, try to extract video from it
-    if artifact_card:
-        LOGGER.info("=== Attempting video extraction from card ===")
+    # Step 4: Try to find and click play button
+    LOGGER.info("=== PLAY BUTTON SEARCH ===")
+    play_selectors = [
+        "button[aria-label*='play' i]",
+        "[aria-label*='play' i]",
+        "[class*='play-button']",
+        "[class*='play_arrow']",
+        "button:has(svg)",
+        "[class*='video-overview'] button",
+        "[class*='overview-card'] button",
+    ]
+    for sel in play_selectors:
         try:
-            # Look for video element inside the card or on the page
-            video_data = page.evaluate("""() => {
-                const v = document.querySelector('video[src*="blob"], video[src], video[currentSrc]');
-                if (v) {
-                    const src = v.currentSrc || v.src || '';
-                    const rect = v.getBoundingClientRect();
-                    return {
-                        src: src,
-                        visible: v.offsetParent !== null,
-                        rect: {w: rect.width, h: rect.height},
-                        paused: v.paused,
-                    };
-                }
-                return null;
-            }""")
-            if video_data and video_data.get('src'):
-                src = video_data['src']
-                LOGGER.info("VIDEO FOUND: src=%s visible=%s", src[:150], video_data.get('visible'))
-                import base64
-                b64data = page.evaluate("""async (url) => {
-                    try {
-                        const r = await fetch(url);
-                        if (!r.ok) return 'HTTP:' + r.status;
-                        const blob = await r.blob();
-                        return await new Promise((res, rej) => {
-                            const reader = new FileReader();
-                            reader.onload = () => res(reader.result);
-                            reader.onerror = () => rej('FileReader error');
-                            reader.readAsDataURL(blob);
-                        });
-                    } catch(e) { return 'ERROR:' + e.message; }
-                }""", src)
-                if b64data and b64data.startswith("data:"):
-                    _, data = b64data.split(",", 1)
-                    raw = base64.b64decode(data)
-                    with open(target_path, "wb") as f:
-                        f.write(raw)
-                    LOGGER.info("VIDEO DOWNLOADED: %d bytes from %s", len(raw), src[:80])
-                    _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
-                    return target_path
-        except Exception as vid_err:
-            LOGGER.info("Video extraction from card failed: %s", vid_err)
-        
-        # Step 4: Try clicking play inside the card
-        LOGGER.info("Trying play-click approach...")
-        try:
-            play_btn = page.locator("[aria-label*='play' i] button, button[aria-label*='play' i], [class*='play'] button, .play-button").first
-            if play_btn.is_visible():
-                play_btn.click()
+            btn = page.locator(sel).first
+            if btn.is_visible():
+                LOGGER.info("Play button found: %s", sel)
+                btn.click()
                 page.wait_for_timeout(3000)
-                # Check for new video element
+                # Check if video appeared after click
                 video_after = page.evaluate("""() => {
-                    const v = document.querySelector('video[src*="blob"], video[src], video[currentSrc]');
+                    const v = document.querySelector('video');
                     if (v) return v.currentSrc || v.src || '';
                     return '';
                 }""")
@@ -474,6 +490,7 @@ def download_video(page, target_path: str, settings, selectors: dict) -> str:
                     b64data = page.evaluate("""async (url) => {
                         try {
                             const r = await fetch(url);
+                            if (!r.ok) return 'HTTP:' + r.status;
                             const blob = await r.blob();
                             return await new Promise((res, rej) => {
                                 const reader = new FileReader();
@@ -491,42 +508,18 @@ def download_video(page, target_path: str, settings, selectors: dict) -> str:
                         LOGGER.info("VIDEO DOWNLOADED after play: %d bytes", len(raw))
                         _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
                         return target_path
-        except Exception as play_err:
-            LOGGER.info("Play-click approach failed: %s", play_err)
+                    else:
+                        LOGGER.info("Fetch result: %s", str(b64data)[:100])
+                else:
+                    LOGGER.info("No video src after play click")
+                break
+        except Exception:
+            continue
+    else:
+        LOGGER.info("No play button found with any selector")
     
-    # Step 5: Last resort - extract any video on the page
-    LOGGER.info("Last resort: finding any video on page...")
-    try:
-        any_video = page.evaluate("""() => {
-            const v = document.querySelector('video');
-            if (v) return v.currentSrc || v.src || v.querySelector('source')?.src || '';
-            return '';
-        }""")
-        if any_video:
-            LOGGER.info("ANY VIDEO SRC: %s", any_video[:150])
-            import base64
-            b64data = page.evaluate("""async (url) => {
-                try {
-                    const r = await fetch(url);
-                    const blob = await r.blob();
-                    return await new Promise((res, rej) => {
-                        const reader = new FileReader();
-                        reader.onload = () => res(reader.result);
-                        reader.onerror = () => rej('FileReader error');
-                        reader.readAsDataURL(blob);
-                    });
-                } catch(e) { return 'ERROR:' + e.message; }
-            }""", any_video)
-            if b64data and b64data.startswith("data:"):
-                _, data = b64data.split(",", 1)
-                raw = base64.b64decode(data)
-                with open(target_path, "wb") as f:
-                    f.write(raw)
-                LOGGER.info("VIDEO DOWNLOADED last resort: %d bytes", len(raw))
-                _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
-                return target_path
-    except Exception:
-        pass
+    # Step 5: Take screenshot for visual debugging
+    _dump_network_and_screenshot(page, settings, tag="download-end")
     
     raise NotebookLMError("download video", "could not find or download the generated video")
 
