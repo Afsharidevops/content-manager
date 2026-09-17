@@ -182,13 +182,14 @@ class FakeNotebookLM:
         self.errors = {}
         self.downloads = []
 
-    def submit(self, *, topic, profile, sources=None, content_id=""):
+    def submit(self, *, topic, profile, sources=None, content_id="", duration_profile=""):
         self.submits.append(
             {
                 "topic": topic,
                 "profile": profile,
                 "sources": list(sources or []),
                 "content_id": content_id,
+                "duration_profile": duration_profile,
             }
         )
         job_id = f"nlm-{len(self.submits)}"
