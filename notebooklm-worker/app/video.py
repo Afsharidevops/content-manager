@@ -84,6 +84,14 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
             ph = node.get_attribute("placeholder") or ""
             aria = node.get_attribute("aria-label") or ""
             LOGGER.info("VIDEO PROMPT FIELD: placeholder=%r aria=%r", ph, aria)
+            # Log dialog state before clicking generate
+            try:
+                dialogs = page.locator("[role='dialog']")
+                dlg_count = dialogs.count()
+                dlg_text = dialogs.first.text_content(timeout=300)[:200] if dlg_count > 0 else ''
+                LOGGER.info("BEFORE GENERATE: dialogs=%d text=%r", dlg_count, dlg_text[:80])
+            except Exception:
+                pass
             # Scroll into view and click
             node.scroll_into_view_if_needed()
             node.click()
@@ -104,7 +112,18 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
         LOGGER.warning("Video prompt field not found; generating with the defaults")
     # Dismiss any last-moment notifications before clicking generate
     _dismiss_blocking_notifications(page)
-    click_first(page, selectors["video_generate"], step="start generation")
+    # Use click_first with dismiss=False so the compose dialog stays open
+    # (click_first normally calls dismiss_overlays -> Escape which closes the dialog).
+    click_first(page, selectors["video_generate"], step="start generation", dismiss=False)
+    # Log state after generate click - confirm dialog still open and generation started
+    try:
+        after_gen = page.locator("[role='dialog']")
+        gen_dlg = after_gen.count()
+        gen_vis = after_gen.first.is_visible() if gen_dlg > 0 else False
+        busy_bars = page.locator("[role='progressbar'], mat-progress-bar").count()
+        LOGGER.info("AFTER GENERATE: dialogs=%d visible=%s busy_bars=%d", gen_dlg, gen_vis, busy_bars)
+    except Exception:
+        pass
 
 
 def video_ready(page, selectors: dict) -> bool:
@@ -130,6 +149,7 @@ def wait_for_video(page, settings, selectors: dict) -> None:
     """Poll until the Video Overview finishes rendering."""
     deadline = time.time() + max(60, settings.video_timeout_seconds)
     quiet = 0
+    last_log = 0.0
     while time.time() < deadline:
         if video_ready(page, selectors):
             quiet = quiet + 1 if not video_busy(page) else 0
@@ -137,6 +157,12 @@ def wait_for_video(page, settings, selectors: dict) -> None:
                 return
         else:
             quiet = 0
+        now = time.time()
+        elapsed = now - (time.time() - (deadline - max(60, settings.video_timeout_seconds)))
+        if now - last_log > 30.0:
+            still_busy = video_busy(page)
+            LOGGER.info("WAITING for video generation: %.0fs elapsed, busy=%s", elapsed, still_busy)
+            last_log = now
         page.wait_for_timeout(max(3, settings.poll_seconds) * 1000)
     raise NotebookLMError(
         "video generation",

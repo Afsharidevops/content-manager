@@ -393,9 +393,11 @@ def find_first(page, selectors: list[str], *, timeout: float = 0.0, poll: float 
         time.sleep(poll)
 
 
-def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0):
+def click_first(page, selectors: list[str], *, step: str, timeout: float = 20.0, dismiss: bool = True):
     # First dismiss any overlays that could block clicks
-    dismiss_overlays(page)
+    # (skip when dismiss=False: caller is inside a modal/dialog that should stay open)
+    if dismiss:
+        dismiss_overlays(page)
     # Find the target element
     node = find_first(page, selectors, timeout=timeout)
     if node is None:
