@@ -133,7 +133,7 @@ textarea{min-height:420px;font-family:ui-monospace,SFMono-Regular,Menlo,monospac
   border-radius:12px;padding:11px 14px;margin-bottom:14px;font-size:13px}
 .banner.error{border-color:rgba(255,107,138,.34);background:rgba(255,107,138,.09);color:#ffb3c4}
 pre{background:rgba(7,11,22,.9);border:1px solid var(--line);border-radius:12px;padding:13px;overflow:auto;
-  font-size:12px;max-height:520px;margin:0;white-space:pre-wrap;word-break:break-word;color:#cfe3ff}
+  font-size:12px;max-height:calc(100vh - 260px);min-height:200px;margin:0;white-space:pre-wrap;word-break:break-word;color:#cfe3ff}
 .toast{position:fixed;right:20px;bottom:20px;background:var(--surface-solid);border:1px solid var(--line-strong);
   border-radius:12px;padding:12px 15px;max-width:440px;box-shadow:0 18px 40px rgba(2,6,18,.6)}
 .toast.error{border-color:rgba(255,107,138,.5)}

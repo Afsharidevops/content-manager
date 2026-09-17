@@ -824,19 +824,39 @@ async function renderLogs() {
   const status = await api("/api/status");
   const services = (status.services || []).map((service) => service.service).filter(Boolean);
   const select = h("select", null, ...services.map((name) => h("option", { value: name, text: name })));
-  const tail = h("select", null, ...[100, 200, 500, 1000].map((value) => h("option", { value, text: `${value} lines` })));
-  tail.value = "200";
+  const tail = h("select", null, ...[100, 200, 500, 1000, 2000, 5000].map((value) => h("option", { value, text: `${value} lines` })));
+  tail.value = "500";
   const output = h("pre", { text: "Choose a service and press Load logs." });
+  const filterInput = h("input", {
+    type: "text",
+    placeholder: "Filter logs...",
+    style: "flex:1;min-width:120px",
+  });
+  let _allLines = [];
+
+  function applyFilter() {
+    const q = filterInput.value.toLowerCase().trim();
+    if (!q) {
+      output.textContent = _allLines.join("\n") || "(no output)";
+      return;
+    }
+    const matched = _allLines.filter(line => line.toLowerCase().includes(q));
+    output.textContent = matched.join("\n") || "(no matches for \"" + q + "")";
+  }
 
   async function load() {
     output.textContent = "Loading...";
     try {
       const data = await api(`/api/logs/${encodeURIComponent(select.value)}?lines=${tail.value}`);
-      output.textContent = (data.lines || []).join("\n") || "(no output)";
+      _allLines = data.lines || [];
+      applyFilter();
     } catch (error) {
       output.textContent = String(error.message);
+      _allLines = [];
     }
   }
+
+  filterInput.addEventListener("input", applyFilter);
 
   const auto = h("input", { type: "checkbox" });
   clearInterval(autoRefreshTimer);
@@ -851,6 +871,10 @@ async function renderLogs() {
         h("div", { class: "row" }, select, tail,
           h("button", { class: "btn primary", type: "button", text: "Load logs", onclick: load })),
         h("label", { class: "row muted small" }, auto, "auto-refresh every 5s"),
+      ),
+      h("div", { class: "row", style: "margin:6px 0" },
+        filterInput,
+        h("span", { id: "log-count", class: "muted small" }),
       ),
       output,
     ),

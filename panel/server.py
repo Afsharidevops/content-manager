@@ -1020,7 +1020,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             for chunk in query.split("&"):
                 if chunk.startswith("lines="):
                     digits = re.sub(r"\D", "", chunk.split("=", 1)[1])
-                    lines = max(10, min(int(digits or "200"), 2000))
+                    lines = max(10, min(int(digits or "200"), 5000))
             self._send_json(
                 HTTPStatus.OK,
                 {"service": parts[1], "lines": self.app.stack.logs(parts[1], lines=lines)},
