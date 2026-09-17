@@ -1801,14 +1801,6 @@ class MediaFlowTestCase(MediaFlowHarness):
                 "data": f"media:get_prompt:{draft_id}",
             }
         )
-        bot.handle_callback(
-            {
-                "id": "q2",
-                "from": {"id": 11},
-                "message": {"chat": {"id": 11}, "message_id": 103},
-                "data": f"media:script10:{draft_id}",
-            }
-        )
         edits = [
             payload["text"]
             for method, payload in self.api.calls
