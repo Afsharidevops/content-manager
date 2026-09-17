@@ -160,7 +160,11 @@ class PanelApp:
         """Fetch profiles + duration targets from the NotebookLM worker."""
         try:
             import urllib.request
-            resp = urllib.request.urlopen("http://notebooklm-worker:8860/profiles", timeout=10)
+            token = self.env_value("NOTEBOOKLM_API_TOKEN", "")
+            req = urllib.request.Request("http://notebooklm-worker:8860/profiles")
+            if token:
+                req.add_header("Authorization", f"Bearer {token}")
+            resp = urllib.request.urlopen(req, timeout=10)
             if resp.status == 200:
                 return json.loads(resp.read().decode())
             return {"ok": False, "error": f"worker returned HTTP {resp.status}"}
@@ -172,6 +176,7 @@ class PanelApp:
         import json as _j
         try:
             import urllib.request
+            token = self.env_value("NOTEBOOKLM_API_TOKEN", "")
             payload = {}
             if "profiles" in body and isinstance(body["profiles"], dict):
                 payload["profiles"] = body["profiles"]
@@ -183,6 +188,8 @@ class PanelApp:
                 data=data, method="PUT",
                 headers={"Content-Type": "application/json"},
             )
+            if token:
+                req.add_header("Authorization", f"Bearer {token}")
             resp = urllib.request.urlopen(req, timeout=15)
             if resp.status == 200:
                 return _j.loads(resp.read().decode())
