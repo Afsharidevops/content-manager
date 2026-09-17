@@ -62,6 +62,17 @@ def _dismiss_blocking_notifications(page) -> int:
 def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
     """Open the Video Overview composer and submit the rendered prompt."""
     # Dismiss any blocking notifications before starting
+    # Start network request monitoring
+    _video_requests = []
+    def _on_request(request):
+        url = request.url
+        if "notebook" in url or "video" in url or "overview" in url or "generate" in url:
+            _video_requests.append({"url": url, "method": request.method, "headers": dict(request.headers)})
+    try:
+        page._video_requests = _video_requests
+        page.on("request", _on_request)
+    except Exception:
+        pass
     _dismiss_blocking_notifications(page)
     click_first(page, selectors["video_overview"], step="open video overview")
     page.wait_for_timeout(2000)
@@ -138,15 +149,63 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
         LOGGER.warning("Video prompt field not found; generating with the defaults")
     # Dismiss any last-moment notifications before clicking generate
     _dismiss_blocking_notifications(page)
-    # Use click_first with dismiss=False so the compose dialog stays open
-    # (click_first normally calls dismiss_overlays -> Escape which closes the dialog).
-    click_first(page, selectors["video_generate"], step="start generation", dismiss=False)
-    # Log state after generate click - confirm dialog still open and generation started
+    # Find the generate button and try multiple click strategies
+    # NotebookLM uses Angular Material which may not respond to Playwright clicks
+    gen_node = find_first(page, selectors["video_generate"], timeout=10)
+    if gen_node is not None:
+        # Log button state before click
+        try:
+            btn_disabled = gen_node.is_disabled()
+            btn_text = gen_node.text_content(timeout=300) or ""
+            btn_aria = gen_node.get_attribute("aria-label") or ""
+            btn_classes = gen_node.get_attribute("class") or ""
+            LOGGER.info("GENERATE BTN BEFORE: disabled=%s text=%r aria=%r", btn_disabled, btn_text.strip()[:40], btn_aria)
+        except Exception:
+            pass
+        # Strategy 1: normal click
+        try:
+            gen_node.click(timeout=3000)
+            LOGGER.info("GENERATE: click done")
+        except Exception as exc:
+            LOGGER.info("GENERATE: normal click failed: %s", exc)
+            # Strategy 2: force click
+            try:
+                gen_node.click(force=True, timeout=3000, no_wait_after=True)
+                LOGGER.info("GENERATE: force click done")
+            except Exception as exc2:
+                LOGGER.info("GENERATE: force click failed: %s", exc2)
+                # Strategy 3: JS MouseEvent
+                try:
+                    page.evaluate("(el) => el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}))", gen_node)
+                    LOGGER.info("GENERATE: JS MouseEvent done")
+                except Exception as exc3:
+                    LOGGER.info("GENERATE: JS MouseEvent failed: %s", exc3)
+                    # Strategy 4: keyboard Enter
+                    try:
+                        gen_node.focus()
+                        page.keyboard.press("Enter")
+                        LOGGER.info("GENERATE: keyboard Enter done")
+                    except Exception as exc4:
+                        LOGGER.warning("GENERATE: all click strategies failed: %s", exc4)
+        page.wait_for_timeout(1500)
+        # Take screenshot and dump network requests right after click
+        _dump_network_and_screenshot(page, settings, tag="after-generate")
+    else:
+        LOGGER.warning("GENERATE: button not found")
+    # Log state after generate click
     try:
         after_gen = page.locator("[role='dialog']")
         gen_dlg = after_gen.count()
         gen_vis = after_gen.first.is_visible() if gen_dlg > 0 else False
         busy_bars = page.locator("[role='progressbar'], mat-progress-bar").count()
+        # Log button state after click
+        try:
+            if gen_node:
+                btn_disabled2 = gen_node.is_disabled()
+                btn_text2 = gen_node.text_content(timeout=300) or ""
+                LOGGER.info("GENERATE BTN AFTER: disabled=%s text=%r", btn_disabled2, btn_text2.strip()[:40])
+        except Exception:
+            pass
         LOGGER.info("AFTER GENERATE: dialogs=%d visible=%s busy_bars=%d", gen_dlg, gen_vis, busy_bars)
     except Exception:
         pass
@@ -171,6 +230,22 @@ def video_busy(page) -> bool:
     return busy > 0
 
 
+def _dump_network_and_screenshot(page, settings, tag: str = "") -> None:
+    """Dump captured network requests and save a screenshot for debugging."""
+    import json as _json
+    try:
+        reqs = getattr(page, "_video_requests", []) or []
+        if reqs:
+            LOGGER.info("NETWORK REQUESTS [%s]: %s", tag, _json.dumps([{"url": r["url"][:200], "method": r["method"]} for r in reqs], ensure_ascii=False)[:1000])
+    except Exception:
+        pass
+    try:
+        ss_path = os.path.join(settings.data_dir, "logs", f"video-{tag}-{int(time.time())}.png")
+        page.screenshot(path=ss_path)
+        LOGGER.info("SCREENSHOT [%s]: %s", tag, ss_path)
+    except Exception:
+        pass
+
 def wait_for_video(page, settings, selectors: dict) -> None:
     """Poll until the Video Overview finishes rendering."""
     start = time.time()
@@ -191,13 +266,7 @@ def wait_for_video(page, settings, selectors: dict) -> None:
             LOGGER.info("WAITING for video: %.0fs elapsed, busy=%s", elapsed, still_busy)
             last_log = now
         page.wait_for_timeout(max(3, settings.poll_seconds) * 1000)
-    # Timeout - save screenshot before raising
-    try:
-        ss_path = os.path.join(settings.data_dir, "logs", f"video-timeout-{int(time.time())}.png")
-        page.screenshot(path=ss_path)
-        LOGGER.info("Video timeout screenshot saved: %s", ss_path)
-    except Exception:
-        pass
+    _dump_network_and_screenshot(page, settings, tag="timeout")
     raise NotebookLMError(
         "video generation",
         f"the overview was not ready after {settings.video_timeout_seconds}s",
