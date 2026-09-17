@@ -62,15 +62,26 @@ def _dismiss_blocking_notifications(page) -> int:
 def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
     """Open the Video Overview composer and submit the rendered prompt."""
     # Dismiss any blocking notifications before starting
-    # Start network request monitoring
+    # Start network monitoring (requests + responses)
     _video_requests = []
+    _video_responses = []
     def _on_request(request):
         url = request.url
-        if "notebook" in url or "video" in url or "overview" in url or "generate" in url:
-            _video_requests.append({"url": url, "method": request.method, "headers": dict(request.headers)})
+        if "notebook" in url or "video" in url or "overview" in url or "generate" in url or "batchexecute" in url:
+            _video_requests.append({"url": url, "method": request.method})
+    def _on_response(response):
+        url = response.url
+        if "batchexecute" in url or "rpcids=" in url or "EylDcb" in url or "sODAg" in url:
+            try:
+                body = response.text()[:2000]
+                _video_responses.append({"url": url, "status": response.status, "body": body})
+            except Exception:
+                pass
     try:
         page._video_requests = _video_requests
+        page._video_responses = _video_responses
         page.on("request", _on_request)
+        page.on("response", _on_response)
     except Exception:
         pass
     _dismiss_blocking_notifications(page)
@@ -248,12 +259,18 @@ def video_ready(page, selectors: dict) -> bool:
 
 
 def _dump_network_and_screenshot(page, settings, tag: str = "") -> None:
-    """Dump captured network requests and save a screenshot for debugging."""
+    """Dump captured network requests/responses and save a screenshot."""
     import json as _json
     try:
         reqs = getattr(page, "_video_requests", []) or []
         if reqs:
             LOGGER.info("NETWORK REQUESTS [%s]: %s", tag, _json.dumps([{"url": r["url"][:200], "method": r["method"]} for r in reqs], ensure_ascii=False)[:1000])
+    except Exception:
+        pass
+    try:
+        resps = getattr(page, "_video_responses", []) or []
+        for r in resps:
+            LOGGER.info("NETWORK RESPONSE [%s]: url=%s status=%s body=%s", tag, r.get("url","")[:200], r.get("status"), r.get("body","")[:500])
     except Exception:
         pass
     try:
