@@ -850,6 +850,8 @@ async function renderLogs() {
       const data = await api(`/api/logs/${encodeURIComponent(select.value)}?lines=${tail.value}`);
       _allLines = data.lines || [];
       applyFilter();
+      // Auto-scroll to bottom (tail -f behavior)
+      setTimeout(function() { if (output) output.scrollTop = output.scrollHeight; }, 50);
     } catch (error) {
       output.textContent = String(error.message);
       _allLines = [];
