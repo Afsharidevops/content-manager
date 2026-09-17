@@ -841,7 +841,7 @@ async function renderLogs() {
       return;
     }
     const matched = _allLines.filter(line => line.toLowerCase().includes(q));
-    output.textContent = matched.join("\n") || "(no matches for \"" + q + "")";
+    output.textContent = matched.join("\n") || '(no matches for "' + q + '")';
   }
 
   async function load() {
