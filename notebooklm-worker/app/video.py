@@ -355,40 +355,138 @@ def download_video(page, target_path: str, settings, selectors: dict) -> str:
             except Exception:
                 continue
         if artifact_node is not None:
+            # DEEP artifact DOM dump for debugging
             try:
-                html = artifact_node.evaluate("(el) => el.outerHTML.substring(0, 2000)")
-                LOGGER.info("ARTIFACT DOM: %s", html)
-            except Exception:
-                pass
-            # Extract video src (works for blob URLs too)
-            try:
-                video_src = artifact_node.evaluate("""(el) => {
-                    const v = el.querySelector('video');
-                    return v ? (v.currentSrc || v.src || '') : '';
+                info = artifact_node.evaluate("""(el) => {
+                    const result = {};
+                    result.tag = el.tagName;
+                    result.className = el.className;
+                    result.outerHTML = el.outerHTML.substring(0, 3000);
+                    // Find all video/source elements
+                    const videos = el.querySelectorAll('video, source, iframe');
+                    result.media = Array.from(videos).map(v => ({
+                        tag: v.tagName,
+                        src: v.src || v.currentSrc || '',
+                        type: v.type || '',
+                        srcAttr: v.getAttribute('src') || '',
+                    }));
+                    // Find all buttons
+                    const btns = el.querySelectorAll('button, [role="button"], a, [role="menuitem"]');
+                    result.buttons = Array.from(btns).map(b => ({
+                        tag: b.tagName,
+                        text: (b.textContent || '').trim().substring(0, 60),
+                        aria: b.getAttribute('aria-label') || '',
+                        href: b.getAttribute('href') || '',
+                        download: b.getAttribute('download') || '',
+                        class: (b.className || '').substring(0, 60),
+                    }));
+                    // Find all links/anchors
+                    const links = el.querySelectorAll('[href], [src]');
+                    result.urls = Array.from(links).map(l => ({
+                        tag: l.tagName,
+                        href: l.getAttribute('href') || '',
+                        src: l.getAttribute('src') || '',
+                        download: l.getAttribute('download') || '',
+                    }));
+                    // Find all iframes
+                    const iframes = el.querySelectorAll('iframe');
+                    result.iframes = Array.from(iframes).map(f => ({
+                        src: f.src || f.getAttribute('src') || '',
+                        srcdoc: (f.srcdoc || '').substring(0, 200),
+                    }));
+                    // Check for blob URLs
+                    result.blobUrls = [];
+                    Array.from(el.querySelectorAll('[src*="blob:"], [href*="blob:"]')).forEach(n => {
+                        result.blobUrls.push(n.src || n.href || '');
+                    });
+                    // Check for shadow DOM
+                    if (el.shadowRoot) {
+                        result.shadowHTML = el.shadowRoot.innerHTML.substring(0, 1000);
+                    }
+                    return result;
                 }""")
-                if video_src:
-                    LOGGER.info("VIDEO DIRECT SRC found, downloading via fetch...")
-                    b64result = page.evaluate("""async (url) => {
-                        const r = await fetch(url);
-                        const blob = await r.blob();
-                        return await new Promise((res, rej) => {
-                            const reader = new FileReader();
-                            reader.onload = () => res(reader.result);
-                            reader.onerror = () => rej('FileReader error');
-                            reader.readAsDataURL(blob);
-                        });
-                    }""", video_src)
-                    if b64result and b64result.startswith("data:"):
-                        import base64
-                        _, b64 = b64result.split(",", 1)
-                        raw = base64.b64decode(b64)
-                        with open(target_path, "wb") as f:
-                            f.write(raw)
-                        LOGGER.info("VIDEO DOWNLOADED via direct fetch: %d bytes", len(raw))
-                        _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
-                        return target_path
-            except Exception as e1:
-                LOGGER.info("Direct src extraction failed: %s", e1)
+                LOGGER.info("ARTIFACT DUMP: tag=%s class=%s", info.get('tag'), info.get('className','')[:80])
+                for m in info.get('media', []):
+                    LOGGER.info("ARTIFACT MEDIA: %s src=%s type=%s", m['tag'], m['src'][:150], m['type'])
+                for b in info.get('buttons', []):
+                    LOGGER.info("ARTIFACT BTN: text=%s aria=%s href=%s download=%s", b['text'][:40], b['aria'][:30], b['href'][:60], b['download'])
+                for u in info.get('urls', []):
+                    LOGGER.info("ARTIFACT URL: %s href=%s src=%s", u['tag'], u['href'][:80], u['src'][:80])
+                for f in info.get('iframes', []):
+                    LOGGER.info("ARTIFACT IFRAME: src=%s", f['src'][:200])
+                for b in info.get('blobUrls', []):
+                    LOGGER.info("ARTIFACT BLOB: %s", b[:200])
+                if info.get('shadowHTML'):
+                    LOGGER.info("ARTIFACT SHADOW: %s", info['shadowHTML'][:500])
+            except Exception as dump_err:
+                LOGGER.info("Artifact DOM dump failed: %s", dump_err)
+            # Try to find video src and download
+            try:
+                # Strategy A: find blob URLs directly
+                blob_url = artifact_node.evaluate("""(el) => {
+                    const all = el.querySelectorAll('[src*="blob:"], [href*="blob:"]');
+                    for (const n of all) { return n.src || n.href || ''; }
+                    const v = el.querySelector('video');
+                    if (v) return v.currentSrc || v.src || '';
+                    const s = el.querySelector('source');
+                    if (s) return s.src || '';
+                    const f = el.querySelector('iframe');
+                    if (f) return f.src || '';
+                    return '';
+                }""")
+                if blob_url:
+                    LOGGER.info("VIDEO BLOB URL: %s", blob_url[:200])
+                    # For blob URLs, we need a different approach
+                    # The blob is same-origin, so we can use fetch
+                    if blob_url.startswith('blob:'):
+                        try:
+                            import base64
+                            b64 = page.evaluate("""async (url) => {
+                                const r = await fetch(url);
+                                const blob = await r.blob();
+                                return await new Promise((res, rej) => {
+                                    const reader = new FileReader();
+                                    reader.onload = () => res(reader.result);
+                                    reader.onerror = () => rej('FileReader error');
+                                    reader.readAsDataURL(blob);
+                                });
+                            }""", blob_url)
+                            if b64 and b64.startswith("data:"):
+                                _, data = b64.split(",", 1)
+                                raw = base64.b64decode(data)
+                                with open(target_path, "wb") as f:
+                                    f.write(raw)
+                                LOGGER.info("VIDEO DOWNLOADED via blob fetch: %d bytes", len(raw))
+                                _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
+                                return target_path
+                        except Exception as fetch_err:
+                            LOGGER.info("Blob fetch failed: %s", fetch_err)
+                    else:
+                        # Regular URL - try fetch
+                        try:
+                            import base64
+                            b64 = page.evaluate("""async (url) => {
+                                const r = await fetch(url);
+                                const blob = await r.blob();
+                                return await new Promise((res, rej) => {
+                                    const reader = new FileReader();
+                                    reader.onload = () => res(reader.result);
+                                    reader.onerror = () => rej('FileReader error');
+                                    reader.readAsDataURL(blob);
+                                });
+                            }""", blob_url)
+                            if b64 and b64.startswith("data:"):
+                                _, data = b64.split(",", 1)
+                                raw = base64.b64decode(data)
+                                with open(target_path, "wb") as f:
+                                    f.write(raw)
+                                LOGGER.info("VIDEO DOWNLOADED via URL fetch: %d bytes", len(raw))
+                                _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
+                                return target_path
+                        except Exception as fetch_err:
+                            LOGGER.info("URL fetch failed: %s", fetch_err)
+            except Exception as src_err:
+                LOGGER.info("Video src extraction failed: %s", src_err)
     except Exception as e2:
         LOGGER.info("Artifact processing failed: %s", e2)
 
