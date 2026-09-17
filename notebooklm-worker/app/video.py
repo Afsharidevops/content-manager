@@ -247,9 +247,36 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
                     LOGGER.info("GENERATE: keyboard Enter on prompt field done")
         except Exception:
             pass
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(2000)
+        # Try keyboard Enter on prompt field if dialog still open (as extra submit signal)
+        try:
+            if page.locator("[role='dialog']").count() > 0:
+                # Find prompt field and press Enter to submit
+                prompt_field = page.locator(selectors["video_prompt"][0]).first
+                if prompt_field.is_visible():
+                    prompt_field.focus()
+                    page.wait_for_timeout(200)
+                    page.keyboard.press("Enter")
+                    page.wait_for_timeout(1000)
+                    LOGGER.info("GENERATE: keyboard Enter submit done")
+        except Exception:
+            pass
+        page.wait_for_timeout(2000)
         # Take screenshot and dump network requests right after click
         _dump_network_and_screenshot(page, settings, tag="after-generate")
+        # Also capture console errors from the browser
+        try:
+            console_errors = []
+            def _on_console(msg):
+                if msg.type == 'error':
+                    console_errors.append(msg.text[:300])
+            page.on('console', _on_console)
+            page.wait_for_timeout(500)
+            if console_errors:
+                for err in console_errors:
+                    LOGGER.warning("CONSOLE ERROR: %s", err)
+        except Exception:
+            pass
     else:
         LOGGER.warning("GENERATE: button not found")
     # Log state after generate click
