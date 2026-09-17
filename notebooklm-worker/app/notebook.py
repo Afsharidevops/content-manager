@@ -180,10 +180,14 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[role='dialog'] [contenteditable='true']",
     ],
     "video_generate": [
-        "[role='dialog'] button:has-text('ساختن')",
+        "[role='dialog'] button:has-text('اکنون تولید')",
         "[role='dialog'] button:has-text('ایجاد')",
-        "[role='dialog'] button:has-text('تولید')",
-        "[role='dialog'] button:has-text('Generate')",
+        "[role='dialog'] button:has-text('بساز')",
+        "[role='dialog'] button.mat-mdc-unelevated-button:has-text('تولید')",
+        "[role='dialog'] button.mat-mdc-unelevated-button",
+        "[role='dialog'] button:not(:has-text('بعداً')):has-text('تولید')",
+        "[role='dialog'] button:not(:has-text('بعداً')):has-text('ساخت')",
+        "[role='dialog'] button:not(:has-text('بعداً')):has-text('Generate')",
     ],
     "video_ready": [
         "video[src*='blob']",

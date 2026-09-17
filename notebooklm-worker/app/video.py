@@ -160,17 +160,54 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
         LOGGER.warning("Video prompt field not found; generating with the defaults")
     # Dismiss any last-moment notifications before clicking generate
     _dismiss_blocking_notifications(page)
+    # Log ALL buttons inside the dialog before clicking
+    try:
+        all_btns = page.evaluate("""() => {
+            const dialog = document.querySelector('[role=\"dialog\"]');
+            if (!dialog) return [];
+            return Array.from(dialog.querySelectorAll('button')).map(b => ({
+                text: (b.textContent || '').trim().substring(0, 50),
+                aria: b.getAttribute('aria-label') || '',
+                cls: (b.className || '').substring(0, 60),
+                disabled: b.disabled || b.hasAttribute('disabled'),
+                rect: (function(){const r=b.getBoundingClientRect(); return {t:r.top,l:r.left,w:r.width,h:r.height};})(),
+            }));
+        }""")
+        LOGGER.info("DIALOG BUTTONS:")
+        for i, b in enumerate(all_btns or []):
+            LOGGER.info("  [%d] text=%s aria=%s disabled=%s rect=%dx%d", i, b.get('text','')[:40], b.get('aria','')[:30], b.get('disabled'), b.get('rect',{}).get('w',0), b.get('rect',{}).get('h',0))
+        # Check if the only matching button is the "later" dismiss
+        dismiss_btns = [b for b in (all_btns or []) if 'بعداً' in b.get('text','') or 'later' in b.get('text','').lower() or 'skip' in b.get('text','').lower()]
+        if dismiss_btns and not [b for b in (all_btns or []) if 'بعداً' not in b.get('text','') and ('تولید' in b.get('text','') or 'ساخت' in b.get('text','') or 'ایجاد' in b.get('text','') or 'create' in b.get('text','').lower() or 'generate' in b.get('text','').lower())]:
+            LOGGER.warning("Only dismiss button found! The real generate/submit button is missing.")
+    except Exception as e:
+        LOGGER.info("Button dump failed: %s", e)
+    
     # Find the generate button and try multiple click strategies
     # NotebookLM uses Angular Material which may not respond to Playwright clicks
+    # Prefer the primary submit button (usually has mat-mdc-unelevated-button class)
     gen_node = find_first(page, selectors["video_generate"], timeout=10)
     if gen_node is not None:
+        # Verify we're NOT about to click the dismiss button
+        actual_text = ""
+        try:
+            actual_text = (gen_node.text_content(timeout=200) or "").strip()
+            if "بعداً" in actual_text:
+                LOGGER.error("WRONG BUTTON (dismiss): '%s' - trying alternate selector", actual_text[:50])
+                # Try to find the real submit button
+                gen_node = find_first(page, [
+                    s for s in selectors["video_generate"] 
+                    if "بعداً" not in s
+                ], timeout=5)
+        except Exception:
+            pass
         # Log button state before click
         try:
             btn_disabled = gen_node.is_disabled()
             btn_text = gen_node.text_content(timeout=300) or ""
             btn_aria = gen_node.get_attribute("aria-label") or ""
             btn_classes = gen_node.get_attribute("class") or ""
-            LOGGER.info("GENERATE BTN BEFORE: disabled=%s text=%r aria=%r", btn_disabled, btn_text.strip()[:40], btn_aria)
+            LOGGER.info("GENERATE BTN BEFORE: disabled=%s text=%r aria=%r class=%s", btn_disabled, btn_text.strip()[:50], btn_aria, btn_classes[:40])
         except Exception:
             pass
         # Strategy 1: normal click
