@@ -1611,7 +1611,7 @@ class MediaFlowTestCase(MediaFlowHarness):
         self.assertEqual(record["status"], "media_ready")
         self.assertEqual(Path(record["media"]["local_path"]).read_bytes(), b"fake-media-bytes")
 
-    def Xtest_uploaded_video_is_not_branded(self):
+    def test_uploaded_video_is_not_branded(self):
         bot = self.build_bot(artifact=("clip.mp4", "video"))
         draft_id = self.send_link(bot)
         bot.handle_callback(
@@ -1619,7 +1619,7 @@ class MediaFlowTestCase(MediaFlowHarness):
                 "id": "q1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 103},
-                "data": f"media:get_prompt:{draft_id}",
+                "data": f"media:video_prompt:{draft_id}",
             }
         )
         bot.handle_callback(
@@ -1654,7 +1654,7 @@ class MediaFlowTestCase(MediaFlowHarness):
                 "id": "q1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 103},
-                "data": f"media:get_prompt:{draft_id}",
+                "data": f"media:video_prompt:{draft_id}",
             }
         )
         style_rows = [
@@ -1698,7 +1698,7 @@ class MediaFlowTestCase(MediaFlowHarness):
         draft_id = self.send_link(bot)
         for index, data in enumerate(
             (
-                f"media:get_prompt:{draft_id}",
+                f"media:video_prompt:{draft_id}",
                 f"media:vstyle_char:{draft_id}",
                 f"media:script30:{draft_id}",
             )
@@ -1733,7 +1733,7 @@ class MediaFlowTestCase(MediaFlowHarness):
                 "id": "q1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 103},
-                "data": f"media:get_prompt:{draft_id}",
+                "data": f"media:video_prompt:{draft_id}",
             }
         )
         bot.handle_callback(
@@ -1775,7 +1775,7 @@ class MediaFlowTestCase(MediaFlowHarness):
                 "id": "q1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 103},
-                "data": f"media:get_prompt:{draft_id}",
+                "data": f"media:video_prompt:{draft_id}",
             }
         )
         bot.handle_callback(
@@ -1868,7 +1868,7 @@ class MediaFlowTestCase(MediaFlowHarness):
                 "id": "q1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 103},
-                "data": f"media:get_prompt:{draft_id}",
+                "data": f"media:video_prompt:{draft_id}",
             }
         )
         bot.handle_callback(
@@ -2687,7 +2687,7 @@ class UploadedVideoEditTests(MediaFlowHarness):
                 "id": "q1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 103},
-                "data": f"media:get_prompt:{draft_id}",
+                "data": f"media:video_prompt:{draft_id}",
             }
         )
         bot.handle_callback(
@@ -2847,7 +2847,7 @@ class UploadedVideoEditTests(MediaFlowHarness):
                 "id": "q1",
                 "from": {"id": 11},
                 "message": {"chat": {"id": 11}, "message_id": 103},
-                "data": f"media:get_prompt:{draft_id}",
+                "data": f"media:video_prompt:{draft_id}",
             }
         )
         bot.handle_callback(
