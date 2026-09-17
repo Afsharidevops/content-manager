@@ -67,6 +67,19 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
     page.wait_for_timeout(2000)
     # Dismiss notifications that appeared after clicking video overview
     _dismiss_blocking_notifications(page)
+    # Wait for the compose dialog to actually appear (with retry)
+    _found_dialog = False
+    for _ in range(3):
+        if page.locator("[role='dialog']").count() > 0:
+            _found_dialog = True
+            break
+        page.wait_for_timeout(1000)
+        # Retry clicking video overview in case the first click missed
+        click_first(page, selectors["video_overview"], step="retry video overview")
+        page.wait_for_timeout(1000)
+    if not _found_dialog:
+        LOGGER.warning("Video compose dialog did NOT open after clicking Video Overview")
+    # Now look for customize button
     customize = find_first(page, selectors["video_customize"], timeout=4)
     if customize is not None:
         try:
@@ -147,7 +160,8 @@ def video_busy(page) -> bool:
 
 def wait_for_video(page, settings, selectors: dict) -> None:
     """Poll until the Video Overview finishes rendering."""
-    deadline = time.time() + max(60, settings.video_timeout_seconds)
+    start = time.time()
+    deadline = start + max(60, settings.video_timeout_seconds)
     quiet = 0
     last_log = 0.0
     while time.time() < deadline:
@@ -158,12 +172,19 @@ def wait_for_video(page, settings, selectors: dict) -> None:
         else:
             quiet = 0
         now = time.time()
-        elapsed = now - (time.time() - (deadline - max(60, settings.video_timeout_seconds)))
+        elapsed = now - start
         if now - last_log > 30.0:
             still_busy = video_busy(page)
-            LOGGER.info("WAITING for video generation: %.0fs elapsed, busy=%s", elapsed, still_busy)
+            LOGGER.info("WAITING for video: %.0fs elapsed, busy=%s", elapsed, still_busy)
             last_log = now
         page.wait_for_timeout(max(3, settings.poll_seconds) * 1000)
+    # Timeout - save screenshot before raising
+    try:
+        ss_path = os.path.join(settings.data_dir, "logs", f"video-timeout-{int(time.time())}.png")
+        page.screenshot(path=ss_path)
+        LOGGER.info("Video timeout screenshot saved: %s", ss_path)
+    except Exception:
+        pass
     raise NotebookLMError(
         "video generation",
         f"the overview was not ready after {settings.video_timeout_seconds}s",
