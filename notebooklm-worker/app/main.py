@@ -26,6 +26,8 @@ def configure_logging(level: str) -> None:
 
 
 def run_server(settings: Settings) -> int:
+    from app import prompts as _prompts
+    _prompts.apply_config(settings.data_dir)
     store = JobStore(os.path.join(settings.data_dir, "jobs.json"))
     runner = JobRunner(settings, store)
     runner.start()

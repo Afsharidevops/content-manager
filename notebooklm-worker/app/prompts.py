@@ -57,11 +57,61 @@ PROFILES: dict[str, VideoProfile] = {
 DEFAULT_PROFILE = "technical_fa"
 
 #: Coarse length buckets the caller may pick instead of the profile default.
+import json as _json
+import os as _os
+
 DURATION_TARGETS = {
+    "1min": "approximately 1 minute",
+    "3min": "approximately 3 minutes",
+    "5min": "approximately 5 minutes",
     "short": "2 to 3 minutes",
     "standard": "5 to 8 minutes",
     "deep": "10 to 15 minutes",
 }
+
+_env_targets = _os.environ.get("NOTEBOOKLM_DURATION_TARGETS", "").strip()
+if _env_targets:
+    try:
+        parsed = _json.loads(_env_targets)
+        if isinstance(parsed, dict) and parsed:
+            DURATION_TARGETS.update({k: str(v) for k, v in parsed.items()})
+    except ValueError:
+        import logging as _logging
+        _logging.getLogger("notebooklm.prompts").warning(
+            "NOTEBOOKLM_DURATION_TARGETS is not valid JSON, ignoring"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Config manager integration – merge saved overrides into module-level dicts.
+# ``apply_config(data_dir)`` is called once at server startup so that the
+# rest of the code continues to read ``PROFILES`` / ``DURATION_TARGETS``.
+# ---------------------------------------------------------------------------
+
+def apply_config(data_dir: str = "") -> None:
+    """Merge saved profile + duration overrides into the module globals."""
+    if not data_dir or not _os.path.isdir(data_dir):
+        return
+    from app import config_manager  # noqa: E402 – late import avoids circular imports
+
+    saved_profiles = config_manager.get_profiles(data_dir)
+    for name, values in saved_profiles.items():
+        if not isinstance(values, dict):
+            continue
+        existing = PROFILES.get(name)
+        PROFILES[name] = VideoProfile(
+            name=str(values.get("name", name)),
+            language=str(values.get("language", getattr(existing, "language", "English"))),
+            duration=str(values.get("duration", getattr(existing, "duration", "5 minutes"))),
+            voice_gender=str(values.get("voice_gender", getattr(existing, "voice_gender", "neutral"))),
+            style=str(values.get("style", getattr(existing, "style", "general"))),
+            tone=str(values.get("tone", getattr(existing, "tone", "neutral"))),
+            audience=str(values.get("audience", getattr(existing, "audience", "General"))),
+        )
+    saved_targets = config_manager.get_duration_targets(data_dir)
+    for key, value in saved_targets.items():
+        if isinstance(value, str) and value.strip():
+            DURATION_TARGETS[str(key)] = value
 
 PROMPT_TEMPLATE = """Create an educational video in {language}.
 

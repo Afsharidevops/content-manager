@@ -61,6 +61,7 @@ class Settings:
     timezone_id: str = "Asia/Tehran"
     log_level: str = "INFO"
     keep_screenshots: bool = True
+    trim_last_seconds: int = 0
     upload_ttl_seconds: int = 86400
     session_import_path: str = ""
     google_email: str = ""
@@ -99,5 +100,6 @@ class Settings:
             timezone_id=_env("NOTEBOOKLM_TIMEZONE", "Asia/Tehran"),
             log_level=_env("NOTEBOOKLM_LOG_LEVEL", "INFO").upper(),
             keep_screenshots=_env_bool("NOTEBOOKLM_KEEP_SCREENSHOTS", True),
+            trim_last_seconds=_env_int("NOTEBOOKLM_TRIM_LAST_SECONDS", 0),
             upload_ttl_seconds=_env_int("NOTEBOOKLM_UPLOAD_TTL_SECONDS", 86400),
         )

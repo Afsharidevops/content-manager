@@ -414,6 +414,15 @@ NOTEBOOKLM_PROFILES = (
     ("Short news overview", "news_fa", "nlm_news"),
 )
 
+#: Duration options shown after profile selection. The key is the
+#: ``duration_profile`` value sent to the worker; the sub is the callback
+#: suffix for Telegram inline keyboards.
+NOTEBOOKLM_DURATION_OPTIONS = (
+    ("~1 minute", "1min"),
+    ("~3 minutes", "3min"),
+    ("~5 minutes", "5min"),
+)
+
 
 def notebooklm_profile_keyboard(draft_id: str) -> dict:
     """Pick the NotebookLM video profile before the job starts."""
@@ -421,6 +430,23 @@ def notebooklm_profile_keyboard(draft_id: str) -> dict:
         [{"text": label, "callback_data": f"media:{sub}:{draft_id}"}]
         for label, _value, sub in NOTEBOOKLM_PROFILES
     ]
+    rows.append([{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}])
+    return {"inline_keyboard": rows}
+
+
+def notebooklm_duration_keyboard(draft_id: str, profile_sub: str) -> dict:
+    """Pick the video length after the profile has been chosen."""
+    rows = [
+        [
+            {
+                "text": label,
+                "callback_data": f"media:nlm_dur_{key}:{draft_id}",
+            }
+        ]
+        for label, key in NOTEBOOKLM_DURATION_OPTIONS
+    ]
+    cancel = {"text": "Default length", "callback_data": f"media:nlm_dur_:{draft_id}"}
+    rows.append([cancel])
     rows.append([{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}])
     return {"inline_keyboard": rows}
 

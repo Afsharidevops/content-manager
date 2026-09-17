@@ -156,6 +156,40 @@ class PanelApp:
                 pass
         return status
 
+    def notebooklm_profiles(self) -> dict:
+        """Fetch profiles + duration targets from the NotebookLM worker."""
+        try:
+            import urllib.request
+            resp = urllib.request.urlopen("http://notebooklm-worker:8860/profiles", timeout=10)
+            if resp.status == 200:
+                return json.loads(resp.read().decode())
+            return {"ok": False, "error": f"worker returned HTTP {resp.status}"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def notebooklm_save_profiles(self, body: dict) -> dict:
+        """Save profiles + duration targets to the NotebookLM worker."""
+        import json as _j
+        try:
+            import urllib.request
+            payload = {}
+            if "profiles" in body and isinstance(body["profiles"], dict):
+                payload["profiles"] = body["profiles"]
+            if "duration_targets" in body and isinstance(body["duration_targets"], dict):
+                payload["duration_targets"] = body["duration_targets"]
+            data = _j.dumps(payload).encode()
+            req = urllib.request.Request(
+                "http://notebooklm-worker:8860/profiles",
+                data=data, method="PUT",
+                headers={"Content-Type": "application/json"},
+            )
+            resp = urllib.request.urlopen(req, timeout=15)
+            if resp.status == 200:
+                return _j.loads(resp.read().decode())
+            return {"ok": False, "error": f"worker returned HTTP {resp.status}"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def notebooklm_set_creds(self, email: str, password: str, totp: str = "") -> dict:
         import logging
         log = logging.getLogger("panel.notebooklm")
@@ -879,6 +913,16 @@ class PanelHandler(BaseHTTPRequestHandler):
             body = self._read_body()
             session_data = body.get("session", {})
             result = self.app.notebooklm_import_session(session_data)
+            self._send_json(HTTPStatus.OK, result)
+            return
+        if method == "GET" and parts == ["notebooklm", "profiles"]:
+            result = self.app.notebooklm_profiles()
+            self._send_json(HTTPStatus.OK, result)
+            return
+        if method == "POST" and parts == ["notebooklm", "profiles"]:
+            self._require_csrf()
+            body = self._read_body()
+            result = self.app.notebooklm_save_profiles(body)
             self._send_json(HTTPStatus.OK, result)
             return
         if method == "GET" and parts == ["config"]:

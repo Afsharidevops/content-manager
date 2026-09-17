@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import time
 
 from app.notebook import (
@@ -16,10 +17,56 @@ from app.notebook import (
 LOGGER = logging.getLogger("notebooklm.video")
 
 
+def _dismiss_blocking_notifications(page) -> int:
+    """Close notification dialogs that block interaction (NOT source dialogs)."""
+    import time as _time
+    dismissed = 0
+    # Known notification texts (persian + english)
+    known_notifications = [
+        "اکنون انعطاف", "هم اکنون", "بیشتر استفاده کن", "قابلیت‌های جدید",
+        "usage", "upgrade", "limit", "Gemini Notebook",
+        "getting started", "what's new", "welcome", "tip",
+    ]
+    for _ in range(3):
+        try:
+            dialogs = page.locator("[role='dialog'], .cdk-overlay-pane, .notification-overlay")
+            for i in range(min(dialogs.count(), 5)):
+                try:
+                    d = dialogs.nth(i)
+                    if not d.is_visible():
+                        continue
+                    text = (d.text_content(timeout=300) or "").strip()
+                    if not any(n in text for n in known_notifications):
+                        continue
+                    LOGGER.info("NOTIFICATION DIALOG: %s", text[:120])
+                    # Try close button
+                    close = d.locator("button[aria-label*='Close' i], button[aria-label*='بستن' i], [aria-label*='dismiss' i]")
+                    if close.count() > 0 and close.first.is_visible():
+                        close.first.click(timeout=1000)
+                        dismissed += 1
+                        _time.sleep(0.5)
+                        continue
+                    # Try Escape
+                    page.keyboard.press("Escape")
+                    _time.sleep(0.3)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    if dismissed:
+        page.wait_for_timeout(800)
+        LOGGER.info("Dismissed %d blocking notification(s)", dismissed)
+    return dismissed
+
+
 def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
     """Open the Video Overview composer and submit the rendered prompt."""
+    # Dismiss any blocking notifications before starting
+    _dismiss_blocking_notifications(page)
     click_first(page, selectors["video_overview"], step="open video overview")
     page.wait_for_timeout(2000)
+    # Dismiss notifications that appeared after clicking video overview
+    _dismiss_blocking_notifications(page)
     customize = find_first(page, selectors["video_customize"], timeout=4)
     if customize is not None:
         try:
@@ -27,17 +74,36 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
             page.wait_for_timeout(1500)
         except Exception as error:  # noqa: BLE001 - the composer may already be open
             LOGGER.info("Video customize control could not be clicked: %s", error)
+    # Dismiss notifications before prompt
+    _dismiss_blocking_notifications(page)
+    # Find the actual prompt textarea (not the search/URL input)
     node = find_first(page, selectors["video_prompt"], timeout=15)
     if node is not None:
         try:
+            # Log what we found
+            ph = node.get_attribute("placeholder") or ""
+            aria = node.get_attribute("aria-label") or ""
+            LOGGER.info("VIDEO PROMPT FIELD: placeholder=%r aria=%r", ph, aria)
+            # Scroll into view and click
+            node.scroll_into_view_if_needed()
             node.click()
-            page.keyboard.press("Control+A")
-            page.keyboard.press("Delete")
-            page.keyboard.type(prompt, delay=3)
+            page.wait_for_timeout(300)
+            node.fill("")
+            node.fill(prompt)
         except Exception as error:  # noqa: BLE001
             LOGGER.warning("Video prompt could not be typed: %s", error)
+            # Fallback: keyboard type
+            try:
+                node.click()
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Delete")
+                page.keyboard.type(prompt, delay=3)
+            except Exception as e2:
+                LOGGER.warning("Video prompt keyboard fallback also failed: %s", e2)
     else:
         LOGGER.warning("Video prompt field not found; generating with the defaults")
+    # Dismiss any last-moment notifications before clicking generate
+    _dismiss_blocking_notifications(page)
     click_first(page, selectors["video_generate"], step="start generation")
 
 
@@ -78,6 +144,37 @@ def wait_for_video(page, settings, selectors: dict) -> None:
     )
 
 
+def _trim_video(path: str, keep: float) -> str | None:
+    """Trim a video to ``keep`` seconds from the start using ffmpeg.
+    
+    Returns the path to the trimmed file, or None on failure.
+    The original file is replaced with the trimmed version.
+    """
+    import subprocess as _sp
+    import tempfile as _tf
+    try:
+        fd, tmp = _tf.mkstemp(suffix=os.path.splitext(path)[1] or ".mp4")
+        os.close(fd)
+        result = _sp.run(
+            ["ffmpeg", "-y", "-i", path, "-t", str(keep),
+             "-c", "copy", "-avoid_negative_ts", "make_zero", tmp],
+            capture_output=True, timeout=120, text=True,
+        )
+        if result.returncode != 0:
+            LOGGER.warning("trim failed (ffmpeg exit %d): %s", result.returncode, result.stderr[:200])
+            os.unlink(tmp)
+            return None
+        os.replace(tmp, path)
+        LOGGER.info("Trimmed %s to %.1fs", path, keep)
+        return path
+    except FileNotFoundError:
+        LOGGER.warning("ffmpeg not available, skip trim")
+        return None
+    except Exception as exc:
+        LOGGER.warning("trim error: %s", exc)
+        return None
+
+
 def download_video(page, target_path: str, settings, selectors: dict) -> str:
     """Download the finished overview to ``target_path`` and return the path."""
     os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
@@ -92,6 +189,21 @@ def download_video(page, target_path: str, settings, selectors: dict) -> str:
                 click_first(page, selectors["video_download"], step="download video")
             download = download_info.value
             download.save_as(target_path)
+            # Trim last N seconds if configured
+            if getattr(settings, "trim_last_seconds", 0) > 0:
+                try:
+                    probe = subprocess.run(
+                        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                         "-of", "default=noprint_wrappers=1:nokey=1", target_path],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    total = float(probe.stdout.strip() or 0)
+                    if total > settings.trim_last_seconds + 1:
+                        _trim_video(target_path, total - settings.trim_last_seconds)
+                    else:
+                        LOGGER.info("Video too short (%.1fs) to trim %ds", total, settings.trim_last_seconds)
+                except Exception as exc:
+                    LOGGER.warning("Could not probe/trim video: %s", exc)
             return target_path
         except Exception as error:  # noqa: BLE001 - fall back to a direct button
             LOGGER.info("Video menu download failed (%s); trying a direct control", error)
@@ -101,6 +213,21 @@ def download_video(page, target_path: str, settings, selectors: dict) -> str:
             click_first(page, selectors["video_download"], step="download video")
         download = download_info.value
         download.save_as(target_path)
+        # Trim last N seconds if configured
+        if getattr(settings, "trim_last_seconds", 0) > 0:
+            try:
+                probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", target_path],
+                    capture_output=True, text=True, timeout=30,
+                )
+                total = float(probe.stdout.strip() or 0)
+                if total > settings.trim_last_seconds + 1:
+                    _trim_video(target_path, total - settings.trim_last_seconds)
+                else:
+                    LOGGER.info("Video too short (%.1fs) to trim %ds", total, settings.trim_last_seconds)
+            except Exception as exc:
+                LOGGER.warning("Could not probe/trim video: %s", exc)
         return target_path
     except Exception as error:  # noqa: BLE001
         raise NotebookLMError("download video", str(error)) from error

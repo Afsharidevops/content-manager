@@ -12,7 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates fonts-noto-core xvfb x11vnc wget fluxbox \
+    && apt-get install --yes --no-install-recommends ca-certificates fonts-noto-core xvfb x11vnc wget fluxbox ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10006 notebooklm \

@@ -98,6 +98,7 @@ class NotebookLM:
         profile: str,
         sources: list | None = None,
         content_id: str = "",
+        duration_profile: str = "",
     ) -> str:
         """Queue one video job and return its id."""
         body = {
@@ -106,6 +107,9 @@ class NotebookLM:
             "content_id": str(content_id or ""),
             "sources": list(sources or []),
         }
+        dp = str(duration_profile or "").strip()
+        if dp:
+            body["duration_profile"] = dp
         try:
             payload = self.request_json(
                 self._url("jobs"),

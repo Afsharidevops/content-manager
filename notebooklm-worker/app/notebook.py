@@ -175,10 +175,11 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('Edit')",
     ],
     "video_prompt": [
+        "[role='dialog'] textarea[aria-label*='prompt' i]",
+        "[role='dialog'] textarea:not([placeholder*='link' i]):not([placeholder*='URL' i]):not([placeholder*='جستجو' i]):not([placeholder*='search' i])",
         "[role='dialog'] textarea",
-        "[role='dialog'] [contenteditable='true']",
         "textarea[aria-label*='prompt' i]",
-        "textarea",
+        "[role='dialog'] [contenteditable='true']",
     ],
     "video_generate": [
         "[role='dialog'] button:has-text('ساختن')",

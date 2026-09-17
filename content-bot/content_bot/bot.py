@@ -1878,9 +1878,28 @@ class ContentBot:
             self._safe_answer(query_id, "Choose a video profile.")
             return
         if sub in NOTEBOOKLM_PROFILE_BY_SUB:
+            # Store chosen profile, then ask for duration
+            self.state.update_draft(draft_id, {"nlm_profile": NOTEBOOKLM_PROFILE_BY_SUB[sub]})
+            ask_id = record.get("ask_message_id")
+            chat_id = record.get("chat_id")
+            if chat_id is not None and ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    "How long should the video be?",
+                    telegram_mod.notebooklm_duration_keyboard(draft_id, sub),
+                )
+            self._safe_answer(query_id, "Choose a video length.")
+            return
+        if sub.startswith("nlm_dur_"):
+            duration_key = sub.replace("nlm_dur_", "", 1)
+            nlm_profile = str((record.get("media") or {}).get("nlm_profile") or 
+                              record.get("nlm_profile") or 
+                              self.settings.notebooklm_default_profile)
             self._start_notebooklm_job(
                 draft_id,
-                NOTEBOOKLM_PROFILE_BY_SUB[sub],
+                nlm_profile,
+                duration_profile=duration_key,
                 query_id=query_id,
             )
             return
@@ -1968,6 +1987,7 @@ class ContentBot:
                 self._start_notebooklm_job(
                     draft_id,
                     str(media.get("profile") or self.settings.notebooklm_default_profile),
+                    duration_profile=str(media.get("duration_profile") or ""),
                     query_id=query_id,
                 )
                 return
@@ -2098,7 +2118,7 @@ class ContentBot:
         return sources
 
     def _start_notebooklm_job(
-        self, draft_id: str, profile: str, *, query_id: str = ""
+        self, draft_id: str, profile: str, *, duration_profile: str = "", query_id: str = ""
     ) -> None:
         """Queue one NotebookLM video job for a draft."""
         if self.notebooklm is None:
@@ -2123,6 +2143,7 @@ class ContentBot:
                 profile=profile,
                 sources=self._notebooklm_sources(record),
                 content_id=draft_id,
+                duration_profile=duration_profile,
             )
         except notebooklm_mod.NotebookLMError as error:
             self._record_event(draft_id, "notebooklm_submit_failed", str(error))
@@ -2144,6 +2165,7 @@ class ContentBot:
                     "kind": "video",
                     "driver": notebooklm_mod.DRIVER,
                     "profile": profile,
+                    "duration_profile": duration_profile,
                     "job_id": job_id,
                     "status": "running",
                     "stage_shown": "",

@@ -859,10 +859,136 @@ async function renderLogs() {
   if (services.length) load();
 }
 
+let __nlmConfigCache = null;
+
+async function loadNlmConfig() {
+  try {
+    const data = await api("/api/notebooklm/profiles");
+    __nlmConfigCache = data;
+    return data;
+  } catch (err) {
+    return { error: String(err) };
+  }
+}
+
+async function saveNlmConfig() {
+  const btn = document.getElementById("nlm-config-save-btn");
+  const status = document.getElementById("nlm-config-status");
+  btn.disabled = true;
+  status.textContent = "Saving…";
+  try {
+    // Read profile fields from the form
+    const profiles = {};
+    const container = document.getElementById("nlm-config-form");
+    const profileEls = container.querySelectorAll("[data-profile-name]");
+    profileEls.forEach(function(el) {
+      const name = el.getAttribute("data-profile-name");
+      const fields = {};
+      el.querySelectorAll("[data-field]").forEach(function(f) {
+        fields[f.getAttribute("data-field")] = f.value;
+      });
+      if (name && fields.language) profiles[name] = fields;
+    });
+    // Read duration targets
+    const targets = {};
+    const targetRows = container.querySelectorAll("[data-dur-key]");
+    targetRows.forEach(function(row) {
+      const key = row.getAttribute("data-dur-key");
+      const val = row.querySelector("input")?.value || "";
+      if (key && val) targets[key] = val;
+    });
+    // Read trim seconds
+    const trimInput = document.getElementById("nlm-trim-seconds");
+    const trimVal = trimInput ? parseInt(trimInput.value, 10) || 0 : 0;
+    if (trimVal > 0) targets["_trim"] = "__trim__" + trimVal;
+
+    const payload = {};
+    if (Object.keys(profiles).length) payload.profiles = profiles;
+    if (Object.keys(targets).length) payload.duration_targets = targets;
+    // Remove the _trim marker before sending
+    if (payload.duration_targets && payload.duration_targets["_trim"]) {
+      delete payload.duration_targets["_trim"];
+    }
+
+    const result = await api("/api/notebooklm/profiles", { method: "POST", body: payload });
+    if (result.ok !== false) {
+      status.textContent = "Saved! Config reloaded.";
+      __nlmConfigCache = result;
+      renderNlmConfigForm(result);
+    } else {
+      status.textContent = "Error: " + (result.error || "unknown");
+    }
+  } catch (err) {
+    status.textContent = "Error: " + String(err.message);
+  }
+  btn.disabled = false;
+}
+
+function renderNlmConfigForm(data) {
+  const container = document.getElementById("nlm-config-form");
+  const saveBtn = document.getElementById("nlm-config-save-btn");
+  if (!data || data.error) {
+    container.innerHTML = "<span class='warn'>Could not load config: " + (data?.error || "unknown") + "</span>";
+    return;
+  }
+  const profiles = data.profiles || {};
+  const targets = data.duration_targets || {};
+
+  let html = "";
+
+  // ----- Duration presets -----
+  html += "<h4 style='margin:8px 0 4px'>Duration presets</h4>";
+  html += "<table style='width:100%'><tbody>";
+  Object.keys(targets).forEach(function(key) {
+    const val = targets[key];
+    html += "<tr data-dur-key='" + key + "'><td style='padding:2px 6px 2px 0;white-space:nowrap'>" + key + "</td>"
+         + "<td><input type='text' value='" + htmlEscape(val) + "' style='width:100%' placeholder='e.g. approximately 3 minutes'></td></tr>";
+  });
+  html += "</tbody></table>";
+
+  // ----- Trim seconds -----
+  let trimVal = 0;
+  try { trimVal = parseInt(window.__nlmTrimSec || "0", 10) || 0; } catch(e) {}
+  html += "<h4 style='margin:8px 0 4px'>Trim (remove from end)</h4>";
+  html += "<input id='nlm-trim-seconds' type='number' min='0' max='60' value='" + trimVal + "' style='width:80px'> seconds";
+
+  // ----- Video profiles -----
+  html += "<h4 style='margin:12px 0 4px'>Video profiles</h4>";
+  Object.keys(profiles).forEach(function(name) {
+    const p = profiles[name] || {};
+    html += "<details style='margin:4px 0' data-profile-name='" + name + "'>"
+         + "<summary style='cursor:pointer'><b>" + htmlEscape(name) + "</b></summary>"
+         + "<div style='padding:4px 0 4px 12px'>";
+    const fields = ["language", "duration", "voice_gender", "style", "tone", "audience"];
+    fields.forEach(function(f) {
+      const val = p[f] || "";
+      html += "<label style='display:block;margin:3px 0'><span style='width:110px;display:inline-block;font-size:12px'>" + f + "</span>"
+           + "<input type='text' data-field='" + f + "' value='" + htmlEscape(String(val)) + "' style='width:calc(100% - 120px)'></label>";
+    });
+    html += "</div></details>";
+  });
+
+  container.innerHTML = html;
+  saveBtn.classList.remove("hidden");
+
+  // Load trim from worker config (try to detect from duration_targets with a special method)
+  // For now use the env var value or default 0
+  const existingTrim = data.trim_last_seconds || 0;
+  const trimInput = document.getElementById("nlm-trim-seconds");
+  if (trimInput) trimInput.value = existingTrim;
+}
+
+function htmlEscape(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+let __nlmTrimSec = 0;
+
 async function renderNotebookLM() {
-  const [status, actions] = await Promise.all([
+  const [status, actions, config] = await Promise.all([
     api("/api/notebooklm").catch(() => ({ enabled: false })),
     api("/api/actions").catch(() => ({ enabled: false, actions: [] })),
+    loadNlmConfig().catch(() => ({ error: "unreachable" })),
   ]);
   const output = h("pre", { class: "hidden", style: "max-height:400px;overflow:auto" });
 
@@ -1053,6 +1179,19 @@ async function renderNotebookLM() {
           ),
         ),
         renderSessionPaste(),
+      ),
+      h("section", { class: "card" },
+        h("h3", { text: "Video Config" }),
+        h("p", { class: "muted small" }, "Edit video profiles, duration presets, and trim settings. Changes are saved to the worker and take effect for new jobs."),
+        h("div", { id: "nlm-config-status", class: "muted small", style: "margin-top:4px" }),
+        h("div", { id: "nlm-config-form", style: "margin-top:8px" }, "Loading config…"),
+        h("button", {
+          id: "nlm-config-save-btn",
+          class: "btn primary hidden",
+          type: "button",
+          text: "Save config",
+          onclick: async () => { await saveNlmConfig(); },
+        }),
       ),
     ),
     h("div", { style: "margin-top:12px" }, card("Output", output)),

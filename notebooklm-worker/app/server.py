@@ -145,6 +145,10 @@ class NotebookLMHandler(BaseHTTPRequestHandler):
                     "default": self.settings.default_profile,
                     "duration_targets": dict(prompts.DURATION_TARGETS),
                     "profiles": payload,
+                    "trim_last_seconds": getattr(self.settings, "trim_last_seconds", 0),
+                    "session_mode": self.settings.session_mode,
+                    "timeout_seconds": self.settings.timeout_seconds,
+                    "video_timeout_seconds": self.settings.video_timeout_seconds,
                 },
             )
             return
@@ -181,6 +185,35 @@ class NotebookLMHandler(BaseHTTPRequestHandler):
             return
         if path == "/uploads":
             self._upload(query=urllib.parse.parse_qs(parsed.query))
+            return
+        _error(self, 404, "Unknown path.")
+
+    def do_PUT(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        if not self._authorized():
+            _error(self, 401, "Missing or invalid API token.")
+            return
+        if path == "/profiles":
+            payload = _read_json(self)
+            if not isinstance(payload, dict):
+                _error(self, 400, "A JSON object with profiles and/or duration_targets is required.")
+                return
+            from app import config_manager
+            from app import prompts as _prompts
+            data_dir = self.settings.data_dir
+            if "profiles" in payload and isinstance(payload["profiles"], dict):
+                config_manager.set_profiles(data_dir, payload["profiles"])
+            if "duration_targets" in payload and isinstance(payload["duration_targets"], dict):
+                config_manager.set_duration_targets(data_dir, payload["duration_targets"])
+            # Reload config into prompts module globals
+            _prompts.apply_config(data_dir)
+            # Return updated state
+            _json_response(self, 200, {
+                "ok": True,
+                "profiles": {name: p.to_dict() for name, p in _prompts.PROFILES.items()},
+                "duration_targets": dict(_prompts.DURATION_TARGETS),
+            })
             return
         _error(self, 404, "Unknown path.")
 
