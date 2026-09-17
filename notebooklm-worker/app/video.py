@@ -59,6 +59,43 @@ def _dismiss_blocking_notifications(page) -> int:
     return dismissed
 
 
+def _select_video_sources(page) -> None:
+    """Click the source selector in Video Overview dialog and select all sources."""
+    import time as _time
+    try:
+        # Find the source selector button (shows "0 source" or similar)
+        src_btn = page.locator("[role='dialog'] button").filter(has_text=page.locator("text='\u0645\u0646\u0628\u0639'")).first
+        if src_btn.count() > 0 and src_btn.is_visible():
+            src_text = (src_btn.text_content(timeout=300) or "").strip()
+            LOGGER.info("SOURCE SELECTOR: %s", src_text)
+            src_btn.click()
+            _time.sleep(0.5)
+            # Look for menu/checkboxes to select sources
+            # Click "Select all" or individual source checkboxes
+            select_all = page.locator("text='\u0627\u0646\u062a\u062e\u0627\u0628 \u0647\u0645\u0647'").first
+            if select_all.count() > 0:
+                select_all.click()
+                LOGGER.info("Selected all sources")
+            else:
+                # Try clicking individual source items
+                items = page.locator("[role='menuitemcheckbox'], [role='option'], .mat-mdc-option")
+                for i in range(min(items.count(), 10)):
+                    try:
+                        item = items.nth(i)
+                        if item.is_visible():
+                            item.click()
+                    except Exception:
+                        pass
+                LOGGER.info("Clicked %d source items", min(items.count(), 10))
+            _time.sleep(0.5)
+            # Close the dropdown by clicking elsewhere
+            page.keyboard.press("Escape")
+            _time.sleep(0.3)
+        else:
+            LOGGER.info("No source selector found in dialog")
+    except Exception as e:
+        LOGGER.info("Source selection failed: %s", e)
+
 def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
     """Open the Video Overview composer and submit the rendered prompt."""
     # Dismiss any blocking notifications before starting
@@ -101,6 +138,8 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
         page.wait_for_timeout(1000)
     if not _found_dialog:
         LOGGER.warning("Video compose dialog did NOT open after clicking Video Overview")
+    # Try to select sources in the dialog
+    _select_video_sources(page)
     # Now look for customize button
     customize = find_first(page, selectors["video_customize"], timeout=4)
     if customize is not None:
