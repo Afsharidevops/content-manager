@@ -983,6 +983,31 @@ class NotebookEditor:
 
     # ------------------------------------------------------------- studio
 
+    def source_count(self) -> int:
+        """Count how many sources are currently in the notebook."""
+        try:
+            count = self.page.evaluate("""() => {
+                // Try multiple ways to count sources
+                // 1. Source chips/pills in the source bar
+                const chips = document.querySelectorAll('[class*="source-chip"], [class*="source-pill"], [class*="source-item"]');
+                if (chips.length > 0) return chips.length;
+                // 2. Source counter text like "3 sources"
+                const body = document.body.textContent || '';
+                const match = body.match(/\d+\s*منبع/);
+                if (match) return parseInt(match[0]);
+                // 3. Count source buttons
+                const sourceBtns = document.querySelectorAll('[aria-label*="source" i], [aria-label*="منبع" i]');
+                const visible = Array.from(sourceBtns).filter(b => b.offsetParent !== null);
+                if (visible.length > 0) return visible.length;
+                // 4. Check if artibrary is empty
+                const emptyMsg = document.querySelector('[class*="empty"]');
+                if (emptyMsg && emptyMsg.offsetParent !== null) return 0;
+                return -1;
+            }""")
+            return int(count) if count is not None else -1
+        except Exception:
+            return -1
+
     def open_studio(self) -> None:
         node = find_first(self.page, self.selectors["studio_tab"], timeout=8)
         if node is not None:

@@ -88,6 +88,11 @@ def run_browser_flow(ctx: RunContext) -> str:
                 editor.add_material(material)
             ctx.progress(STAGE_PROCESS)
             editor.wait_for_sources()
+            # Verify sources were actually added
+            src_count = editor.source_count()
+            LOGGER.info("Source count after wait: %d", src_count)
+            if src_count == 0:
+                raise NotebookLMError("source verification", "notebook has 0 sources after adding materials")
             ctx.progress(STAGE_GENERATE)
             editor.open_studio()
             video_mod.start_video_overview(page, topic_note, settings, ctx.selectors)
