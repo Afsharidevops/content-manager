@@ -1222,7 +1222,7 @@ async function renderNotebookLM() {
     ),
     h("div", { style: "margin-top:12px" }, card("Output", output)),
   );
-  if (config && !config.error) renderNlmConfigForm(config);
+  if (config) renderNlmConfigForm(config);
 }
 
 async function renderActions() {

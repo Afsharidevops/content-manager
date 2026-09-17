@@ -67,11 +67,11 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
     _video_responses = []
     def _on_request(request):
         url = request.url
-        if "notebook" in url or "video" in url or "overview" in url or "generate" in url or "batchexecute" in url:
+        if "batchexecute" in url or ("google.com" in url and url.startswith("https://notebook")):
             _video_requests.append({"url": url, "method": request.method})
     def _on_response(response):
         url = response.url
-        if "batchexecute" in url or "rpcids=" in url or "EylDcb" in url or "sODAg" in url:
+        if "batchexecute" in url:
             try:
                 body = response.text()[:2000]
                 _video_responses.append({"url": url, "status": response.status, "body": body})
@@ -235,6 +235,18 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
                         LOGGER.info("GENERATE: keyboard Enter done")
                     except Exception as exc4:
                         LOGGER.warning("GENERATE: all click strategies failed: %s", exc4)
+        page.wait_for_timeout(2000)
+        # Strategy 5: keyboard Enter on prompt field if dialog still open
+        try:
+            if page.locator("[role='dialog']").count() > 0:
+                prompt_input = page.locator(selectors["video_prompt"][0]).first
+                if prompt_input.is_visible():
+                    prompt_input.focus()
+                    page.keyboard.press("Enter")
+                    page.wait_for_timeout(1000)
+                    LOGGER.info("GENERATE: keyboard Enter on prompt field done")
+        except Exception:
+            pass
         page.wait_for_timeout(1500)
         # Take screenshot and dump network requests right after click
         _dump_network_and_screenshot(page, settings, tag="after-generate")
@@ -255,22 +267,24 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
         except Exception:
             pass
         LOGGER.info("AFTER GENERATE: dialogs=%d visible=%s busy_bars=%d", gen_dlg, gen_vis, busy_bars)
+        try:
+            rpc_count = len(getattr(page, "_video_requests", []) or [])
+            rpc_resp_count = len(getattr(page, "_video_responses", []) or [])
+            LOGGER.info("RPC STATUS: requests=%d responses=%d", rpc_count, rpc_resp_count)
+        except Exception:
+            pass
     except Exception:
         pass
 
 
 def video_ready(page, selectors: dict) -> bool:
-    """True when a rendered video or its download affordance is visible."""
-    # First check for video_artifact containers
-    for sel in selectors.get("video_artifact", []):
-        for node in visible_nodes(page, sel):
-            try:
-                if node.is_visible():
-                    LOGGER.info("VIDEO ARTIFACT found via: %s", sel)
-                    return True
-            except Exception:
-                continue
-    # Then check for video element or download buttons
+    """True when a rendered video or its download affordance is visible.
+    
+    IMPORTANT: Does NOT match Studio create-artifact buttons ([class*='artifact']
+    is always present in Studio and is a false positive). Only signals ready
+    when there is actual generated content in the artifact library.
+    """
+    # First check for video element (most reliable)
     for selector in selectors["video_ready"]:
         for node in visible_nodes(page, selector):
             try:
@@ -284,9 +298,40 @@ def video_ready(page, selectors: dict) -> bool:
                     LOGGER.info("VIDEO ACTION found: tag=%s text=%s", tag, node.text_content(timeout=200)[:40].strip())
                     return True
                 else:
+                    LOGGER.info("VIDEO READY via %s: tag=%s", selector, tag)
                     return True
             except Exception:
                 continue
+    
+    # Check for non-empty artifact library (generated artifact, not the create buttons)
+    try:
+        has_artifact = page.evaluate("""() => {
+            // Find the artifact library container
+            const containers = document.querySelectorAll('[class*="artifact-library"]');
+            for (const c of containers) {
+                // Skip empty state containers
+                if (c.className.includes('empty')) continue;
+                // Skip if it contains "will be saved here" empty-state text
+                const text = c.textContent || '';
+                if (text.includes('\\u062e\\u0648\\u0627\\u0647\\u062f \\u0634\\u062f') ||  // خواهد شد
+                    text.includes('saved here')) continue;
+                // Check it has actual children with content
+                if (c.children.length > 0 && c.offsetParent !== null) {
+                    // Look for any actionable element inside
+                    const actionable = c.querySelector('button, video, [role="button"], a, img, [class*="card"]');
+                    if (actionable) {
+                        LOGGER.info("VIDEO ARTIFACT LIBRARY has content (non-empty)");
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }""")
+        if has_artifact:
+            return True
+    except Exception:
+        pass
+    
     return False
 
 
