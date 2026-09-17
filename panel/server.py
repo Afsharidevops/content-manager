@@ -160,7 +160,9 @@ class PanelApp:
         """Fetch profiles + duration targets from the NotebookLM worker."""
         try:
             import urllib.request
-            token = self.env_value("NOTEBOOKLM_API_TOKEN", "")
+            from panel.editors import EnvStore
+            env = EnvStore(self.root)
+            token = env.value("NOTEBOOKLM_API_TOKEN", "")
             req = urllib.request.Request("http://notebooklm-worker:8860/profiles")
             if token:
                 req.add_header("Authorization", f"Bearer {token}")
@@ -176,7 +178,9 @@ class PanelApp:
         import json as _j
         try:
             import urllib.request
-            token = self.env_value("NOTEBOOKLM_API_TOKEN", "")
+            from panel.editors import EnvStore
+            env = EnvStore(self.root)
+            token = env.value("NOTEBOOKLM_API_TOKEN", "")
             payload = {}
             if "profiles" in body and isinstance(body["profiles"], dict):
                 payload["profiles"] = body["profiles"]
