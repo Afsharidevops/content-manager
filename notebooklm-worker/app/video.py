@@ -213,21 +213,38 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
 
 def video_ready(page, selectors: dict) -> bool:
     """True when a rendered video or its download affordance is visible."""
+    # First check for video_artifact containers
+    for sel in selectors.get("video_artifact", []):
+        for node in visible_nodes(page, sel):
+            try:
+                if node.is_visible():
+                    LOGGER.info("VIDEO ARTIFACT found via: %s", sel)
+                    return True
+            except Exception:
+                continue
+    # Then check for video element or download buttons
     for selector in selectors["video_ready"]:
         for node in visible_nodes(page, selector):
             try:
-                if node.evaluate("(n) => n.tagName === 'VIDEO' ? !!n.currentSrc || !!n.src : true"):
+                tag = node.evaluate("(n) => n.tagName")
+                if tag == "VIDEO":
+                    src = node.evaluate("(n) => n.currentSrc || n.src || ''")
+                    if src:
+                        LOGGER.info("VIDEO READY: src=%s", src[:120])
+                        return True
+                elif tag in ("BUTTON", "A"):
+                    LOGGER.info("VIDEO ACTION found: tag=%s text=%s", tag, node.text_content(timeout=200)[:40].strip())
                     return True
-            except Exception:  # noqa: BLE001 - treat an unreadable node as not ready
+                else:
+                    return True
+            except Exception:
                 continue
     return False
 
 
-def video_busy(page) -> bool:
-    busy = 0
-    for selector in ("[role='progressbar']", "mat-progress-bar"):
-        busy += len(visible_nodes(page, selector))
-    return busy > 0
+
+
+
 
 
 def _dump_network_and_screenshot(page, settings, tag: str = "") -> None:
@@ -250,20 +267,33 @@ def wait_for_video(page, settings, selectors: dict) -> None:
     """Poll until the Video Overview finishes rendering."""
     start = time.time()
     deadline = start + max(60, settings.video_timeout_seconds)
-    quiet = 0
     last_log = 0.0
     while time.time() < deadline:
         if video_ready(page, selectors):
-            quiet = quiet + 1 if not video_busy(page) else 0
-            if quiet >= 1:
-                return
-        else:
-            quiet = 0
+            LOGGER.info("VIDEO GENERATION COMPLETE after %.0fs", time.time() - start)
+            return
+        elapsed = time.time() - start
         now = time.time()
-        elapsed = now - start
         if now - last_log > 30.0:
-            still_busy = video_busy(page)
-            LOGGER.info("WAITING for video: %.0fs elapsed, busy=%s", elapsed, still_busy)
+            LOGGER.info("WAITING for video: %.0fs elapsed", elapsed)
+            # Dump page state periodically for debugging
+            try:
+                buttons = page.locator("button, [role='button'], mat-card, video")
+                visible = []
+                for i in range(min(buttons.count(), 15)):
+                    try:
+                        b = buttons.nth(i)
+                        if b.is_visible():
+                            txt = (b.text_content(timeout=200) or "").strip()[:50]
+                            aria = (b.get_attribute("aria-label") or "")[:30]
+                            if txt or aria:
+                                visible.append(f"  [{i}] text={txt!r} aria={aria!r}")
+                    except Exception:
+                        pass
+                if visible:
+                    LOGGER.info("PAGE STATE:\n%s", "\n".join(visible))
+            except Exception:
+                pass
             last_log = now
         page.wait_for_timeout(max(3, settings.poll_seconds) * 1000)
     _dump_network_and_screenshot(page, settings, tag="timeout")
