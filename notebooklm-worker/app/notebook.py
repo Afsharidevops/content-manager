@@ -554,12 +554,16 @@ class NotebookEditor:
         """Create or reuse a notebook.
         
         Returns True if the topic was submitted via the new "create with topic"
-        modal (meaning the source is already being created by NotebookLM). 
+        modal AND NotebookLM has created at least one source from it.
         Returns False if an existing notebook was reused or the old flow was used.
         
         The new NotebookLM UI shows a modal after clicking "Create new" where
         the user enters a topic directly. NotebookLM then creates the notebook
         AND adds the topic as a source in one step.
+        
+        IMPORTANT: Only returns True when source_count > 0 is confirmed.
+        If the modal flow fails, falls back to the old empty-notebook flow
+        so add_material(text) can be used instead.
         """
         import time as _time
         # Check if we are already on a notebook page
@@ -577,36 +581,121 @@ class NotebookEditor:
         self.page.wait_for_timeout(2000)
         
         # Check if the "create with topic" modal appeared (new NotebookLM UI)
-        # The modal has an input with placeholder for topic/search
-        topic_input = find_first(self.page, [
-            "[role='dialog'] textarea",
-            "[role='dialog'] input",
-            "textarea[placeholder*='جستجو' i]",
-            "textarea[placeholder*='search' i]",
-            "textarea[placeholder*='topic' i]",
-            "input[placeholder*='جستجو' i]",
-            "input[placeholder*='search' i]",
-            "input[placeholder*='topic' i]",
-        ], timeout=3)
+        # Log ALL elements in dialog for debugging
+        try:
+            dialog_txt = self.page.evaluate("""() => {
+                const d = document.querySelector('[role="dialog"]');
+                if (!d) return 'NO_DIALOG';
+                return {
+                    exists: true,
+                    text: (d.textContent || '').substring(0, 300),
+                    html: d.innerHTML.substring(0, 500),
+                };
+            }""")
+            if isinstance(dialog_txt, dict):
+                LOGGER.info("CREATE MODAL content: text=%s", dialog_txt.get('text','')[:200])
+            else:
+                LOGGER.info("CREATE MODAL: %s", dialog_txt)
+        except Exception:
+            pass
+        
+        # Log all inputs/textareas in dialog with full attributes
+        topic_input = None
+        try:
+            inputs = self.page.locator("[role='dialog'] textarea, [role='dialog'] input, [role='dialog'] [contenteditable='true']")
+            LOGGER.info("CREATE MODAL inputs: count=%d", inputs.count())
+            for i in range(min(inputs.count(), 10)):
+                try:
+                    el = inputs.nth(i)
+                    if el.is_visible():
+                        tag = el.evaluate("el => el.tagName")
+                        typ = el.get_attribute("type") or ""
+                        ph = el.get_attribute("placeholder") or ""
+                        aria = el.get_attribute("aria-label") or ""
+                        role = el.get_attribute("role") or ""
+                        cls = (el.get_attribute("class") or "")[:60]
+                        val = ""
+                        try:
+                            val = el.input_value(timeout=300) or ""
+                        except Exception:
+                            try:
+                                val = el.evaluate("el => el.textContent || ''") or ""
+                            except Exception:
+                                pass
+                        LOGGER.info("  input[%d] tag=%s type=%r placeholder=%r aria=%r role=%r class=%r value=%r",
+                                    i, tag, typ, ph[:40], aria[:40], role, cls, val[:60])
+                        if i == 0 and tag in ("TEXTAREA", "INPUT") and topic_input is None:
+                            topic_input = el
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        
+        if topic_input is None:
+            topic_input = find_first(self.page, [
+                "[role='dialog'] textarea",
+                "[role='dialog'] input",
+                "textarea[placeholder*='جستجو' i]",
+                "textarea[placeholder*='search' i]",
+                "textarea[placeholder*='topic' i]",
+                "input[placeholder*='جستجو' i]",
+                "input[placeholder*='search' i]",
+                "input[placeholder*='topic' i]",
+            ], timeout=3)
         
         if topic_input is not None and title.strip():
             LOGGER.info("CREATE MODAL detected with topic input - filling topic")
-            # This is the new "create with topic" flow
             try:
+                # Log input details before fill
                 ph = topic_input.get_attribute("placeholder") or ""
-                LOGGER.info("Topic input placeholder=%r", ph)
+                aria = topic_input.get_attribute("aria-label") or ""
+                tag = topic_input.evaluate("el => el.tagName") if hasattr(topic_input, 'evaluate') else "?"
+                LOGGER.info("TOPIC INPUT: tag=%s placeholder=%r aria=%r", tag, ph, aria)
+                
+                # Fill the topic
                 topic_input.fill("")
+                _time.sleep(0.2)
                 topic_input.fill(title)
                 _time.sleep(0.5)
-                # Fire input events
+                
+                # Log value after fill
+                try:
+                    filled_val = topic_input.input_value(timeout=300) or ""
+                    LOGGER.info("TOPIC INPUT AFTER FILL: value=%r len=%d", filled_val[:80], len(filled_val))
+                except Exception:
+                    try:
+                        filled_val = topic_input.evaluate("el => el.value || el.textContent || ''") or ""
+                        LOGGER.info("TOPIC INPUT AFTER FILL (js): value=%r len=%d", filled_val[:80], len(filled_val))
+                    except Exception:
+                        LOGGER.warning("TOPIC INPUT: could not read value after fill")
+                
+                # Fire native input events
                 try:
                     topic_input.evaluate("(el) => { el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); }")
                 except Exception:
                     pass
-                _time.sleep(0.3)
+                _time.sleep(0.5)
                 
-                # Find and click the submit/search button
-                # In the new UI, the search icon turns into a submit arrow when text is entered
+                # Find submit button - log all buttons in dialog
+                try:
+                    btns = self.page.evaluate("""() => {
+                        const d = document.querySelector('[role="dialog"]');
+                        if (!d) return [];
+                        return Array.from(d.querySelectorAll('button, [role="button"]')).map(b => ({
+                            text: (b.textContent || '').trim().substring(0, 40),
+                            aria: b.getAttribute('aria-label') || '',
+                            disabled: b.disabled || b.hasAttribute('disabled'),
+                            cls: (b.className || '').substring(0, 40),
+                            tag: b.tagName,
+                        }));
+                    }""")
+                    LOGGER.info("CREATE MODAL buttons after fill:")
+                    for i, b in enumerate(btns):
+                        LOGGER.info("  btn[%d] text=%s aria=%r disabled=%s", i, b.get('text',''), b.get('aria',''), b.get('disabled'))
+                except Exception:
+                    pass
+                
+                # Find the submit button
                 submit_btn = find_first(self.page, [
                     "[role='dialog'] button[aria-label*='search' i]",
                     "[role='dialog'] button[aria-label*='send' i]",
@@ -617,39 +706,70 @@ class NotebookEditor:
                     "[role='dialog'] button.mat-mdc-icon-button",
                     "button:has-text('search')",
                     "button:has-text('send')",
+                    "[role='dialog'] button:not([disabled])",
                 ], timeout=5)
                 
                 if submit_btn is not None:
                     LOGGER.info("CREATE MODAL: clicking submit button")
+                    try:
+                        submit_aria = submit_btn.get_attribute("aria-label") or ""
+                        submit_text = (submit_btn.text_content(timeout=200) or "").strip()[:30]
+                        LOGGER.info("SUBMIT BTN: aria=%r text=%r", submit_aria, submit_text)
+                    except Exception:
+                        pass
+                    
                     submit_btn.click()
                     _time.sleep(1)
+                    
                     # Wait for modal to close and notebook to load
-                    for _ in range(15):
-                        if page.locator("[role='dialog']").count() == 0:
-                            LOGGER.info("CREATE MODAL: dialog closed, notebook created")
+                    dialog_closed = False
+                    for _ in range(20):
+                        if self.page.locator("[role='dialog']").count() == 0:
+                            dialog_closed = True
+                            LOGGER.info("CREATE MODAL: dialog closed")
                             break
-                        # Check if notebook URL appeared
                         url = str(self.page.url or "")
                         if "/notebook/" in url or "/note/" in url:
                             LOGGER.info("CREATE MODAL: on notebook page %s", url)
                             break
                         _time.sleep(1)
-                    else:
-                        LOGGER.warning("CREATE MODAL: dialog still open after 15s, continuing")
                     
-                    self.page.wait_for_timeout(2000)
-                    LOGGER.info("CREATE MODAL: topic submitted successfully")
-                    return True
+                    self.page.wait_for_timeout(3000)
+                    
+                    # Verify source was actually created
+                    _time.sleep(2)
+                    src_count = self.source_count()
+                    LOGGER.info("CREATE MODAL: source_count after submit=%d", src_count)
+                    
+                    if src_count > 0:
+                        LOGGER.info("CREATE MODAL: topic submitted AND source created - returning True")
+                        return True
+                    else:
+                        LOGGER.warning("CREATE MODAL: topic submitted but source_count=0, will fallback to add_material(text)")
+                        # Don't return True - let runner add source via add_material
+                        return False
                 else:
                     LOGGER.info("CREATE MODAL: submit button not found, trying Enter key")
-                    topic_input.press("Enter")
-                    self.page.wait_for_timeout(2000)
-                    return True
+                    try:
+                        topic_input.press("Enter")
+                    except Exception:
+                        pass
+                    self.page.wait_for_timeout(3000)
+                    
+                    # Check if it worked
+                    src_count = self.source_count()
+                    LOGGER.info("CREATE MODAL (Enter): source_count=%d", src_count)
+                    if src_count > 0:
+                        LOGGER.info("CREATE MODAL: Enter key worked, source created")
+                        return True
+                    else:
+                        LOGGER.warning("CREATE MODAL: Enter key pressed but source_count=0")
+                        return False
             except Exception as e:
                 LOGGER.warning("CREATE MODAL interaction failed: %s", e)
+                return False
         elif topic_input is not None:
-            LOGGER.info("CREATE MODAL detected but no title provided, skipping topic")
-            # Try to close the dialog
+            LOGGER.info("CREATE MODAL detected but no title provided, dismissing")
             try:
                 self.page.keyboard.press("Escape")
                 self.page.wait_for_timeout(500)
