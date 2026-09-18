@@ -566,15 +566,27 @@ class NotebookEditor:
         so add_material(text) can be used instead.
         """
         import time as _time
-        # Check if we are already on a notebook page
+        # Check if we are already on a notebook page by URL only
+        # Do NOT use add_source selector here - it matches on the home page too
         current_url = str(self.page.url or "")
         if "/notebook/" in current_url or "/note/" in current_url:
             LOGGER.info("Already inside a notebook (%s), skipping creation", current_url)
             return False
-        # Look for existing notebook title input or add source - already in a notebook?
-        if find_first(self.page, self.selectors["add_source"], timeout=2) is not None:
-            LOGGER.info("Add source button found - already inside a notebook, skipping creation")
-            return False
+        # Also check for notebook-specific content like source list panel
+        notebook_indicators = [
+            "[class*='source-list']",
+            "[class*='artifact-library']",
+            "[class*='source-panel']",
+            "[aria-label*='source list' i]",
+        ]
+        for indicator in notebook_indicators:
+            try:
+                el = self.page.locator(indicator).first
+                if el.count() > 0 and el.is_visible():
+                    LOGGER.info("Notebook source panel found (%s) - already inside a notebook, skipping creation", indicator)
+                    return False
+            except Exception:
+                pass
         
         # Click "Create new"
         click_first(self.page, self.selectors["new_notebook"], step="create notebook")
