@@ -30,6 +30,26 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('add')",
         "mat-card:has-text('add')",
     ],
+    "create_modal_topic": [
+        "[role='dialog'] textarea",
+        "[role='dialog'] input",
+        "textarea[placeholder*='جستجو' i]",
+        "textarea[placeholder*='search' i]",
+        "textarea[placeholder*='topic' i]",
+        "input[placeholder*='جستجو' i]",
+        "input[placeholder*='search' i]",
+    ],
+    "create_modal_submit": [
+        "[role='dialog'] button[aria-label*='search' i]",
+        "[role='dialog'] button[aria-label*='send' i]",
+        "[role='dialog'] button[aria-label*='ارسال' i]",
+        "[role='dialog'] button[aria-label*='جستجو' i]",
+        "[role='dialog'] button:has(svg)",
+        "[role='dialog'] [role='button']:has(svg)",
+        "[role='dialog'] button.mat-mdc-icon-button",
+        "button:has-text('search')",
+        "button:has-text('send')",
+    ],
     "notebook_title": [
         "input[aria-label*='notebook title' i]",
         "textarea[aria-label*='title' i]",
@@ -530,19 +550,117 @@ class NotebookEditor:
 
     # ---------------------------------------------------------- notebook
 
-    def create_notebook(self, title: str) -> None:
+    def create_notebook(self, title: str) -> bool:
+        """Create or reuse a notebook.
+        
+        Returns True if the topic was submitted via the new "create with topic"
+        modal (meaning the source is already being created by NotebookLM). 
+        Returns False if an existing notebook was reused or the old flow was used.
+        
+        The new NotebookLM UI shows a modal after clicking "Create new" where
+        the user enters a topic directly. NotebookLM then creates the notebook
+        AND adds the topic as a source in one step.
+        """
+        import time as _time
         # Check if we are already on a notebook page
         current_url = str(self.page.url or "")
         if "/notebook/" in current_url or "/note/" in current_url:
             LOGGER.info("Already inside a notebook (%s), skipping creation", current_url)
-            return
+            return False
         # Look for existing notebook title input or add source - already in a notebook?
         if find_first(self.page, self.selectors["add_source"], timeout=2) is not None:
             LOGGER.info("Add source button found - already inside a notebook, skipping creation")
-            return
+            return False
+        
+        # Click "Create new"
         click_first(self.page, self.selectors["new_notebook"], step="create notebook")
-        self.page.wait_for_timeout(2500)
+        self.page.wait_for_timeout(2000)
+        
+        # Check if the "create with topic" modal appeared (new NotebookLM UI)
+        # The modal has an input with placeholder for topic/search
+        topic_input = find_first(self.page, [
+            "[role='dialog'] textarea",
+            "[role='dialog'] input",
+            "textarea[placeholder*='جستجو' i]",
+            "textarea[placeholder*='search' i]",
+            "textarea[placeholder*='topic' i]",
+            "input[placeholder*='جستجو' i]",
+            "input[placeholder*='search' i]",
+            "input[placeholder*='topic' i]",
+        ], timeout=3)
+        
+        if topic_input is not None and title.strip():
+            LOGGER.info("CREATE MODAL detected with topic input - filling topic")
+            # This is the new "create with topic" flow
+            try:
+                ph = topic_input.get_attribute("placeholder") or ""
+                LOGGER.info("Topic input placeholder=%r", ph)
+                topic_input.fill("")
+                topic_input.fill(title)
+                _time.sleep(0.5)
+                # Fire input events
+                try:
+                    topic_input.evaluate("(el) => { el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); }")
+                except Exception:
+                    pass
+                _time.sleep(0.3)
+                
+                # Find and click the submit/search button
+                # In the new UI, the search icon turns into a submit arrow when text is entered
+                submit_btn = find_first(self.page, [
+                    "[role='dialog'] button[aria-label*='search' i]",
+                    "[role='dialog'] button[aria-label*='send' i]",
+                    "[role='dialog'] button[aria-label*='ارسال' i]",
+                    "[role='dialog'] button[aria-label*='جستجو' i]",
+                    "[role='dialog'] button:has(svg)",
+                    "[role='dialog'] [role='button']:has(svg)",
+                    "[role='dialog'] button.mat-mdc-icon-button",
+                    "button:has-text('search')",
+                    "button:has-text('send')",
+                ], timeout=5)
+                
+                if submit_btn is not None:
+                    LOGGER.info("CREATE MODAL: clicking submit button")
+                    submit_btn.click()
+                    _time.sleep(1)
+                    # Wait for modal to close and notebook to load
+                    for _ in range(15):
+                        if page.locator("[role='dialog']").count() == 0:
+                            LOGGER.info("CREATE MODAL: dialog closed, notebook created")
+                            break
+                        # Check if notebook URL appeared
+                        url = str(self.page.url or "")
+                        if "/notebook/" in url or "/note/" in url:
+                            LOGGER.info("CREATE MODAL: on notebook page %s", url)
+                            break
+                        _time.sleep(1)
+                    else:
+                        LOGGER.warning("CREATE MODAL: dialog still open after 15s, continuing")
+                    
+                    self.page.wait_for_timeout(2000)
+                    LOGGER.info("CREATE MODAL: topic submitted successfully")
+                    return True
+                else:
+                    LOGGER.info("CREATE MODAL: submit button not found, trying Enter key")
+                    topic_input.press("Enter")
+                    self.page.wait_for_timeout(2000)
+                    return True
+            except Exception as e:
+                LOGGER.warning("CREATE MODAL interaction failed: %s", e)
+        elif topic_input is not None:
+            LOGGER.info("CREATE MODAL detected but no title provided, skipping topic")
+            # Try to close the dialog
+            try:
+                self.page.keyboard.press("Escape")
+                self.page.wait_for_timeout(500)
+            except Exception:
+                pass
+        else:
+            LOGGER.info("No create modal detected, using old empty-notebook flow")
+        
+        # Old flow: just set the title
         self.set_title(title)
+        return False
 
     def set_title(self, title: str) -> None:
         if not str(title or "").strip():

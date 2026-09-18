@@ -73,26 +73,50 @@ def run_browser_flow(ctx: RunContext) -> str:
             materials = sources_mod.build_materials(job, ctx.uploads_dir)
             title = (job.topic or "Content Manager video").strip()[:120]
             ctx.progress(STAGE_NOTEBOOK)
-            editor.create_notebook(title)
+            topic_submitted_via_modal = editor.create_notebook(title)
             ctx.progress(STAGE_UPLOAD)
-            topic_note = prompts_mod.render_prompt(
-                job.topic,
-                prompts_mod.get_profile(job.profile, default=settings.default_profile),
-                duration=job.duration,
-                sources_note=sources_mod.sources_note(materials),
-            )
-            editor.add_material(
-                sources_mod.Material(kind="text", value=topic_note, title="Video brief")
-            )
+            
+            # Only render prompt and add as text source if topic was NOT already
+            # submitted via the "create with topic" modal (new NotebookLM UI)
+            if not topic_submitted_via_modal:
+                topic_note = prompts_mod.render_prompt(
+                    job.topic,
+                    prompts_mod.get_profile(job.profile, default=settings.default_profile),
+                    duration=job.duration,
+                    sources_note=sources_mod.sources_note(materials),
+                )
+                editor.add_material(
+                    sources_mod.Material(kind="text", value=topic_note, title="Video brief")
+                )
+            else:
+                LOGGER.info("Topic was submitted via create modal, skipping add_material(text)")
+                # Still render prompt for use in video overview
+                topic_note = prompts_mod.render_prompt(
+                    job.topic,
+                    prompts_mod.get_profile(job.profile, default=settings.default_profile),
+                    duration=job.duration,
+                    sources_note=sources_mod.sources_note(materials),
+                )
+            
             for material in materials:
                 editor.add_material(material)
             ctx.progress(STAGE_PROCESS)
+            
+            # Wait for sources - if topic was submitted via modal, we need to wait
+            # for NotebookLM to finish processing the topic source
             editor.wait_for_sources()
             # Verify sources were actually added
             src_count = editor.source_count()
             LOGGER.info("Source count after wait: %d", src_count)
             if src_count == 0:
-                raise NotebookLMError("source verification", "notebook has 0 sources after adding materials")
+                # If topic was submitted via modal but no source yet, wait more
+                if topic_submitted_via_modal:
+                    LOGGER.info("Topic submitted via modal but source count is 0, waiting more...")
+                    editor.wait_for_sources(timeout=120)
+                    src_count = editor.source_count()
+                    LOGGER.info("Source count after extended wait: %d", src_count)
+                if src_count == 0:
+                    raise NotebookLMError("source verification", "notebook has 0 sources after adding materials")
             ctx.progress(STAGE_GENERATE)
             editor.open_studio()
             video_mod.start_video_overview(page, topic_note, settings, ctx.selectors)
