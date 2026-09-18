@@ -149,6 +149,8 @@ class NotebookLMHandler(BaseHTTPRequestHandler):
                     "session_mode": self.settings.session_mode,
                     "timeout_seconds": self.settings.timeout_seconds,
                     "video_timeout_seconds": self.settings.video_timeout_seconds,
+                    "video_template": getattr(self.settings, "video_template", "short"),
+                    "video_style": getattr(self.settings, "video_style", "auto"),
                 },
             )
             return

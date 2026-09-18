@@ -224,6 +224,62 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button:has-text('Download')",
         "[role='menuitem']:has-text('download')",
     ],
+    "video_lang": [
+        "[role='dialog'] [aria-label*='language' i]",
+        "[role='dialog'] [aria-label*='زبان' i]",
+        "[role='dialog'] button:has-text('زبان')",
+        "[role='dialog'] button:has-text('Language')",
+    ],
+    "video_lang_persian": [
+        "[role='menuitem']:has-text('فارسی')",
+        "[role='menuitem']:has-text('Persian')",
+        "[role='option']:has-text('فارسی')",
+        "[role='option']:has-text('Persian')",
+        "[aria-label*='فارسی' i]",
+        "[aria-label*='Persian' i]",
+    ],
+    "video_template": [
+        "[role='dialog'] [aria-label*='template' i]",
+        "[role='dialog'] [aria-label*='قالب' i]",
+        "[role='dialog'] button:has-text('قالب')",
+        "[role='dialog'] button:has-text('Template')",
+    ],
+    "video_template_short": [
+        "[role='menuitem']:has-text('کوتاه')",
+        "[role='menuitem']:has-text('Short')",
+        "[role='option']:has-text('کوتاه')",
+        "[role='option']:has-text('Short')",
+    ],
+    "video_template_descriptive": [
+        "[role='menuitem']:has-text('توضیح‌دهنده')",
+        "[role='menuitem']:has-text('Descriptive')",
+        "[role='option']:has-text('توضیح‌دهنده')",
+        "[role='option']:has-text('Explanatory')",
+    ],
+    "video_style": [
+        "[role='dialog'] [aria-label*='style' i]",
+        "[role='dialog'] [aria-label*='سبک' i]",
+        "[role='dialog'] button:has-text('سبک')",
+        "[role='dialog'] button:has-text('Style')",
+    ],
+    "video_style_auto": [
+        "[role='menuitem']:has-text('انتخاب خودکار')",
+        "[role='menuitem']:has-text('Automatic')",
+        "[role='option']:has-text('انتخاب خودکار')",
+        "[role='option']:has-text('Auto')",
+    ],
+    "video_style_classic": [
+        "[role='menuitem']:has-text('کلاسیک')",
+        "[role='menuitem']:has-text('Classic')",
+        "[role='option']:has-text('کلاسیک')",
+        "[role='option']:has-text('Classic')",
+    ],
+    "video_source_select": [
+        "[role='dialog'] [class*='source-select']",
+        "[role='dialog'] button:has-text('منبع')",
+        "[role='dialog'] [class*='mat-mdc-select']",
+        "[role='dialog'] [role='combobox']",
+    ],
 }
 
 
@@ -993,7 +1049,7 @@ class NotebookEditor:
                 if (chips.length > 0) return chips.length;
                 // 2. Source counter text like "3 sources"
                 const body = document.body.textContent || '';
-                const match = body.match(/\d+\s*منبع/);
+                const match = body.match(/\\d+\\s*منبع/);
                 if (match) return parseInt(match[0]);
                 // 3. Count source buttons
                 const sourceBtns = document.querySelectorAll('[aria-label*="source" i], [aria-label*="منبع" i]');
