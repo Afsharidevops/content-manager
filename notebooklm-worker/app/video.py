@@ -332,6 +332,46 @@ def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
     # Select sources in the dialog
     _select_video_sources(page, selectors)
     
+    _log_dialog_state(page, "after-source-select")
+    
+    # GUARD: Check if dialog still shows "0 source" after source selection
+    # If so, abort - source attachment failed
+    try:
+        dialog_text = page.evaluate("""() => {
+            const d = document.querySelector('[role="dialog"]');
+            return d ? d.textContent || '' : '';
+        }""") or ""
+        LOGGER.info("DIALOG TEXT after source select: %s", dialog_text[:200])
+        
+        # Check for zero source indicators
+        if "\u06f0 \u0645\u0646\u0628\u0639" in dialog_text or "0 \u0645\u0646\u0628\u0639" in dialog_text:
+            LOGGER.warning("DIALOG shows 0 sources! Sources were not attached to this dialog.")
+            # Try _select_video_sources one more time with force
+            LOGGER.info("Retrying source selection...")
+            _select_video_sources(page, selectors)
+            page.wait_for_timeout(1000)
+            dialog_text2 = page.evaluate("""() => {
+                const d = document.querySelector('[role="dialog"]');
+                return d ? d.textContent || '' : '';
+            }""") or ""
+            if "\u06f0 \u0645\u0646\u0628\u0639" in dialog_text2 or "0 \u0645\u0646\u0628\u0639" in dialog_text2:
+                LOGGER.error("Sources could not be attached to video dialog - aborting generation")
+                # Take screenshot for debugging
+                try:
+                    ss = os.path.join(settings.data_dir, "logs", f"zero-source-{int(time.time())}.png")
+                    page.screenshot(path=ss)
+                    LOGGER.info("Zero-source screenshot: %s", ss)
+                except Exception:
+                    pass
+                raise NotebookLMError(
+                    "video generation sources",
+                    "Video Overview dialog shows 0 sources. Sources must be attached before generation."
+                )
+    except NotebookLMError:
+        raise
+    except Exception as e:
+        LOGGER.info("Source check error: %s", e)
+    
     # Customize: language, template, style
     _select_video_language(page, selectors, lang="persian")
     
