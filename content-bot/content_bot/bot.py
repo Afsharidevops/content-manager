@@ -717,6 +717,7 @@ class ContentBot:
                 and record.get("chat_id") == chat_id
                 and (
                     record.get("status") == "awaiting_media"
+                    or record.get("status") == "media_awaiting_video"
                     or (
                         record.get("status") == "media_ready"
                         and bool(record.get("media_wait_kind"))
