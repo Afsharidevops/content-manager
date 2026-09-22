@@ -64,6 +64,13 @@ def _env_flag(value: str, default: bool = False) -> bool:
     return text in {"1", "true", "yes", "on"}
 
 
+def quote_id(value: str) -> str:
+    """Percent-encode one path segment for an upstream service URL."""
+    from urllib.parse import quote
+
+    return quote(str(value or ""), safe="")
+
+
 class PanelApp:
     """Shared state and helpers behind the HTTP handlers."""
 
@@ -690,46 +697,424 @@ class PanelApp:
             )
         return rows
 
-    def media_jobs(self) -> dict:
+    def _media_studio_base(self) -> str:
         # The panel shares the stack network, so the request has to use the
         # service name and the container port: the published host bind in
         # MEDIA_STUDIO_BIND_IP is what the operator's browser reaches, not what
         # this process can dial. MEDIA_STUDIO_INTERNAL_URL overrides the guess
         # for deployments where the service is named or addressed differently.
         port = self.env_value("MEDIA_STUDIO_PORT", "8850")
-        base = (
+        return (
             self.env_value("MEDIA_STUDIO_INTERNAL_URL") or f"http://media-studio:{port}"
         ).rstrip("/")
-        token = self.env_value("MEDIA_STUDIO_API_TOKEN", "")
+
+    def _media_studio_token(self) -> str:
+        return self.env_value("MEDIA_STUDIO_API_TOKEN", "")
+
+    def media_studio_request(
+        self,
+        method: str,
+        path: str,
+        payload: dict | None = None,
+        *,
+        timeout: int = 30,
+        binary: bool = False,
+        tolerate_error: bool = False,
+    ) -> dict | bytes:
+        """Call the Media Studio API from inside the stack network.
+
+        With ``tolerate_error`` a rejected request returns the service's own
+        error document instead of raising, which is what the timeline
+        validator needs: it reports the offending field to the operator.
+        """
+        base = self._media_studio_base()
+        token = self._media_studio_token()
+        body = None
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        if payload is not None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json; charset=utf-8"
         request = urllib.request.Request(
-            f"{base}/jobs",
-            headers={"Authorization": f"Bearer {token}"} if token else {},
+            f"{base}{path}", data=body, headers=headers, method=method
         )
         try:
-            with urllib.request.urlopen(request, timeout=6) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, ValueError, socket.timeout) as error:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as error:
+            try:
+                detail = error.read().decode("utf-8", "replace")
+            except OSError:
+                detail = ""
+            if tolerate_error:
+                try:
+                    document = json.loads(detail)
+                except ValueError:
+                    document = None
+                if isinstance(document, dict):
+                    return document
+            raise CommandError(
+                f"Media Studio rejected the request ({error.code}): {detail[:400]}"
+            ) from error
+        except (urllib.error.URLError, socket.timeout) as error:
+            raise CommandError(f"Media Studio is unreachable: {error}") from error
+        if binary:
+            return raw
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except ValueError as error:
+            raise CommandError(f"Media Studio returned invalid JSON: {error}") from error
+
+    def _router_base(self) -> str:
+        # Same addressing rule as Media Studio: the browser reaches the
+        # published bind, this process dials the service name and the
+        # container port, not the host port from SMART_ROUTER_PORT.
+        return (
+            self.env_value("SMART_ROUTER_INTERNAL_URL") or "http://smart-router:8080"
+        ).rstrip("/")
+
+    def router_console_url(self) -> str:
+        """Public address of the router's own console for the operator's browser."""
+        explicit = self.env_value("SMART_ROUTER_CONSOLE_URL")
+        if explicit:
+            return explicit.rstrip("/")
+        host = self.env_value("SMART_ROUTER_BIND_IP", "127.0.0.1")
+        if host in {"0.0.0.0", "::", "::0"}:
+            host = "127.0.0.1"
+        port = self.env_value("SMART_ROUTER_PORT", "8787")
+        return f"http://{host}:{port}"
+
+    def _router_key(self) -> str:
+        return self.env_value("SMART_ROUTER_ADMIN_API_KEY") or self.env_value(
+            "SMART_ROUTER_CLIENT_API_KEY"
+        )
+
+    def router_request(
+        self, method: str, path: str, payload: dict | None = None, *, timeout: int = 300
+    ) -> dict:
+        """Call the Hermes Smart Router content API."""
+        base = self._router_base()
+        key = self._router_key()
+        if not key:
+            raise CommandError(
+                "SMART_ROUTER_ADMIN_API_KEY is not set, so the panel cannot call the router."
+            )
+        body = None
+        headers = {"Authorization": f"Bearer {key}"}
+        if payload is not None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json; charset=utf-8"
+        request = urllib.request.Request(
+            f"{base}{path}", data=body, headers=headers, method=method
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as error:
+            detail = ""
+            try:
+                detail = error.read().decode("utf-8", "replace")[:400]
+            except OSError:
+                detail = ""
+            raise CommandError(
+                f"the router rejected the request ({error.code}): {detail}"
+            ) from error
+        except (urllib.error.URLError, socket.timeout) as error:
+            raise CommandError(f"the router is unreachable: {error}") from error
+        try:
+            return json.loads(raw.decode("utf-8")) if raw else {}
+        except ValueError as error:
+            raise CommandError(f"the router returned invalid JSON: {error}") from error
+
+    @staticmethod
+    def _render_job_row(job: dict) -> dict:
+        return {
+            "id": str(job.get("id") or ""),
+            "driver": str(job.get("driver") or ""),
+            "prompt": str(job.get("prompt") or "")[:200],
+            "status": str(job.get("status") or ""),
+            "created_at": str(job.get("created_at") or ""),
+            "started_at": str(job.get("started_at") or ""),
+            "finished_at": str(job.get("finished_at") or ""),
+            "error": str(job.get("error") or "")[:400],
+            "params": job.get("params") if isinstance(job.get("params"), dict) else {},
+            "artifacts": [
+                {
+                    "name": str(item.get("name") or ""),
+                    "kind": str(item.get("kind") or ""),
+                    "size": int(item.get("size") or 0),
+                }
+                for item in (job.get("artifacts") or [])
+                if isinstance(item, dict) and item.get("name")
+            ],
+        }
+
+    def media_jobs(self) -> dict:
+        """Recent Media Studio jobs for the overview card."""
+        try:
+            payload = self.media_studio_request("GET", "/jobs", timeout=6)
+        except (CommandError, urllib.error.URLError, ValueError, socket.timeout, OSError) as error:
             return {"ok": False, "error": str(error), "jobs": []}
         jobs = payload.get("jobs") if isinstance(payload, dict) else payload
-        rows = []
-        for job in (jobs or [])[:30]:
-            if not isinstance(job, dict):
-                continue
-            rows.append(
-                {
-                    "id": str(job.get("id") or ""),
-                    "driver": str(job.get("driver") or ""),
-                    "status": str(job.get("status") or ""),
-                    "created_at": str(job.get("created_at") or ""),
-                    "error": str(job.get("error") or "")[:160],
-                    "artifacts": [
-                        str(item.get("name"))
-                        for item in (job.get("artifacts") or [])
-                        if isinstance(item, dict) and item.get("name")
-                    ],
-                }
-            )
+        rows = [
+            self._render_job_row(job) for job in (jobs or []) if isinstance(job, dict)
+        ][:30]
         return {"ok": True, "error": "", "jobs": rows}
+
+    def video_studio(self) -> dict:
+        """Return the render jobs and the configuration the view needs."""
+        drivers = [
+            part.strip()
+            for part in self.env_value(
+                "MEDIA_STUDIO_DRIVERS",
+                "api-image,api-video,flow-video,video-edit,timeline-video",
+            ).split(",")
+            if part.strip()
+        ]
+        router_key = bool(self._router_key())
+        try:
+            payload = self.media_studio_request("GET", "/jobs", timeout=8)
+        except (CommandError, urllib.error.URLError, ValueError, socket.timeout, OSError) as error:
+            return {
+                "ok": False,
+                "error": str(error),
+                "jobs": [],
+                "timeline_driver": "timeline-video" in drivers,
+                "drivers": drivers,
+                "router_ready": router_key,
+            }
+        jobs = payload.get("jobs") if isinstance(payload, dict) else payload
+        rows = [
+            self._render_job_row(job)
+            for job in (jobs or [])
+            if isinstance(job, dict)
+        ][:40]
+        return {
+            "ok": True,
+            "error": "",
+            "jobs": rows,
+            "timeline_driver": "timeline-video" in drivers,
+            "drivers": drivers,
+            "router_ready": router_key,
+        }
+
+    def video_plan(self, payload: dict) -> dict:
+        """Ask the Storyboard and Video Director agents for a render plan."""
+        topic = str(payload.get("topic") or "").strip()
+        script = str(payload.get("script") or "").strip()
+        if not topic and not script:
+            raise CommandError("a topic or a script is required to plan a video.")
+        body = {
+            "topic": topic,
+            "script": script,
+            "aspect_ratio": str(payload.get("aspect_ratio") or "9:16").strip(),
+            "duration": payload.get("duration") or 0,
+            "language": str(payload.get("language") or "").strip(),
+            "style": str(payload.get("style") or "").strip(),
+            "brand": str(payload.get("brand") or "").strip(),
+        }
+        result = self.router_request("POST", "/v1/content/video-plan", body)
+        timeline = result.get("timeline") if isinstance(result, dict) else None
+        if isinstance(timeline, dict):
+            # The operator-configured brand label applies unless the request
+            # already named one, so the render carries the same signature as
+            # the rest of the stack.
+            brand = body["brand"] or self.env_value("MEDIA_STUDIO_BRAND_LABEL", "")
+            meta = timeline.setdefault("meta", {})
+            brand_block = meta.setdefault("brand", {})
+            if brand and not str(brand_block.get("label") or "").strip():
+                brand_block["label"] = brand
+        return result
+
+    def video_render(self, payload: dict) -> dict:
+        """Submit an edited timeline to the timeline-video driver."""
+        timeline = payload.get("timeline")
+        if isinstance(timeline, str):
+            try:
+                timeline = json.loads(timeline)
+            except ValueError as error:
+                raise CommandError(f"the timeline is not valid JSON: {error}") from error
+        if not isinstance(timeline, dict):
+            raise CommandError("a timeline document is required to render.")
+        scenes = timeline.get("scenes")
+        if not isinstance(scenes, list) or not scenes:
+            raise CommandError("the timeline has no scenes.")
+        job = self.media_studio_request(
+            "POST",
+            "/jobs",
+            {
+                "driver": "timeline-video",
+                "prompt": str(payload.get("title") or "timeline render"),
+                "params": {"timeline": timeline, "brand": payload.get("brand", "")},
+            },
+            timeout=30,
+        )
+        record = job.get("job") if isinstance(job, dict) else None
+        return {"job": self._render_job_row(record or {})}
+
+    def video_job(self, job_id: str) -> dict:
+        job = self.media_studio_request("GET", f"/jobs/{quote_id(job_id)}", timeout=15)
+        record = job.get("job") if isinstance(job, dict) else None
+        row = self._render_job_row(record or {})
+        if isinstance(record, dict):
+            row["log_tail"] = str(record.get("log_tail") or "")[-8000:]
+        return {"job": row}
+
+    def video_cancel(self, job_id: str) -> dict:
+        self.media_studio_request("DELETE", f"/jobs/{quote_id(job_id)}", timeout=15)
+        return {"ok": True}
+
+    def video_timeline_validate(self, payload: dict) -> dict:
+        """Check a timeline with the renderer's own normalizer, without rendering."""
+        timeline = payload.get("timeline")
+        if isinstance(timeline, str):
+            try:
+                timeline = json.loads(timeline)
+            except ValueError as error:
+                raise CommandError(f"the timeline is not valid JSON: {error}") from error
+        if timeline is None:
+            raise CommandError("a timeline document is required to validate.")
+        result = self.media_studio_request(
+            "POST",
+            "/timeline/validate",
+            {"timeline": timeline},
+            timeout=60,
+            tolerate_error=True,
+        )
+        return result if isinstance(result, dict) else {"ok": False, "error": "unexpected reply"}
+
+    def video_retry(self, job_id: str) -> dict:
+        """Submit the same driver, prompt and params again as a new job."""
+        current = self.media_studio_request("GET", f"/jobs/{quote_id(job_id)}", timeout=15)
+        record = current.get("job") if isinstance(current, dict) else None
+        if not isinstance(record, dict) or not record.get("driver"):
+            raise CommandError(f"Media Studio does not know job {job_id}.")
+        # The original params carry the timeline, so a retry reproduces the
+        # same render instead of asking the operator to paste it again.
+        job = self.media_studio_request(
+            "POST",
+            "/jobs",
+            {
+                "driver": str(record.get("driver") or ""),
+                "prompt": str(record.get("prompt") or "retry"),
+                "params": record.get("params") if isinstance(record.get("params"), dict) else {},
+            },
+            timeout=30,
+        )
+        fresh = job.get("job") if isinstance(job, dict) else None
+        return {"job": self._render_job_row(fresh or {})}
+
+    def _router_read(self, path: str, *, timeout: int = 30) -> tuple[object, str]:
+        """Read one router endpoint, reporting failure instead of raising."""
+        try:
+            return self.router_request("GET", path, timeout=timeout), ""
+        except CommandError as error:
+            return None, str(error)
+
+    def hermes_overview(self) -> dict:
+        """Agents, models and routing telemetry from the Hermes control plane."""
+        info, info_error = self._router_read("/router/info", timeout=15)
+        summary, summary_error = self._router_read("/control/api/summary?hours=24")
+        agents, agents_error = self._router_read("/control/api/agents")
+        content_agents, content_error = self._router_read("/v1/content/agents", timeout=15)
+        models, models_error = self._router_read("/v1/models", timeout=20)
+        return {
+            "ok": not (info_error and summary_error and agents_error),
+            "console_url": self.router_console_url(),
+            "dashboard_url": f"{self.router_console_url()}/dashboard",
+            "operations_url": f"{self.router_console_url()}/control/",
+            "info": info if isinstance(info, dict) else {},
+            "info_error": info_error,
+            "summary": summary if isinstance(summary, dict) else {},
+            "summary_error": summary_error,
+            "agents": agents if isinstance(agents, list) else [],
+            "agents_error": agents_error,
+            "content_agents": content_agents if isinstance(content_agents, dict) else {},
+            "content_error": content_error,
+            "models": (models or {}).get("data", []) if isinstance(models, dict) else [],
+            "models_error": models_error,
+        }
+
+    def orchestration_runs(self, limit: int = 50) -> dict:
+        """Recent orchestrator runs with their step and approval counters."""
+        runs, error = self._router_read(f"/control/api/orchestrations?limit={int(limit)}")
+        return {
+            "ok": not error,
+            "error": error,
+            "runs": runs if isinstance(runs, list) else [],
+        }
+
+    def orchestration_run(self, run_id: str) -> dict:
+        """One orchestration run with its steps, approvals and reviewer results."""
+        snapshot, error = self._router_read(f"/control/api/orchestrations/{quote_id(run_id)}")
+        if error:
+            raise CommandError(error)
+        return {"ok": True, "run": snapshot if isinstance(snapshot, dict) else {}}
+
+    def knowledge_overview(self) -> dict:
+        """Knowledge bases with their chunk counts."""
+        bases, error = self._router_read("/control/api/knowledge")
+        return {
+            "ok": not error,
+            "error": error,
+            "bases": bases if isinstance(bases, list) else [],
+        }
+
+    def knowledge_ingest(self, payload: dict) -> dict:
+        """Add one document to a knowledge base and report the chunk count."""
+        try:
+            kb_id = int(payload.get("kb_id"))
+        except (TypeError, ValueError):
+            raise CommandError("a knowledge base id is required to index a document.") from None
+        content = str(payload.get("content") or "").strip()
+        if not content:
+            raise CommandError("the document content is empty.")
+        result = self.router_request(
+            "POST",
+            f"/control/api/knowledge/{kb_id}/documents",
+            {
+                "source": str(payload.get("source") or "panel"),
+                "title": str(payload.get("title") or "")[:300],
+                "content": content,
+            },
+            timeout=300,
+        )
+        chunks = result.get("chunks") if isinstance(result, dict) else None
+        return {"ok": True, "chunks": chunks if chunks is not None else 0}
+
+    def knowledge_search(self, payload: dict) -> dict:
+        """Retrieval test: run one query against the selected knowledge bases."""
+        query = str(payload.get("query") or "").strip()
+        if not query:
+            raise CommandError("a query is required to test retrieval.")
+        kb_ids = []
+        for value in payload.get("kb_ids") or []:
+            try:
+                kb_ids.append(int(value))
+            except (TypeError, ValueError):
+                raise CommandError(f"knowledge base id {value!r} is not a number.") from None
+        try:
+            limit = int(payload.get("limit") or 5)
+        except (TypeError, ValueError):
+            limit = 5
+        result = self.router_request(
+            "POST",
+            "/control/api/knowledge/search",
+            {"kb_ids": kb_ids, "query": query, "limit": max(1, min(20, limit))},
+            timeout=120,
+        )
+        return {"ok": True, "results": result if isinstance(result, list) else []}
+
+    def video_artifact(self, job_id: str, name: str) -> tuple[bytes, str]:
+        raw = self.media_studio_request(
+            "GET",
+            f"/artifacts/{quote_id(job_id)}/{quote_id(name)}",
+            timeout=120,
+            binary=True,
+        )
+        content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        return raw if isinstance(raw, bytes) else b"", content_type
 
 
 class PanelHandler(BaseHTTPRequestHandler):
@@ -810,6 +1195,9 @@ class PanelHandler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:  # noqa: N802
         self._dispatch("PUT")
 
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._dispatch("DELETE")
+
     def _dispatch(self, method: str) -> None:
         path = self.path.split("?", 1)[0]
         query = self.path.split("?", 1)[1] if "?" in self.path else ""
@@ -875,6 +1263,76 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
         if method == "GET" and parts == ["media", "jobs"]:
             self._send_json(HTTPStatus.OK, self.app.media_jobs())
+            return
+        if method == "GET" and parts == ["video", "studio"]:
+            self._send_json(HTTPStatus.OK, self.app.video_studio())
+            return
+        if method == "POST" and parts == ["video", "plan"]:
+            self._require_csrf()
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.video_plan(body))
+            return
+        if method == "POST" and parts == ["video", "render"]:
+            self._require_csrf()
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.video_render(body))
+            return
+        if method == "GET" and len(parts) == 3 and parts[:2] == ["video", "jobs"]:
+            self._send_json(HTTPStatus.OK, self.app.video_job(parts[2]))
+            return
+        if method == "DELETE" and len(parts) == 3 and parts[:2] == ["video", "jobs"]:
+            self._require_csrf()
+            self._send_json(HTTPStatus.OK, self.app.video_cancel(parts[2]))
+            return
+        if (
+            method == "GET"
+            and len(parts) == 4
+            and parts[0] == "video"
+            and parts[1] == "artifacts"
+        ):
+            self._serve_video_artifact(parts[2], parts[3])
+            return
+        if method == "POST" and parts == ["video", "timeline", "validate"]:
+            self._require_csrf()
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.video_timeline_validate(body))
+            return
+        if (
+            method == "POST"
+            and len(parts) == 4
+            and parts[0] == "video"
+            and parts[1] == "jobs"
+            and parts[3] == "retry"
+        ):
+            self._require_csrf()
+            self._send_json(HTTPStatus.OK, self.app.video_retry(parts[2]))
+            return
+        if method == "GET" and parts == ["hermes", "overview"]:
+            self._send_json(HTTPStatus.OK, self.app.hermes_overview())
+            return
+        if method == "GET" and parts == ["orchestration", "runs"]:
+            limit = 50
+            for pair in query.split("&"):
+                key, _, value = pair.partition("=")
+                if key == "limit" and value.isdigit():
+                    limit = max(1, min(200, int(value)))
+            self._send_json(HTTPStatus.OK, self.app.orchestration_runs(limit))
+            return
+        if method == "GET" and len(parts) == 3 and parts[:2] == ["orchestration", "runs"]:
+            self._send_json(HTTPStatus.OK, self.app.orchestration_run(parts[2]))
+            return
+        if method == "GET" and parts == ["knowledge"]:
+            self._send_json(HTTPStatus.OK, self.app.knowledge_overview())
+            return
+        if method == "POST" and parts == ["knowledge", "documents"]:
+            self._require_csrf()
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.knowledge_ingest(body))
+            return
+        if method == "POST" and parts == ["knowledge", "search"]:
+            self._require_csrf()
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.knowledge_search(body))
             return
         if method == "GET" and parts == ["storage"]:
             self._send_json(HTTPStatus.OK, self.app.stack.storage())
@@ -1077,6 +1535,27 @@ class PanelHandler(BaseHTTPRequestHandler):
             "default-src 'self'; style-src 'self' 'unsafe-inline'; "
             "script-src 'self'; img-src 'self' data:; connect-src 'self'",
         )
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_video_artifact(self, job_id: str, name: str) -> None:
+        """Stream one rendered artifact through the panel session.
+
+        Media Studio binds to loopback and expects its own token; the panel
+        already owns the operator session, so downloads go through here
+        instead of exposing the worker port.
+        """
+        body, content_type = self.app.video_artifact(job_id, name)
+        if not body:
+            self._error(HTTPStatus.NOT_FOUND, "artifact not found")
+            return
+        disposition = "attachment" if content_type.startswith("video/") else "inline"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'{disposition}; filename="{Path(name).name}"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 

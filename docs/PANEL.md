@@ -144,6 +144,39 @@ needed when `COMPOSE_PROFILES` does not already include it.
   input, and the panel rejects anything else before a command is built. Set
   `PANEL_ACTIONS_ENABLED=false` in `.env` to keep the console read-only.
 
+### Content Operations Center
+
+Four views turn the console into the operations side of the content
+production pipeline. They read the stack `.env` and talk to the other
+services on the stack network, so no new container variables are required.
+
+- **Video Studio** - plans a video with the Smart Router content agents (topic
+  or script, aspect ratio, language, seconds, brand label), shows the returned
+  storyboard and timeline, validates the timeline JSON against the renderer's
+  own normalizer, and submits the edited document to the Media Studio
+  `timeline-video` driver. The render queue lists recent jobs with status,
+  error, log tail, cancel, retry, artifact download, and an inline preview of
+  finished clips. Artifacts stream through the panel session, so the Media
+  Studio port itself never has to be published.
+- **Hermes** - the control-plane summary: router version, mode and policy,
+  routed requests, measured cost, average latency and error rate for the last
+  24 hours, the agent registry, the four seeded content production agents,
+  routing profiles, tier selection, and the top models. The console links out
+  to the router's own Operations Center (`/control/`) and Flight Deck
+  (`/dashboard`) pages instead of duplicating them.
+- **Orchestration** - recent multi-agent runs with status, approval mode, step
+  progress, reviewer verdict, the step waiting for approval, and a detail pane
+  with every step's output and error.
+- **Knowledge** - the knowledge bases with their chunk counts, an **Index a
+  document** form (pick a base, give a title, paste the text; the router chunks
+  and embeds it), and a retrieval test: select bases, run a query, and read the
+  scored matches.
+
+A section that cannot be reached (missing `SMART_ROUTER_ADMIN_API_KEY`, an
+internal URL that does not answer, or a driver that is not listed in
+`MEDIA_STUDIO_DRIVERS`) is reported as a warning banner naming the setting,
+so an incomplete stack never looks like a broken view.
+
 ### Backups created from the panel
 
 The panel runs as the operator uid, which cannot read every data directory
@@ -248,7 +281,7 @@ Keep the token out of proxy logs; the console never puts it in a URL.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PANEL_IMAGE_REPOSITORY` | `afsharidevops/content-panel` | Image repository |
-| `PANEL_IMAGE_TAG` | `0.4.1` | Image tag; the Compose service also builds locally when the image is missing |
+| `PANEL_IMAGE_TAG` | `0.5.0` | Image tag; the Compose service also builds locally when the image is missing |
 | `PANEL_BIND_IP` | `127.0.0.1` | Host address the console binds to |
 | `PANEL_PORT` | `8899` | Host port |
 | `PANEL_ACTIONS_ENABLED` | `true` | `false` serves read-only views |

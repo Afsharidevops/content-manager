@@ -20,7 +20,7 @@ from panel import drafts as drafts_mod
 from panel.editors import ConfigStore, EditError, EnvStore
 from panel.platforms import PLATFORMS, PlatformStore, _linkedin_author, platform_for
 from panel.server import PanelApp, PanelHandler
-from panel.stack import StackView
+from panel.stack import CommandError, StackView
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = REPO_ROOT / "panel" / "static"
@@ -1598,6 +1598,80 @@ class PanelDraftApiTest(unittest.TestCase):
         self.assertTrue(json.loads(body)["queued"])
         self.assertTrue((self.root / "data" / "content-bot" / "instagram-refresh.request").is_file())
 
+    def test_video_studio_requires_authentication(self):
+        status, _ = self.request("GET", "/api/video/studio")
+        self.assertEqual(status, 401)
+
+    def test_video_render_requires_the_csrf_header(self):
+        self.login()
+        status, body = self.request("POST", "/api/video/render", {"timeline": {"scenes": []}})
+        self.assertEqual(status, 403)
+        self.assertIn("X-Panel-Csrf", body)
+
+    def test_video_studio_serves_the_view_payload(self):
+        (self.root / ".env").write_text(
+            "MEDIA_STUDIO_INTERNAL_URL=http://127.0.0.1:1\n"
+            "MEDIA_STUDIO_DRIVERS=timeline-video\n",
+            encoding="utf-8",
+        )
+        self.login()
+        status, body = self.request("GET", "/api/video/studio")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertIn("jobs", payload)
+        self.assertTrue(payload["timeline_driver"])
+
+
+    def test_timeline_validate_requires_authentication_and_csrf(self):
+        status, _ = self.request("POST", "/api/video/timeline/validate", {"timeline": {}})
+        self.assertEqual(status, 401)
+        self.login()
+        status, body = self.request("POST", "/api/video/timeline/validate", {"timeline": {}})
+        self.assertEqual(status, 403)
+        self.assertIn("X-Panel-Csrf", body)
+
+    def test_video_job_retry_requires_the_csrf_header(self):
+        self.login()
+        status, _ = self.request("POST", "/api/video/jobs/abc/retry")
+        self.assertEqual(status, 403)
+
+    def test_knowledge_search_requires_the_csrf_header(self):
+        self.login()
+        status, _ = self.request("POST", "/api/knowledge/search", {"query": "x"})
+        self.assertEqual(status, 403)
+
+    def test_knowledge_ingest_requires_the_csrf_header(self):
+        self.login()
+        status, _ = self.request("POST", "/api/knowledge/documents", {"kb_id": 1, "content": "x"})
+        self.assertEqual(status, 403)
+
+    def test_operations_views_require_authentication(self):
+        for path in ("/api/hermes/overview", "/api/orchestration/runs", "/api/knowledge", "/api/knowledge/documents"):
+            with self.subTest(path=path):
+                status, _ = self.request("GET", path)
+                self.assertEqual(status, 401)
+
+    def test_operations_views_serve_payloads_and_report_a_missing_router(self):
+        (self.root / ".env").write_text(
+            "SMART_ROUTER_INTERNAL_URL=http://127.0.0.1:1\n"
+            "SMART_ROUTER_ADMIN_API_KEY=router-key\n",
+            encoding="utf-8",
+        )
+        self.login()
+        status, body = self.request("GET", "/api/hermes/overview")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertFalse(payload["ok"])
+        self.assertIn("console_url", payload)
+
+        status, body = self.request("GET", "/api/orchestration/runs")
+        self.assertEqual(status, 200)
+        self.assertFalse(json.loads(body)["ok"])
+
+        status, body = self.request("GET", "/api/knowledge")
+        self.assertEqual(status, 200)
+        self.assertFalse(json.loads(body)["ok"])
+
 
 class MediaJobsViewTest(unittest.TestCase):
     def setUp(self):
@@ -1651,13 +1725,420 @@ class MediaJobsViewTest(unittest.TestCase):
         self.assertEqual(result["jobs"][0]["id"], "job-1")
 
 
+class JsonServiceHandler(BaseHTTPRequestHandler):
+    """Tiny JSON responder used to stand in for Media Studio and the router."""
+
+    routes = {}
+    seen = []
+
+    def _answer(self, method):
+        body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        type(self).seen.append(
+            {
+                "method": method,
+                "path": self.path,
+                "auth": self.headers.get("Authorization"),
+                "body": json.loads(body.decode("utf-8")) if body else None,
+            }
+        )
+        handler = type(self).routes.get((method, self.path))
+        if handler is None:
+            # Fall back to a path-prefix match so /jobs/<id> works.
+            for (route_method, route_path), candidate in type(self).routes.items():
+                if route_method == method and self.path.startswith(route_path):
+                    handler = candidate
+                    break
+        if handler is None:
+            self.send_response(404)
+            self.end_headers()
+            return
+        status, payload, content_type = handler
+        raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_GET(self):  # noqa: N802
+        self._answer("GET")
+
+    def do_POST(self):  # noqa: N802
+        self._answer("POST")
+
+    def do_DELETE(self):  # noqa: N802
+        self._answer("DELETE")
+
+    def log_message(self, *args):
+        pass
+
+
+class VideoStudioTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+
+    def _serve(self, routes):
+        handler = type("Handler", (JsonServiceHandler,), {"routes": routes, "seen": []})
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, handler
+
+    def _write_env(self, studio_url="", router_url=""):
+        lines = [
+            "MEDIA_STUDIO_DRIVERS=api-image,timeline-video",
+            "MEDIA_STUDIO_BRAND_LABEL=Locallab",
+            "MEDIA_STUDIO_API_TOKEN=studio-token",
+            "SMART_ROUTER_ADMIN_API_KEY=router-key",
+        ]
+        if studio_url:
+            lines.append(f"MEDIA_STUDIO_INTERNAL_URL={studio_url}")
+        if router_url:
+            lines.append(f"SMART_ROUTER_INTERNAL_URL={router_url}")
+        (self.root / ".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_video_studio_reports_jobs_driver_and_router_readiness(self):
+        server, _ = self._serve(
+            {
+                ("GET", "/jobs"): (
+                    200,
+                    {
+                        "jobs": [
+                            {
+                                "id": "abc123",
+                                "driver": "timeline-video",
+                                "status": "done",
+                                "artifacts": [{"name": "timeline-video.mp4", "kind": "video", "size": 10}],
+                            }
+                        ]
+                    },
+                    "application/json",
+                )
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        view = PanelApp(self.root, "token-value").video_studio()
+        self.assertTrue(view["ok"], view.get("error"))
+        self.assertTrue(view["timeline_driver"])
+        self.assertTrue(view["router_ready"])
+        self.assertEqual(view["jobs"][0]["id"], "abc123")
+        self.assertEqual(view["jobs"][0]["artifacts"][0]["kind"], "video")
+
+    def test_video_studio_reports_an_unreachable_worker(self):
+        self._write_env(studio_url="http://127.0.0.1:1")
+        view = PanelApp(self.root, "token-value").video_studio()
+        self.assertFalse(view["ok"])
+        self.assertEqual(view["jobs"], [])
+
+    def test_video_plan_forwards_to_the_router_and_applies_the_brand(self):
+        server, seen = self._serve(
+            {
+                ("POST", "/v1/content/video-plan"): (
+                    200,
+                    {
+                        "storyboard": {"title": "Docker on RouterOS", "scenes": []},
+                        "timeline": {"version": 1, "meta": {}, "scenes": [{"duration": 4, "narration": "x"}]},
+                    },
+                    "application/json",
+                )
+            }
+        )
+        self._write_env(
+            studio_url="http://127.0.0.1:1",
+            router_url=f"http://127.0.0.1:{server.server_address[1]}",
+        )
+        result = PanelApp(self.root, "token-value").video_plan({"topic": "docker"})
+        self.assertEqual(result["timeline"]["meta"]["brand"]["label"], "Locallab")
+        call = seen.seen[0]
+        self.assertEqual(call["auth"], "Bearer router-key")
+        self.assertEqual(call["body"]["topic"], "docker")
+
+    def test_video_plan_requires_a_topic_or_script(self):
+        self._write_env()
+        with self.assertRaises(CommandError):
+            PanelApp(self.root, "token-value").video_plan({"topic": "  "})
+
+    def test_video_render_submits_the_timeline_and_reports_the_job(self):
+        server, seen = self._serve(
+            {
+                ("POST", "/jobs"): (
+                    200,
+                    {"job": {"id": "job-9", "driver": "timeline-video", "status": "queued"}},
+                    "application/json",
+                )
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        result = PanelApp(self.root, "token-value").video_render(
+            {"timeline": {"version": 1, "meta": {}, "scenes": [{"duration": 3, "narration": "hi"}]}}
+        )
+        self.assertEqual(result["job"]["id"], "job-9")
+        body = seen.seen[0]["body"]
+        self.assertEqual(body["driver"], "timeline-video")
+        self.assertEqual(body["params"]["timeline"]["scenes"][0]["narration"], "hi")
+
+    def test_video_render_accepts_a_timeline_json_string(self):
+        server, seen = self._serve(
+            {
+                ("POST", "/jobs"): (
+                    200,
+                    {"job": {"id": "job-10", "driver": "timeline-video", "status": "queued"}},
+                    "application/json",
+                )
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        PanelApp(self.root, "token-value").video_render(
+            {"timeline": json.dumps({"version": 1, "scenes": [{"duration": 3, "narration": "hi"}]})}
+        )
+        self.assertEqual(seen.seen[0]["body"]["driver"], "timeline-video")
+
+    def test_video_render_rejects_broken_json_and_empty_scenes(self):
+        self._write_env()
+        app = PanelApp(self.root, "token-value")
+        with self.assertRaises(CommandError):
+            app.video_render({"timeline": "{not json"})
+        with self.assertRaises(CommandError):
+            app.video_render({"timeline": {"version": 1, "scenes": []}})
+
+    def test_video_job_returns_the_log_tail(self):
+        server, _ = self._serve(
+            {
+                ("GET", "/jobs/job-1"): (
+                    200,
+                    {"job": {"id": "job-1", "status": "running", "log_tail": "scene 1 rendered"}},
+                    "application/json",
+                )
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        job = PanelApp(self.root, "token-value").video_job("job-1")["job"]
+        self.assertEqual(job["log_tail"], "scene 1 rendered")
+
+    def test_video_artifact_returns_bytes_and_content_type(self):
+        server, _ = self._serve(
+            {
+                ("GET", "/artifacts/job-1/timeline-video.mp4"): (
+                    200,
+                    b"mp4-bytes",
+                    "video/mp4",
+                )
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        body, content_type = PanelApp(self.root, "token-value").video_artifact(
+            "job-1", "timeline-video.mp4"
+        )
+        self.assertEqual(body, b"mp4-bytes")
+        self.assertEqual(content_type, "video/mp4")
+
+
+    def test_timeline_validate_forwards_to_the_worker(self):
+        server, seen = self._serve(
+            {
+                ("POST", "/timeline/validate"): (
+                    200,
+                    {"ok": True, "timeline": {"version": 1, "scenes": []}, "totals": {"scenes": 0}},
+                    "application/json",
+                )
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        result = PanelApp(self.root, "token-value").video_timeline_validate(
+            {"timeline": {"version": 1, "scenes": []}}
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(seen.seen[0]["body"]["timeline"]["version"], 1)
+
+    def test_timeline_validate_reports_the_rejected_document(self):
+        server, _ = self._serve(
+            {
+                ("POST", "/timeline/validate"): (
+                    422,
+                    {"ok": False, "error": "no scenes", "field": "scenes", "hint": "add one"},
+                    "application/json",
+                )
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        app = PanelApp(self.root, "token-value")
+        rejected = app.video_timeline_validate({"timeline": {"scenes": []}})
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(rejected["field"], "scenes")
+        self.assertEqual(rejected["hint"], "add one")
+
+    def test_timeline_validate_rejects_broken_json_and_missing_documents(self):
+        self._write_env()
+        app = PanelApp(self.root, "token-value")
+        with self.assertRaises(CommandError):
+            app.video_timeline_validate({"timeline": "{not json"})
+        with self.assertRaises(CommandError):
+            app.video_timeline_validate({})
+
+    def test_video_retry_resubmits_the_original_params(self):
+        server, seen = self._serve(
+            {
+                ("GET", "/jobs/job-1"): (
+                    200,
+                    {
+                        "job": {
+                            "id": "job-1",
+                            "driver": "timeline-video",
+                            "prompt": "retry me",
+                            "status": "error",
+                            "params": {"timeline": {"scenes": [{"duration": 4}]}},
+                        }
+                    },
+                    "application/json",
+                ),
+                ("POST", "/jobs"): (
+                    200,
+                    {"job": {"id": "job-2", "driver": "timeline-video", "status": "queued"}},
+                    "application/json",
+                ),
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        result = PanelApp(self.root, "token-value").video_retry("job-1")
+        self.assertEqual(result["job"]["id"], "job-2")
+        body = [call for call in seen.seen if call["method"] == "POST"][0]["body"]
+        self.assertEqual(body["prompt"], "retry me")
+        self.assertEqual(body["params"]["timeline"]["scenes"][0]["duration"], 4)
+
+    def test_video_retry_rejects_an_unknown_job(self):
+        server, _ = self._serve({("GET", "/jobs/missing"): (404, {"error": "Job not found."}, "application/json")})
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        self.assertRaises(CommandError, PanelApp(self.root, "token-value").video_retry, "missing")
+
+    def test_hermes_overview_collects_router_sections(self):
+        server, seen = self._serve(
+            {
+                ("GET", "/router/info"): (200, {"version": "0.6.2", "control_plane": True}, "application/json"),
+                ("GET", "/control/api/summary"): (200, {"requests": 12, "profiles": {"fast": 12}}, "application/json"),
+                ("GET", "/control/api/agents"): (200, [{"id": 1, "name": "storyboard"}], "application/json"),
+                ("GET", "/v1/content/agents"): (200, {"data": [{"name": "video-director"}]}, "application/json"),
+                ("GET", "/v1/models"): (200, {"data": [{"id": "auto"}]}, "application/json"),
+            }
+        )
+        self._write_env(
+            studio_url="http://127.0.0.1:1",
+            router_url=f"http://127.0.0.1:{server.server_address[1]}",
+        )
+        view = PanelApp(self.root, "token-value").hermes_overview()
+        self.assertTrue(view["ok"])
+        self.assertEqual(view["info"]["version"], "0.6.2")
+        self.assertEqual(view["summary"]["requests"], 12)
+        self.assertEqual(view["agents"][0]["name"], "storyboard")
+        self.assertEqual(view["models"][0]["id"], "auto")
+        self.assertIn("/control/", view["operations_url"])
+        queries = [call["path"] for call in seen.seen]
+        self.assertIn("/control/api/summary?hours=24", queries)
+
+    def test_hermes_overview_reports_a_missing_router_key(self):
+        (self.root / ".env").write_text("MEDIA_STUDIO_DRIVERS=timeline-video\n", encoding="utf-8")
+        view = PanelApp(self.root, "token-value").hermes_overview()
+        self.assertFalse(view["ok"])
+        self.assertIn("SMART_ROUTER_ADMIN_API_KEY", view["info_error"])
+
+    def test_orchestration_runs_and_detail(self):
+        server, seen = self._serve(
+            {
+                ("GET", "/control/api/orchestrations"): (
+                    200,
+                    [{"id": 7, "status": "awaiting_approval", "steps_total": 3, "steps_done": 1}],
+                    "application/json",
+                ),
+                ("GET", "/control/api/orchestrations/7"): (
+                    200,
+                    {"id": 7, "status": "awaiting_approval", "steps": [{"idx": 1, "status": "done"}]},
+                    "application/json",
+                ),
+            }
+        )
+        self._write_env(
+            studio_url="http://127.0.0.1:1",
+            router_url=f"http://127.0.0.1:{server.server_address[1]}",
+        )
+        app = PanelApp(self.root, "token-value")
+        listing = app.orchestration_runs(25)
+        self.assertTrue(listing["ok"])
+        self.assertEqual(listing["runs"][0]["id"], 7)
+        detail = app.orchestration_run("7")
+        self.assertEqual(detail["run"]["steps"][0]["status"], "done")
+        paths = [call["path"] for call in seen.seen]
+        self.assertIn("/control/api/orchestrations?limit=25", paths)
+
+    def test_knowledge_overview_and_search(self):
+        server, seen = self._serve(
+            {
+                ("GET", "/control/api/knowledge"): (
+                    200,
+                    [{"id": 1, "name": "brand", "chunks": 4}],
+                    "application/json",
+                ),
+                ("POST", "/control/api/knowledge/search"): (
+                    200,
+                    [{"kb_id": 1, "score": 0.8, "content": "brand voice"}],
+                    "application/json",
+                ),
+            }
+        )
+        self._write_env(
+            studio_url="http://127.0.0.1:1",
+            router_url=f"http://127.0.0.1:{server.server_address[1]}",
+        )
+        app = PanelApp(self.root, "token-value")
+        overview = app.knowledge_overview()
+        self.assertEqual(overview["bases"][0]["chunks"], 4)
+        result = app.knowledge_search({"query": "brand", "kb_ids": ["1"], "limit": 3})
+        self.assertEqual(result["results"][0]["content"], "brand voice")
+        body = [call for call in seen.seen if call["method"] == "POST"][0]["body"]
+        self.assertEqual(body["kb_ids"], [1])
+        self.assertEqual(body["limit"], 3)
+
+    def test_knowledge_ingest_posts_one_document(self):
+        server, seen = self._serve(
+            {
+                ("POST", "/control/api/knowledge/3/documents"): (
+                    200,
+                    {"chunks": 2},
+                    "application/json",
+                )
+            }
+        )
+        self._write_env(
+            studio_url="http://127.0.0.1:1",
+            router_url=f"http://127.0.0.1:{server.server_address[1]}",
+        )
+        result = PanelApp(self.root, "token-value").knowledge_ingest(
+            {"kb_id": "3", "title": "Brand voice", "content": "Write plainly."}
+        )
+        self.assertEqual(result["chunks"], 2)
+        body = seen.seen[0]["body"]
+        self.assertEqual(body["title"], "Brand voice")
+        self.assertEqual(body["source"], "panel")
+
+    def test_knowledge_ingest_validates_input(self):
+        self._write_env()
+        app = PanelApp(self.root, "token-value")
+        self.assertRaises(CommandError, app.knowledge_ingest, {"content": "x"})
+        self.assertRaises(CommandError, app.knowledge_ingest, {"kb_id": "1", "content": " "})
+
+    def test_knowledge_search_requires_a_query_and_numeric_ids(self):
+        self._write_env()
+        app = PanelApp(self.root, "token-value")
+        self.assertRaises(CommandError, app.knowledge_search, {"query": " "})
+        self.assertRaises(CommandError, app.knowledge_search, {"query": "x", "kb_ids": ["abc"]})
+
+
 class StaticAssetTest(unittest.TestCase):
     def test_console_assets_exist_and_are_wired(self):
         index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn("/static/app.js", index)
         self.assertIn("/static/style.css", index)
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram", "/api/storage", "/api/backups", "/api/platforms"):
+        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram", "/api/storage", "/api/backups", "/api/platforms", "/api/video/studio", "/api/video/plan", "/api/video/render", "/api/video/timeline/validate", "/api/video/jobs/", "/api/hermes/overview", "/api/orchestration/runs", "/api/knowledge"):
             self.assertIn(endpoint, script)
         self.assertIn("X-Panel-Csrf", script)
 

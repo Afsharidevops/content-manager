@@ -10,6 +10,10 @@ const VIEWS = [
   { id: "storage", label: "Storage", title: "Object storage (S3)", hint: "Shared S3 block, RustFS state and the per-service storage matrix." },
   { id: "backups", label: "Backups", title: "Backups", hint: "Stack archives with their sections, sizes and creation times." },
   { id: "logs", label: "Logs", title: "Service logs", hint: "Tail docker compose logs without leaving the console." },
+  { id: "video", label: "Video Studio", title: "Video studio", hint: "Plan a video with the Storyboard and Video Director agents, edit the timeline, then render it with the deterministic Media Studio driver." },
+  { id: "hermes", label: "Hermes", title: "Hermes control center", hint: "Agents, routing profiles, models and measured routing telemetry from the Hermes control plane." },
+  { id: "orchestration", label: "Orchestration", title: "Orchestration center", hint: "Multi-agent runs with their steps, approvals, reviewer results and failures." },
+  { id: "knowledge", label: "Knowledge", title: "Knowledge center", hint: "Knowledge bases, document counts and live retrieval testing." },
   { id: "notebooklm", label: "NotebookLM", title: "NotebookLM video", hint: "Session management, credential sign-in and session import for the Google NotebookLM video provider." },
   { id: "actions", label: "Actions", title: "Stack actions", hint: "A fixed whitelist of compose and manage.sh actions. Nothing else runs." },
 ];
@@ -163,6 +167,10 @@ async function loadView() {
     else if (currentView === "storage") await renderStorage();
     else if (currentView === "backups") await renderBackups();
     else if (currentView === "logs") await renderLogs();
+    else if (currentView === "video") await renderVideoStudio();
+    else if (currentView === "hermes") await renderHermes();
+    else if (currentView === "orchestration") await renderOrchestration();
+    else if (currentView === "knowledge") await renderKnowledge();
     else if (currentView === "actions") await renderActions();
     else if (currentView === "notebooklm") await renderNotebookLM();
   } catch (error) {
@@ -817,6 +825,467 @@ async function renderPlatforms() {
       applyNote,
     ),
     wrap,
+  );
+}
+
+async function renderVideoStudio() {
+  const data = await api("/api/video/studio");
+  const jobs = data.jobs || [];
+  const timelineBox = h("textarea", {
+    id: "video-timeline",
+    style: "min-height:260px;width:100%;font-family:ui-monospace,monospace;font-size:12px",
+    placeholder: "The render timeline appears here after Plan; edit it before Render if needed.",
+  });
+  const storyboardBox = h("textarea", {
+    id: "video-storyboard",
+    style: "min-height:180px;width:100%;font-family:ui-monospace,monospace;font-size:12px",
+    placeholder: "The storyboard appears here after Plan.",
+  });
+  const topicInput = h("input", { type: "text", placeholder: "Topic, e.g. Running Docker containers on MikroTik RouterOS" });
+  const scriptInput = h("textarea", {
+    style: "min-height:120px;width:100%",
+    placeholder: "Optional script or research notes. Long text becomes the storyboard source.",
+  });
+  const aspectSelect = h("select", null,
+    ...["9:16", "16:9", "1:1", "4:5"].map((value) => h("option", { value, text: value })));
+  const languageInput = h("input", { type: "text", placeholder: "e.g. fa", style: "width:90px" });
+  const durationInput = h("input", { type: "number", min: "5", max: "600", value: "45", style: "width:90px" });
+  const brandInput = h("input", { type: "text", placeholder: "Brand label on the video" });
+  const planStatus = h("div", { class: "muted small" });
+
+  async function plan() {
+    planStatus.textContent = "Planning with the Storyboard and Video Director agents...";
+    try {
+      const result = await api("/api/video/plan", {
+        method: "POST",
+        body: {
+          topic: topicInput.value,
+          script: scriptInput.value,
+          aspect_ratio: aspectSelect.value,
+          language: languageInput.value,
+          duration: Number(durationInput.value) || 0,
+          brand: brandInput.value,
+        },
+      });
+      storyboardBox.value = JSON.stringify(result.storyboard || {}, null, 2);
+      timelineBox.value = JSON.stringify(result.timeline || {}, null, 2);
+      const scenes = (result.timeline && result.timeline.scenes) || [];
+      planStatus.textContent = `Timeline ready: ${scenes.length} scene(s), ${aspectSelect.value}. Press Render to queue it.`;
+      notify("Video plan ready");
+    } catch (error) {
+      planStatus.textContent = "";
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function validate() {
+    let timeline = null;
+    try {
+      timeline = JSON.parse(timelineBox.value || "null");
+    } catch (error) {
+      showBanner(`The timeline is not valid JSON: ${error.message}`, "error");
+      return;
+    }
+    if (!timeline) {
+      showBanner("Plan a video or paste a timeline first.", "error");
+      return;
+    }
+    planStatus.textContent = "Validating against the renderer schema...";
+    try {
+      const result = await api("/api/video/timeline/validate", { method: "POST", body: { timeline } });
+      if (result.ok === false) {
+        const location = result.field ? ` (${result.field})` : "";
+        showBanner(`Timeline rejected${location}: ${result.error}${result.hint ? ` - ${result.hint}` : ""}`, "error");
+        planStatus.textContent = "Timeline needs fixing.";
+        return;
+      }
+      if (result.timeline) timelineBox.value = JSON.stringify(result.timeline, null, 2);
+      const totals = result.totals || {};
+      planStatus.textContent = `Timeline valid: ${totals.scenes || 0} scene(s), ${totals.duration_seconds || 0}s, ${totals.resolution || ""} @ ${totals.fps || ""}fps.`;
+      notify("Timeline is valid");
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function retryJob(id) {
+    try {
+      const result = await api(`/api/video/jobs/${encodeURIComponent(id)}/retry`, { method: "POST", body: {} });
+      notify(`Retry queued as ${(result.job || {}).id || "?"}`);
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function render() {
+    let timeline = null;
+    try {
+      timeline = JSON.parse(timelineBox.value || "null");
+    } catch (error) {
+      showBanner(`The timeline is not valid JSON: ${error.message}`, "error");
+      return;
+    }
+    if (!timeline) {
+      showBanner("Plan a video or paste a timeline first.", "error");
+      return;
+    }
+    planStatus.textContent = "Submitting the render job...";
+    try {
+      const result = await api("/api/video/render", {
+        method: "POST",
+        body: { timeline, brand: brandInput.value },
+      });
+      const id = (result.job || {}).id || "?";
+      notify(`Render job ${id} queued`);
+      planStatus.textContent = `Job ${id} queued. Watch its status below.`;
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function showJob(id) {
+    try {
+      const result = await api(`/api/video/jobs/${encodeURIComponent(id)}`);
+      const job = result.job || {};
+      const log = job.log_tail || "(no log yet)";
+      window.alert(`${id} - ${job.status}\n\n${log.slice(-3000)}`);
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function cancelJob(id) {
+    if (!window.confirm(`Cancel queued job ${id}?`)) return;
+    try {
+      await api(`/api/video/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+      notify("Job cancelled");
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  const jobRows = jobs.map((job) => {
+    const artifactCells = (job.artifacts || []).map((artifact) => {
+      const url = `/api/video/artifacts/${encodeURIComponent(job.id)}/${encodeURIComponent(artifact.name)}`;
+      const link = h("a", { href: url, text: artifact.name });
+      const preview = artifact.kind === "video"
+        ? h("video", { controls: true, src: url, style: "max-width:180px;display:block;margin-top:4px" })
+        : null;
+      return h("div", null, link, preview);
+    });
+    const actions = h("div", { class: "row" },
+      h("button", { class: "btn", type: "button", text: "Log", onclick: () => showJob(job.id) }),
+      job.status === "queued"
+        ? h("button", { class: "btn danger", type: "button", text: "Cancel", onclick: () => cancelJob(job.id) })
+        : null,
+      job.status === "error" || job.status === "cancelled"
+        ? h("button", { class: "btn", type: "button", text: "Retry", onclick: () => retryJob(job.id) })
+        : null,
+    );
+    return [
+      h("code", { text: job.id }),
+      job.driver,
+      h("span", null, dot(job.status), " ", job.status),
+      job.created_at || "",
+      job.error ? h("span", { class: "error small", text: job.error }) : "",
+      artifactCells.length ? h("div", null, ...artifactCells) : h("span", { class: "muted", text: "—" }),
+      actions,
+    ];
+  });
+
+  const timelineEnabled = data.timeline_driver;
+  const warnings = [];
+  if (!data.ok) warnings.push(`Media Studio is unreachable: ${data.error || "unknown error"}`);
+  if (!timelineEnabled) warnings.push("The timeline-video driver is not enabled in MEDIA_STUDIO_DRIVERS.");
+  if (!data.router_ready) warnings.push("SMART_ROUTER_ADMIN_API_KEY is not set, so planning is unavailable.");
+  if (warnings.length) showBanner(warnings.join(" "), "warn");
+
+  page.replaceChildren(
+    h("div", { class: "grid cols-4" },
+      metric("Render jobs", jobs.length, `${jobs.filter((job) => job.status === "done").length} done`),
+      metric("Timeline driver", timelineEnabled ? "enabled" : "missing", "Media Studio driver"),
+      metric("Planning", data.router_ready ? "ready" : "unavailable", "Smart Router content agents"),
+      metric("Drivers", (data.drivers || []).length, (data.drivers || []).join(", ") || "none"),
+    ),
+    card("Plan a video",
+      h("div", { class: "grid cols-2" },
+        h("label", null, "Topic", topicInput),
+        h("label", null, "Brand label", brandInput),
+      ),
+      h("label", null, "Script or notes", scriptInput),
+      h("div", { class: "row" },
+        h("label", { class: "row" }, "Aspect", aspectSelect),
+        h("label", { class: "row" }, "Language", languageInput),
+        h("label", { class: "row" }, "Seconds", durationInput),
+          h("button", { class: "btn primary", type: "button", text: "Plan", onclick: plan }),
+        h("button", { class: "btn", type: "button", text: "Validate", onclick: validate }),
+        h("button", { class: "btn", type: "button", text: "Render", onclick: render }),
+      ),
+      planStatus,
+      h("details", { style: "margin-top:8px" },
+        h("summary", { class: "muted small", text: "Storyboard JSON" }),
+        storyboardBox,
+      ),
+      h("details", { open: true, style: "margin-top:8px" },
+        h("summary", { class: "muted small", text: "Timeline JSON (sent to the renderer)" }),
+        timelineBox,
+      ),
+    ),
+    card("Render queue",
+      h("div", { class: "muted small", text: "Newest first. Downloads stream through the panel, so the worker port stays private." }),
+      table(
+        ["Job", "Driver", "Status", "Created", "Error", "Artifacts", "Actions"],
+        jobRows,
+      ),
+    ),
+  );
+}
+
+async function renderHermes() {
+  const data = await api("/api/hermes/overview");
+  const info = data.info || {};
+  const summary = data.summary || {};
+  const agents = data.agents || [];
+  const contentAgents = (data.content_agents || {}).data || [];
+  const models = data.models || [];
+
+  const warnings = [];
+  if (data.info_error) warnings.push(`Router info: ${data.info_error}`);
+  if (data.summary_error) warnings.push(`Routing telemetry: ${data.summary_error}`);
+  if (data.agents_error) warnings.push(`Agent registry: ${data.agents_error}`);
+  if (data.content_error) warnings.push(`Content agents: ${data.content_error}`);
+  if (data.models_error) warnings.push(`Model list: ${data.models_error}`);
+
+  const consoleLink = h("a", { href: data.operations_url, target: "_blank", rel: "noreferrer", text: "Operations Center" });
+  const dashboardLink = h("a", { href: data.dashboard_url, target: "_blank", rel: "noreferrer", text: "Flight Deck" });
+
+  const agentRows = agents.map((agent) => [
+    h("code", { text: String(agent.id || "") }),
+    agent.name || "",
+    agent.role || agent.kind || "",
+    agent.model || "",
+    h("span", null, dot(agent.active === false ? "exited" : "running"), " ", agent.active === false ? "disabled" : "active"),
+    String((agent.skills || []).length),
+  ]);
+
+  const contentRows = contentAgents.map((agent) => [
+    agent.name || "",
+    agent.tier || "",
+    agent.profile || "",
+    agent.agent_id ? h("code", { text: String(agent.agent_id) }) : h("span", { class: "muted", text: "not seeded" }),
+    agent.description || "",
+  ]);
+
+  const profileRows = Object.entries(summary.profiles || {}).map(([name, count]) => [name, String(count)]);
+  const tierRows = Object.entries(summary.tiers || {}).map(([name, count]) => [name, String(count)]);
+  const modelRows = (summary.models || []).map((row) => [
+    row.model || "",
+    String(row.requests || 0),
+    `$${Number(row.cost_usd || 0).toFixed(4)}`,
+  ]);
+
+  if (warnings.length) showBanner(warnings.join(" "), "warn");
+
+  page.replaceChildren(
+    h("div", { class: "grid cols-4" },
+      metric("Router version", info.version || "unknown", `mode ${info.mode || "?"} - policy ${info.policy || "?"}`),
+      metric("Routed requests", summary.requests ?? "-", `last ${summary.window_hours || 24}h`),
+      metric("Measured cost", `$${Number(summary.cost_usd || 0).toFixed(4)}`, `avg latency ${summary.avg_latency_ms || 0} ms`),
+      metric("Error rate", `${summary.error_rate || 0}%`, `${summary.policy_denials || 0} policy denial(s)`),
+    ),
+    card("Control plane",
+      h("div", { class: "row" },
+        h("span", null, dot(info.control_plane ? "running" : "exited"), " ", info.control_plane ? "control plane enabled" : "control plane disabled"),
+        h("span", { class: "muted small", text: `store ${info.sticky_backend || "?"} - ha ${info.ha_mode || "off"} - redis ${info.redis_enabled ? "on" : "off"}` }),
+      ),
+      h("div", { class: "muted small", style: "margin-top:8px" },
+        "Agents, prompts, routing profiles, keys and budgets are managed in the router console. ",
+        consoleLink, " - telemetry and traces: ", dashboardLink,
+      ),
+      h("div", { class: "muted small", style: "margin-top:6px" },
+        `Registered users ${summary.users ?? "-"} - active keys ${summary.api_keys ?? "-"} - knowledge bases ${summary.knowledge_bases ?? "-"} - agents ${summary.agents ?? "-"}`,
+      ),
+    ),
+    card("Content production agents",
+      h("div", { class: "muted small", text: "Seeded by the Smart Router for the video pipeline: Storyboard, Video Director, Media Planning and NotebookLM Recovery." }),
+      table(["Agent", "Tier", "Profile", "Agent id", "Purpose"], contentRows),
+    ),
+    card("Agent registry", table(["Id", "Name", "Role", "Model", "State", "Skills"], agentRows)),
+    card("Routing profiles", table(["Profile", "Routed requests"], profileRows)),
+    card("Tier selection", table(["Tier", "Routed requests"], tierRows)),
+    card("Top models", table(["Model", "Requests", "Measured cost"], modelRows)),
+  );
+}
+
+function runCells(run) {
+  const awaiting = run.awaiting_title ? `step ${run.awaiting_step}: ${run.awaiting_title}` : "";
+  return [
+    h("code", { text: String(run.id || "") }),
+    run.goal || run.task || "",
+    h("span", null, dot(run.status === "failed" ? "unhealthy" : run.status), " ", run.status || ""),
+    run.approval_mode || "",
+    `${run.steps_done || 0}/${run.steps_total || 0}`,
+    run.review_status || "",
+    awaiting,
+  ];
+}
+
+async function renderOrchestration() {
+  const data = await api("/api/orchestration/runs?limit=50");
+  const runs = data.runs || [];
+  if (data.error) showBanner(`The router could not list runs: ${data.error}`, "error");
+
+  const awaiting = runs.filter((run) => run.awaiting_step !== null && run.awaiting_step !== undefined);
+  const failed = runs.filter((run) => run.status === "failed");
+
+  const detail = h("pre", { text: "Select a run to see its steps and approvals." });
+
+  async function showRun(runId) {
+    detail.textContent = `Loading run ${runId}...`;
+    try {
+      const result = await api(`/api/orchestration/runs/${encodeURIComponent(runId)}`);
+      const run = result.run || {};
+      const lines = [
+        `#${run.id} ${run.status || ""}  approval=${run.approval_mode || "?"}  actor=${run.actor || "?"}`,
+        `goal: ${run.goal || run.task || ""}`,
+        run.error ? `error: ${run.error}` : "",
+        "",
+        ...(run.steps || []).map((step) => {
+          const index = step.index !== undefined ? step.index : step.idx;
+          const output = step.output || step.result || {};
+          const preview = typeof output === "object" ? JSON.stringify(output) : String(output || "");
+          return [
+            `[${index}] ${step.status || ""} ${step.title || ""} agent=${step.agent_id || "-"}`,
+            step.error ? `    error: ${step.error}` : "",
+            preview ? `    ${preview.slice(0, 600)}` : "",
+          ].filter(Boolean).join("\n");
+        }),
+      ].filter(Boolean);
+      detail.textContent = lines.join("\n") || "(empty run)";
+    } catch (error) {
+      detail.textContent = String(error.message);
+    }
+  }
+
+  const rows = runs.map((run) => runCells(run).concat([
+    h("button", { class: "btn", type: "button", text: "Details", onclick: () => showRun(run.id) }),
+  ]));
+
+  page.replaceChildren(
+    h("div", { class: "grid cols-4" },
+      metric("Recent runs", runs.length, "newest first"),
+      metric("Awaiting approval", awaiting.length, awaiting.length ? `oldest #${awaiting[awaiting.length - 1].id}` : "nothing waiting"),
+      metric("Failed", failed.length, failed.length ? `newest #${failed[0].id}` : "no failures"),
+      metric("Reviewer feedback", runs.filter((run) => run.review_status).length, "runs with a review verdict"),
+    ),
+    card("Runs",
+      h("div", { class: "muted small", text: "Multi-agent runs planned and executed through the Hermes orchestrator." }),
+      table(["Run", "Goal", "Status", "Approval", "Steps", "Review", "Waiting on", "Actions"], rows),
+    ),
+    card("Run detail", detail),
+  );
+}
+
+async function renderKnowledge() {
+  const data = await api("/api/knowledge");
+  const bases = data.bases || [];
+  if (data.error) showBanner(`The router could not list knowledge bases: ${data.error}`, "error");
+
+  const query = h("input", { type: "text", placeholder: "Ask the knowledge base a question", style: "flex:1;min-width:200px" });
+  const limit = h("input", { type: "number", min: "1", max: "20", value: "5", style: "width:70px" });
+  const picked = new Set(bases.map((base) => String(base.id)));
+  const boxes = bases.map((base) =>
+    h("label", { class: "row muted small" },
+      h("input", {
+        type: "checkbox",
+        checked: picked.has(String(base.id)),
+        onchange: (event) => {
+          if (event.target.checked) picked.add(String(base.id));
+          else picked.delete(String(base.id));
+        },
+      }),
+      ` ${base.name || base.id} (${base.chunks || 0} chunks)`,
+    ),
+  );
+  const status = h("div", { class: "muted small" });
+  const output = h("pre", { text: "Run a query to see what retrieval returns." });
+
+  async function search() {
+    status.textContent = "Searching...";
+    try {
+      const result = await api("/api/knowledge/search", {
+        method: "POST",
+        body: { query: query.value, kb_ids: [...picked], limit: Number(limit.value) || 5 },
+      });
+      const results = result.results || [];
+      status.textContent = `${results.length} result(s).`;
+      output.textContent = results.length
+        ? results.map((row, index) => {
+            const score = row.score !== undefined ? Number(row.score).toFixed(4) : "n/a";
+            const source = row.source || row.kb_id || "";
+            const text = String(row.content || row.text || "").slice(0, 900);
+            return `[${index + 1}] score=${score} source=${source}\n${text}`;
+          }).join("\n\n")
+        : "(no matches)";
+    } catch (error) {
+      status.textContent = "";
+      output.textContent = String(error.message);
+    }
+  }
+
+  const ingestBase = h("select", null, ...bases.map((base) => h("option", { value: String(base.id), text: base.name || String(base.id) })));
+  const ingestTitle = h("input", { type: "text", placeholder: "Document title", style: "flex:1;min-width:160px" });
+  const ingestText = h("textarea", { style: "min-height:120px;width:100%", placeholder: "Paste the document, brand note or research text to index." });
+  const ingestStatus = h("div", { class: "muted small" });
+
+  async function ingest() {
+    ingestStatus.textContent = "Indexing...";
+    try {
+      const result = await api("/api/knowledge/documents", {
+        method: "POST",
+        body: { kb_id: ingestBase.value, title: ingestTitle.value, content: ingestText.value },
+      });
+      ingestStatus.textContent = `Indexed ${result.chunks || 0} chunk(s).`;
+      ingestText.value = "";
+      notify("Document indexed");
+      await loadView();
+    } catch (error) {
+      ingestStatus.textContent = "";
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  const rows = bases.map((base) => [
+    h("code", { text: String(base.id) }),
+    base.name || "",
+    String(base.chunks || 0),
+    base.owner || "",
+    base.description || "",
+  ]);
+
+  page.replaceChildren(
+    h("div", { class: "grid cols-4" },
+      metric("Knowledge bases", bases.length, "router knowledge store"),
+      metric("Indexed chunks", bases.reduce((total, base) => total + Number(base.chunks || 0), 0), "embeddings across all bases"),
+      metric("Retrieval", "on demand", "query testing below"),
+      metric("Ingestion", "router API", "documents are added in the router console"),
+    ),
+    card("Knowledge bases", table(["Id", "Name", "Chunks", "Owner", "Description"], rows)),
+    card("Index a document",
+      h("div", { class: "muted small", text: "Text is chunked and embedded by the router, then becomes searchable by the agents and the retrieval test below." }),
+      h("div", { class: "row" }, ingestBase, ingestTitle, h("button", { class: "btn primary", type: "button", text: "Index", onclick: ingest })),
+      ingestText,
+      ingestStatus,
+    ),
+    card("Retrieval test",
+      h("div", { class: "row" }, query, limit, h("button", { class: "btn primary", type: "button", text: "Search", onclick: search })),
+      h("div", { class: "row", style: "flex-wrap:wrap" }, boxes.length ? boxes : h("span", { class: "muted small", text: "No knowledge bases yet." })),
+      status,
+      output,
+    ),
   );
 }
 
