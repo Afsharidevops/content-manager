@@ -235,6 +235,22 @@ async function renderOverview() {
             ),
           ),
         ),
+        h("h3", { text: "Network exposure", style: "margin-top:16px" }),
+        h("div", { class: "muted small", text: "Where each service is published, and whether the container is up. A service that is stopped exposes nothing." }),
+        table(
+          ["Service", "Key", "Bind", "State", "Host ports"],
+          (status.exposure.rows || []).map((row) => [
+            row.service,
+            h("code", { text: row.key }),
+            h("code", { text: row.bind }),
+            row.loopback
+              ? h("span", { class: "chip ok", text: "loopback only" })
+              : row.stopped
+                ? h("span", { class: "chip warn", text: row.state || "stopped" })
+                : h("span", { class: "chip warn", text: row.state || "published" }),
+            (row.ports || []).join(", ") || h("span", { class: "muted", text: "-" }),
+          ]),
+        ),
         h("h3", { text: "Local data", style: "margin-top:16px" }),
         h("div", { class: "row" },
           ...(status.disk.data || []).map((item) => h("span", { class: "chip", text: `${item.name}: ${item.size}` })),
@@ -997,9 +1013,15 @@ async function renderVideoStudio() {
   });
 
   const timelineEnabled = data.timeline_driver;
+  const driverSource = data.drivers_source === "worker" ? "the running worker" : "MEDIA_STUDIO_DRIVERS in .env";
   const warnings = [];
   if (!data.ok) warnings.push(`Media Studio is unreachable: ${data.error || "unknown error"}`);
-  if (!timelineEnabled) warnings.push("The timeline-video driver is not enabled in MEDIA_STUDIO_DRIVERS.");
+  if (!timelineEnabled) {
+    warnings.push(
+      `The timeline-video driver is not enabled (read from ${driverSource}); ` +
+      `add it to MEDIA_STUDIO_DRIVERS in .env and recreate the media-studio container.`,
+    );
+  }
   if (!data.router_ready) warnings.push("SMART_ROUTER_ADMIN_API_KEY is not set, so planning is unavailable.");
   if (warnings.length) showBanner(warnings.join(" "), "warn");
 
@@ -1008,7 +1030,7 @@ async function renderVideoStudio() {
       metric("Render jobs", jobs.length, `${jobs.filter((job) => job.status === "done").length} done`),
       metric("Timeline driver", timelineEnabled ? "enabled" : "missing", "Media Studio driver"),
       metric("Planning", data.router_ready ? "ready" : "unavailable", "Smart Router content agents"),
-      metric("Drivers", (data.drivers || []).length, (data.drivers || []).join(", ") || "none"),
+      metric("Drivers", (data.drivers || []).length, `${(data.drivers || []).join(", ") || "none"} - read from ${driverSource}`),
     ),
     card("Plan a video",
       h("div", { class: "grid cols-2" },

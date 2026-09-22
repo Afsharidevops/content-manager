@@ -64,7 +64,11 @@ needed when `COMPOSE_PROFILES` does not already include it.
 
 ## What the console shows
 
-- **Overview** - containers, health, image tags, published host ports, disk
+- **Overview** - containers, health, image tags, the **Network exposure**
+  table (every service bind with the container state and host ports: a stopped
+  profile — or one that is switched off, which `docker compose ps` does not
+  list at all — is reported as `not running` and produces no warning, while the
+  warning returns when Docker cannot be reached), published host ports, disk
   usage under `data/`, the pipeline counters, the Instagram credential card
   (token state, last automatic refresh, expiry, last error, and a **Refresh
   token now** button, plus whether automatic Instagram publishing is on or the
@@ -173,9 +177,11 @@ services on the stack network, so no new container variables are required.
   scored matches.
 
 A section that cannot be reached (missing `SMART_ROUTER_ADMIN_API_KEY`, an
-internal URL that does not answer, or a driver that is not listed in
-`MEDIA_STUDIO_DRIVERS`) is reported as a warning banner naming the setting,
-so an incomplete stack never looks like a broken view.
+internal URL that does not answer, or a driver the worker did not load) is
+reported as a warning banner naming the setting, so an incomplete stack never
+looks like a broken view. The Video Studio reads the driver list from the
+running worker (`GET /session/info`) and falls back to `MEDIA_STUDIO_DRIVERS`
+in `.env` only when Media Studio cannot be reached.
 
 ### Backups created from the panel
 
@@ -281,7 +287,7 @@ Keep the token out of proxy logs; the console never puts it in a URL.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PANEL_IMAGE_REPOSITORY` | `afsharidevops/content-panel` | Image repository |
-| `PANEL_IMAGE_TAG` | `0.5.0` | Image tag; the Compose service also builds locally when the image is missing |
+| `PANEL_IMAGE_TAG` | `0.5.1` | Image tag; the Compose service also builds locally when the image is missing |
 | `PANEL_BIND_IP` | `127.0.0.1` | Host address the console binds to |
 | `PANEL_PORT` | `8899` | Host port |
 | `PANEL_ACTIONS_ENABLED` | `true` | `false` serves read-only views |

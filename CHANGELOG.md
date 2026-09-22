@@ -26,6 +26,10 @@ The current runtime release is **v0.5.9**.
   Release: operator panel `0.5.0`.
 - NotebookLM keeps its place as the research connector; its failures now feed
   the Recovery Agent instead of blind retries.
+- Operator panel `0.5.1`: Video Studio reports the drivers the running worker
+  loaded instead of trusting `.env`, and the exposure warnings only fire for
+  services that are actually published (with a bind/state/port matrix in the
+  Overview).
 
 ### Features — NotebookLM Video Overviews for the Content Bot (2026-09-15)
 

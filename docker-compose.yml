@@ -891,7 +891,7 @@ services:
   # mounts exactly like a host invocation.
   panel:
     profiles: ["panel"]
-    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.5.0}
+    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.5.1}
     build:
       context: .
       dockerfile: panel/Dockerfile

@@ -862,16 +862,37 @@ class PanelApp:
         ][:30]
         return {"ok": True, "error": "", "jobs": rows}
 
-    def video_studio(self) -> dict:
-        """Return the render jobs and the configuration the view needs."""
-        drivers = [
+    def media_studio_drivers(self) -> tuple[list[str], str]:
+        """Drivers the worker loaded, asked from the worker itself.
+
+        ``.env`` is only the input the compose service is given; the worker
+        can be running a different list (an older container, an override, a
+        compose default), and the console must report what will actually run
+        a job. The environment file is the fallback for an unreachable worker.
+        """
+        fallback = [
             part.strip()
-            for part in self.env_value(
-                "MEDIA_STUDIO_DRIVERS",
-                "api-image,api-video,flow-video,video-edit,timeline-video",
-            ).split(",")
+            for part in self.env_value("MEDIA_STUDIO_DRIVERS", "").split(",")
             if part.strip()
         ]
+        try:
+            session = self.media_studio_request("GET", "/session/info", timeout=6)
+        except (CommandError, urllib.error.URLError, ValueError, socket.timeout, OSError):
+            return fallback, "env"
+        if not isinstance(session, dict):
+            return fallback, "env"
+        loaded = [
+            str(entry.get("name") or "")
+            for entry in (session.get("drivers") or [])
+            if isinstance(entry, dict) and entry.get("name")
+        ]
+        if not loaded:
+            return fallback, "env"
+        return loaded, "worker"
+
+    def video_studio(self) -> dict:
+        """Return the render jobs and the configuration the view needs."""
+        drivers, drivers_source = self.media_studio_drivers()
         router_key = bool(self._router_key())
         try:
             payload = self.media_studio_request("GET", "/jobs", timeout=8)
@@ -882,6 +903,7 @@ class PanelApp:
                 "jobs": [],
                 "timeline_driver": "timeline-video" in drivers,
                 "drivers": drivers,
+                "drivers_source": drivers_source,
                 "router_ready": router_key,
             }
         jobs = payload.get("jobs") if isinstance(payload, dict) else payload
@@ -896,6 +918,7 @@ class PanelApp:
             "jobs": rows,
             "timeline_driver": "timeline-video" in drivers,
             "drivers": drivers,
+            "drivers_source": drivers_source,
             "router_ready": router_key,
         }
 

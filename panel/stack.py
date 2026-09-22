@@ -287,6 +287,7 @@ class StackView:
         "caddy": "CADDY_BIND_IP",
         "open-webui": "OPENWEBUI_BIND_IP",
         "rustfs": "RUSTFS_BIND_IP",
+        "hermes": "HERMES_BIND_IP",
     }
 
     def _env_map(self) -> dict:
@@ -303,35 +304,86 @@ class StackView:
             values[key.strip()] = value.strip().strip('"').strip("'")
         return values
 
+    def _compose_states(self) -> tuple[dict, bool]:
+        """Compose state per service plus whether the query succeeded.
+
+        ``docker compose ps`` only lists the services of the enabled profiles,
+        so a profile that is switched off is absent from the answer. An empty
+        answer is still evidence ("nothing is running"), while an unreachable
+        Docker daemon is not, and the two must not be confused.
+        """
+        try:
+            return {row["service"]: row for row in self.services()}, True
+        except (CommandError, ValueError, OSError):
+            return {}, False
+
     def exposure(self) -> dict:
-        """Loopback vs network bind per service plus operator warnings."""
+        """Loopback vs network bind per service plus operator warnings.
+
+        A bind key in `.env` only says what the service would publish: a
+        profile that is not running (or a container that is stopped) exposes
+        nothing, so the console reports the state it observes and only warns
+        for services that are actually up. When Docker cannot be reached the
+        state is unknown and the warning stands, because the operator still
+        needs to review the setting.
+        """
         env = self._env_map()
+        states, observed = self._compose_states()
         rows = []
-        warnings = []
+        specific = []
+        published = []
         for service, key in self.BIND_KEYS.items():
             bind = env.get(key, "")
             if not bind:
                 continue
             local = bind in {"127.0.0.1", "::1", "localhost"}
-            rows.append({"service": service, "key": key, "bind": bind, "loopback": local})
-            if not local and service == "n8n":
-                warnings.append(
+            info = states.get(service) or {}
+            state = str(info.get("status") or info.get("state") or "")
+            # With an answer from compose, a service that is absent is not
+            # running (its profile is off); only an unreachable daemon is
+            # genuinely unknown, and then the warning stands.
+            stopped = bool(info) and str(info.get("state") or "").lower() != "running"
+            if not info and observed:
+                stopped = True
+                state = "not running"
+            rows.append(
+                {
+                    "service": service,
+                    "key": key,
+                    "bind": bind,
+                    "loopback": local,
+                    "state": state,
+                    "stopped": stopped,
+                    "ports": [str(port) for port in (info.get("ports") or [])],
+                }
+            )
+            if local or stopped:
+                continue
+            ports = ", ".join(str(port) for port in (info.get("ports") or [])) or "-"
+            if service == "n8n":
+                specific.append(
                     "n8n publishes its MCP endpoint and editor to "
-                    f"{bind}. Set {key}=127.0.0.1 to keep MCP inside the "
-                    "Docker network unless remote access is required."
+                    f"{bind}:{ports}. Set {key}=127.0.0.1 to keep MCP inside "
+                    "the Docker network unless remote access is required, or "
+                    "publish only the editor through the reverse proxy."
                 )
-            elif not local and service in {"nine-router", "omniroute", "smart-router"}:
-                warnings.append(
-                    f"{service} is published to {bind} ({key}); confirm this is "
-                    "intended for a trusted network only."
+            elif service == "rustfs":
+                specific.append(
+                    f"RustFS publishes the S3 API to {bind}:{ports} ({key}). "
+                    "Keep it behind a reverse proxy with strong credentials, and "
+                    "leave RUSTFS_CONSOLE_BIND_IP on loopback unless the console "
+                    "must be reachable too."
                 )
-            elif not local and service == "rustfs":
-                warnings.append(
-                    f"RustFS publishes the S3 API to {bind} ({key}). Keep it "
-                    "behind a reverse proxy with strong credentials, and leave "
-                    "RUSTFS_CONSOLE_BIND_IP on loopback unless the console must "
-                    "be reachable too."
-                )
+            else:
+                published.append(f"{service}:{ports} ({bind})")
+        warnings = list(specific)
+        if published:
+            warnings.append(
+                "These services are published beyond loopback: "
+                + ", ".join(published)
+                + ". Confirm this is intended for a trusted network only, or bind "
+                "them to 127.0.0.1 and reach them through the reverse proxy."
+            )
         return {"rows": rows, "warnings": warnings}
 
     # -------------------------------------------------------------- storage

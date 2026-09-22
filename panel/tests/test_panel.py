@@ -773,17 +773,86 @@ class StackExposureTest(unittest.TestCase):
 
     def test_public_n8n_bind_warns_about_mcp(self):
         (self.root / ".env").write_text("N8N_BIND_IP=0.0.0.0\n", encoding="utf-8")
+        self.view.services = lambda: [
+            {"service": "n8n", "state": "running", "status": "Up 3 hours (healthy)", "ports": ["5678"]}
+        ]
         warnings = self.view.exposure()["warnings"]
         self.assertEqual(len(warnings), 1)
         self.assertIn("MCP", warnings[0])
 
     def test_public_rustfs_bind_warns_about_object_storage(self):
         (self.root / ".env").write_text("RUSTFS_BIND_IP=192.168.1.50\n", encoding="utf-8")
+        self.view.services = lambda: [
+            {"service": "rustfs", "state": "running", "status": "Up 4 days (healthy)", "ports": ["9000", "9001"]}
+        ]
         payload = self.view.exposure()
         self.assertEqual(payload["rows"][0]["service"], "rustfs")
         self.assertFalse(payload["rows"][0]["loopback"])
         self.assertEqual(len(payload["warnings"]), 1)
         self.assertIn("RUSTFS_CONSOLE_BIND_IP", payload["warnings"][0])
+
+    def test_a_stopped_service_is_listed_without_a_warning(self):
+        (self.root / ".env").write_text(
+            "OMNIROUTE_BIND_IP=192.168.4.222\nN8N_BIND_IP=192.168.4.222\n",
+            encoding="utf-8",
+        )
+        self.view.services = lambda: [
+            {"service": "omniroute", "state": "exited", "status": "Exited (0) 3 hours ago", "ports": []},
+            {"service": "n8n", "state": "running", "status": "Up 3 hours (healthy)", "ports": ["5678"]},
+        ]
+        payload = self.view.exposure()
+        by_service = {row["service"]: row for row in payload["rows"]}
+        self.assertTrue(by_service["omniroute"]["stopped"])
+        self.assertFalse(by_service["n8n"]["stopped"])
+        self.assertEqual(by_service["n8n"]["ports"], ["5678"])
+        self.assertEqual(len(payload["warnings"]), 1)
+        self.assertIn("n8n", payload["warnings"][0])
+        self.assertIn("5678", payload["warnings"][0])
+
+    def test_an_unreachable_docker_keeps_the_warning(self):
+        (self.root / ".env").write_text("SMART_ROUTER_BIND_IP=192.168.4.222\n", encoding="utf-8")
+
+        def unreachable():
+            raise CommandError("docker is not available")
+
+        self.view.services = unreachable
+        payload = self.view.exposure()
+        self.assertEqual(len(payload["warnings"]), 1)
+        self.assertIn("smart-router", payload["warnings"][0])
+        self.assertFalse(payload["rows"][0]["stopped"])
+
+    def test_every_published_service_reaches_one_summary_warning(self):
+        (self.root / ".env").write_text(
+            "OPENWEBUI_BIND_IP=192.168.4.222\nHERMES_BIND_IP=192.168.4.222\n"
+            "MEDIA_STUDIO_BIND_IP=127.0.0.1\n",
+            encoding="utf-8",
+        )
+        self.view.services = lambda: [
+            {"service": "open-webui", "state": "running", "status": "Up 3 hours", "ports": ["3000"]},
+            {"service": "hermes", "state": "running", "status": "Up 3 hours", "ports": ["8642", "9119"]},
+            {"service": "media-studio", "state": "running", "status": "Up 17 minutes", "ports": ["8850"]},
+        ]
+        warnings = self.view.exposure()["warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("open-webui:3000", warnings[0])
+        self.assertIn("hermes:8642, 9119", warnings[0])
+        self.assertNotIn("media-studio", warnings[0])
+
+    def test_a_service_outside_the_enabled_profiles_is_not_a_warning(self):
+        # compose ps only lists enabled profiles, so an absent service is a
+        # dispatcher that is switched off, not an exposure.
+        (self.root / ".env").write_text(
+            "OMNIROUTE_BIND_IP=192.168.4.222\nCADDY_BIND_IP=192.168.4.222\n",
+            encoding="utf-8",
+        )
+        self.view.services = lambda: [
+            {"service": "n8n", "state": "running", "status": "Up 3 hours", "ports": ["5678"]}
+        ]
+        payload = self.view.exposure()
+        by_service = {row["service"]: row for row in payload["rows"]}
+        self.assertTrue(by_service["omniroute"]["stopped"])
+        self.assertEqual(by_service["omniroute"]["state"], "not running")
+        self.assertEqual(payload["warnings"], [])
 
 
 class StorageAndBackupViewTest(unittest.TestCase):
@@ -1801,6 +1870,11 @@ class VideoStudioTest(unittest.TestCase):
     def test_video_studio_reports_jobs_driver_and_router_readiness(self):
         server, _ = self._serve(
             {
+                ("GET", "/session/info"): (
+                    200,
+                    {"drivers": [{"name": "timeline-video"}, {"name": "api-image"}]},
+                    "application/json",
+                ),
                 ("GET", "/jobs"): (
                     200,
                     {
@@ -1824,6 +1898,38 @@ class VideoStudioTest(unittest.TestCase):
         self.assertTrue(view["router_ready"])
         self.assertEqual(view["jobs"][0]["id"], "abc123")
         self.assertEqual(view["jobs"][0]["artifacts"][0]["kind"], "video")
+        # The worker is the authority on which drivers it can run.
+        self.assertEqual(view["drivers"], ["timeline-video", "api-image"])
+        self.assertEqual(view["drivers_source"], "worker")
+
+    def test_video_studio_falls_back_to_the_environment_driver_list(self):
+        server, _ = self._serve(
+            {
+                ("GET", "/jobs"): (200, {"jobs": []}, "application/json"),
+                ("GET", "/session/info"): (500, {"error": "nope"}, "application/json"),
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        view = PanelApp(self.root, "token-value").video_studio()
+        self.assertTrue(view["ok"])
+        self.assertEqual(view["drivers_source"], "env")
+        self.assertTrue(view["timeline_driver"])
+
+    def test_video_studio_reports_a_worker_without_the_timeline_driver(self):
+        server, _ = self._serve(
+            {
+                ("GET", "/session/info"): (
+                    200,
+                    {"drivers": [{"name": "api-image"}, {"name": "video-edit"}]},
+                    "application/json",
+                ),
+                ("GET", "/jobs"): (200, {"jobs": []}, "application/json"),
+            }
+        )
+        self._write_env(studio_url=f"http://127.0.0.1:{server.server_address[1]}")
+        view = PanelApp(self.root, "token-value").video_studio()
+        self.assertFalse(view["timeline_driver"])
+        self.assertEqual(view["drivers_source"], "worker")
 
     def test_video_studio_reports_an_unreachable_worker(self):
         self._write_env(studio_url="http://127.0.0.1:1")
