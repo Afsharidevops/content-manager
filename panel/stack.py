@@ -362,10 +362,12 @@ class StackView:
             ports = ", ".join(str(port) for port in (info.get("ports") or [])) or "-"
             if service == "n8n":
                 specific.append(
-                    "n8n publishes its MCP endpoint and editor to "
-                    f"{bind}:{ports}. Set {key}=127.0.0.1 to keep MCP inside "
-                    "the Docker network unless remote access is required, or "
-                    "publish only the editor through the reverse proxy."
+                    "n8n publishes its editor and MCP endpoint to "
+                    f"{bind}:{ports}. Hermes reaches n8n over the internal "
+                    "Docker network, so this publication only adds LAN access "
+                    f"to the editor and MCP. Set {key}=127.0.0.1 to keep the "
+                    "port on loopback and publish the editor through the "
+                    "reverse proxy instead."
                 )
             elif service == "rustfs":
                 specific.append(

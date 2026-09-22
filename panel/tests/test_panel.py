@@ -779,6 +779,8 @@ class StackExposureTest(unittest.TestCase):
         warnings = self.view.exposure()["warnings"]
         self.assertEqual(len(warnings), 1)
         self.assertIn("MCP", warnings[0])
+        self.assertIn("Hermes reaches n8n over the internal Docker network", warnings[0])
+        self.assertIn("N8N_BIND_IP=127.0.0.1", warnings[0])
 
     def test_public_rustfs_bind_warns_about_object_storage(self):
         (self.root / ".env").write_text("RUSTFS_BIND_IP=192.168.1.50\n", encoding="utf-8")

@@ -30,6 +30,9 @@ The current runtime release is **v0.5.9**.
   loaded instead of trusting `.env`, and the exposure warnings only fire for
   services that are actually published (with a bind/state/port matrix in the
   Overview).
+- Operator panel `0.5.2`: the n8n exposure note states that Hermes reaches
+  n8n over the internal Docker network, so the host publish only adds LAN
+  access and binding the port to loopback does not affect the agent.
 
 ### Features — NotebookLM Video Overviews for the Content Bot (2026-09-15)
 

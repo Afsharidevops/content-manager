@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.2   Content Bot: 0.4.3   Media Studio: 0.5.1   NotebookLM Worker: 0.1.0   Panel: 0.5.1
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.2   Content Bot: 0.4.3   Media Studio: 0.5.1   NotebookLM Worker: 0.1.0   Panel: 0.5.2
 ```
 
 ## Screenshots
@@ -276,7 +276,7 @@ whenever their source is pushed to `main`:
 ```text
 afsharidevops/content-bot:0.4.3
 afsharidevops/media-studio:0.5.1
-afsharidevops/content-panel:0.5.1
+afsharidevops/content-panel:0.5.2
 afsharidevops/notebooklm-worker:0.1.0
 afsharidevops/content-bot:latest
 ```

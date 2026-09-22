@@ -287,7 +287,7 @@ Keep the token out of proxy logs; the console never puts it in a URL.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PANEL_IMAGE_REPOSITORY` | `afsharidevops/content-panel` | Image repository |
-| `PANEL_IMAGE_TAG` | `0.5.1` | Image tag; the Compose service also builds locally when the image is missing |
+| `PANEL_IMAGE_TAG` | `0.5.2` | Image tag; the Compose service also builds locally when the image is missing |
 | `PANEL_BIND_IP` | `127.0.0.1` | Host address the console binds to |
 | `PANEL_PORT` | `8899` | Host port |
 | `PANEL_ACTIONS_ENABLED` | `true` | `false` serves read-only views |

@@ -45,7 +45,7 @@ Fork release state (Content Manager):
 - Media Studio mutable current tag: `afsharidevops/media-studio:latest`
 - NotebookLM Worker image: `afsharidevops/notebooklm-worker:0.1.0`
 - NotebookLM Worker mutable current tag: `afsharidevops/notebooklm-worker:latest`
-- Operator panel image: `afsharidevops/content-panel:0.5.1`
+- Operator panel image: `afsharidevops/content-panel:0.5.2`
 - Operator panel mutable current tag: `afsharidevops/content-panel:latest`
 
 The Content Bot, Media Studio, and operator panel images are rebuilt and
