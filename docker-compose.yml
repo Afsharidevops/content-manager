@@ -768,7 +768,7 @@ services:
   # GitHub Actions and published to Docker Hub.
   media-studio:
     profiles: ["media"]
-    image: ${MEDIA_STUDIO_IMAGE_REPOSITORY:-afsharidevops/media-studio}:${MEDIA_STUDIO_IMAGE_TAG:-0.5.0}
+    image: ${MEDIA_STUDIO_IMAGE_REPOSITORY:-afsharidevops/media-studio}:${MEDIA_STUDIO_IMAGE_TAG:-0.5.1}
     container_name: media-studio
     restart: unless-stopped
     user: "${MEDIA_STUDIO_RUN_AS:-10005:10005}"
@@ -891,7 +891,7 @@ services:
   # mounts exactly like a host invocation.
   panel:
     profiles: ["panel"]
-    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.4.1}
+    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.5.0}
     build:
       context: .
       dockerfile: panel/Dockerfile

@@ -11,6 +11,7 @@ Endpoints:
   GET  /artifacts/<id>/<name>
   POST /brand                    raw image bytes in, branded image bytes out
   POST /uploads                  raw video bytes in, stored upload id out
+  POST /timeline/validate        validate one timeline document, return the normalized form
   GET  /openapi.json             OpenAPI description of this API
 """
 
@@ -29,6 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from media_studio import branding as branding_mod
+from media_studio import timeline as timeline_mod
 from media_studio.drivers import DRIVERS, PROBE
 from media_studio.openapi import openapi_document
 from media_studio.runner import JobQueue
@@ -263,6 +265,30 @@ class MediaStudioHandler(BaseHTTPRequestHandler):
             return
         if method == "POST" and parts == ["uploads"]:
             self._store_video_upload()
+            return
+        if method == "POST" and parts == ["timeline", "validate"]:
+            # The panel and any producer can check a timeline before paying for
+            # a render; the driver runs the same normalizer, so what validates
+            # here renders there.
+            try:
+                body = _read_json(self)
+            except ValueError as exc:
+                _json_response(self, 400, {"error": str(exc)})
+                return
+            try:
+                timeline = timeline_mod.normalize_timeline(body.get("timeline"))
+            except timeline_mod.TimelineError as exc:
+                _json_response(
+                    self,
+                    422,
+                    {"ok": False, "error": str(exc), "field": exc.field, "hint": exc.hint},
+                )
+                return
+            _json_response(
+                self,
+                200,
+                {"ok": True, "timeline": timeline, "totals": timeline["totals"]},
+            )
             return
         if method == "POST" and parts == ["jobs"]:
             try:

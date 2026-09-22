@@ -134,6 +134,7 @@ def openapi_document() -> dict:
                                                 "api-video",
                                                 "flow-video",
                                                 "gemini-image",
+                                                "timeline-video",
                                                 "video-edit",
                                             ],
                                         },
@@ -142,8 +143,10 @@ def openapi_document() -> dict:
                                             "type": "object",
                                             "additionalProperties": True,
                                             "description": (
-                                                "Driver options. video-edit "
-                                                "takes {\"upload_id\": \"...\"}."
+                                                "Driver options. video-edit takes "
+                                                "{\"upload_id\": \"...\"}; timeline-video "
+                                                "takes {\"timeline\": {...}} plus an "
+                                                "optional brand label."
                                             ),
                                         },
                                     },
@@ -204,6 +207,34 @@ def openapi_document() -> dict:
                             "content": {"application/octet-stream": {}},
                         },
                         "413": _ERROR_RESPONSE,
+                    },
+                }
+            },
+            "/timeline/validate": {
+                "post": {
+                    "summary": "Validate one timeline document",
+                    "description": (
+                        "Runs the renderer's normalizer without producing media. "
+                        "The response carries the normalized timeline the drivers "
+                        "would render, or the field that made the document invalid."
+                    ),
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "timeline": {"type": "object", "additionalProperties": True}
+                                    },
+                                    "required": ["timeline"],
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {"description": "The normalized timeline and its totals."},
+                        "422": _ERROR_RESPONSE,
                     },
                 }
             },

@@ -281,6 +281,12 @@ curl -X POST http://127.0.0.1:8850/jobs \
   -d '{"driver": "video-edit", "prompt": "prepare the clip",
        "params": {"upload_id": "<id>"}}'
 
+# validate a timeline document (no render)
+curl -sS -X POST "$MEDIA_STUDIO_URL/timeline/validate" \
+  -H "Authorization: Bearer $MEDIA_STUDIO_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"timeline": {"scenes": [{"narration": "hello", "duration": 3}]}}'
+
 # cancel a queued job
 curl -X DELETE http://127.0.0.1:8850/jobs/<id> \
   -H 'Authorization: Bearer <token>'
@@ -377,6 +383,25 @@ the image ships `libraqm` (it does).
 `MEDIA_STUDIO_TIMELINE_TIMEOUT_SECONDS` (default 1800) bounds each ffmpeg
 call. `timeline-video` must be listed in `MEDIA_STUDIO_DRIVERS` (it is part
 of the shipped default).
+
+### Validate a timeline before rendering
+
+Editors can check a document without paying for a render. `POST
+/timeline/validate` runs the same normalizer the driver uses, so a document
+that validates is a document that renders:
+
+```bash
+curl -sS -X POST "$MEDIA_STUDIO_URL/timeline/validate" \
+  -H "Authorization: Bearer $MEDIA_STUDIO_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"timeline": {"meta": {"aspect_ratio": "9:16"},
+                    "scenes": [{"narration": "First beat", "duration": 4}]}}'
+```
+
+A valid document answers `200` with the normalized timeline (defaults filled
+in) plus its `totals`; anything else answers `422` with `ok: false`, the
+message, the offending `field`, and a `hint`. The panel's Video Studio calls
+this endpoint from its Timeline box.
 
 ### Brand chip
 

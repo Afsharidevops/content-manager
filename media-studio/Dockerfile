@@ -1,7 +1,7 @@
 FROM python:3.13-slim-bookworm
 
 LABEL org.opencontainers.image.title="Media Studio" \
-      org.opencontainers.image.version="0.5.0" \
+      org.opencontainers.image.version="0.5.1" \
       org.opencontainers.image.description="Browser automation worker for Google Flow and Gemini media generation jobs"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

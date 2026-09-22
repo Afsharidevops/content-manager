@@ -115,6 +115,39 @@ class ServerTests(unittest.TestCase):
         status, payload = self._json("POST", "/jobs", {"driver": "nope", "prompt": "x"})
         self.assertEqual(status, 400)
 
+    def test_timeline_validate_returns_normalized_document(self):
+        status, payload = self._json(
+            "POST",
+            "/timeline/validate",
+            {
+                "timeline": {
+                    "meta": {"title": "Check", "aspect_ratio": "9:16"},
+                    "scenes": [{"narration": "First line", "duration": 4}],
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["timeline"]["meta"]["resolution"], "1080x1920")
+        self.assertEqual(payload["totals"]["scenes"], 1)
+        self.assertEqual(payload["timeline"]["scenes"][0]["narration"], "First line")
+
+    def test_timeline_validate_reports_the_invalid_field(self):
+        status, payload = self._json("POST", "/timeline/validate", {"timeline": {"scenes": []}})
+        self.assertEqual(status, 422)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["field"], "scenes")
+        self.assertTrue(payload["hint"])
+
+    def test_timeline_validate_requires_a_json_object(self):
+        status, payload = self._json("POST", "/timeline/validate", {"timeline": "not-a-document"})
+        self.assertEqual(status, 422)
+        self.assertEqual(payload["field"], "timeline")
+
+    def test_timeline_validate_requires_the_token(self):
+        status, _ = self._json("POST", "/timeline/validate", {"timeline": {}}, token=False)
+        self.assertEqual(status, 401)
+
     def test_probe_requires_known_target(self):
         status, _ = self._json("POST", "/session/probe", {"driver": "api-image"})
         self.assertEqual(status, 400)
