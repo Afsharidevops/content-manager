@@ -151,13 +151,16 @@ def _media_caption_messages(record: dict) -> list[str]:
         current_len += len(piece) + (2 if len(current) > 1 else 0)
     if current:
         continuation.append("\n\n".join(current))
-    continuation[0] = "…\n\n" + continuation[0]
-    if suffix:
+    if continuation:
+        continuation[0] = "…\n\n" + continuation[0]
+    if suffix and continuation:
         last = continuation[-1]
         if len(last) + len(suffix) > _TEXT_MESSAGE_MAX:
             continuation.append(suffix.lstrip("\n"))
         else:
             continuation[-1] = last + suffix
+    elif suffix:
+        continuation.append(suffix.lstrip("\n"))
     return messages + continuation
 
 
