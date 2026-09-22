@@ -14,7 +14,7 @@ produced at runtime by the writer; everything stored in this repository is
 English-only.
 
 ```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.1   Content Bot: 0.4.3   Media Studio: 0.4.0   NotebookLM Worker: 0.1.0   Panel: 0.4.1
+Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.2   Content Bot: 0.4.3   Media Studio: 0.5.0   NotebookLM Worker: 0.1.0   Panel: 0.4.1
 ```
 
 ## Screenshots
@@ -139,7 +139,7 @@ The pipeline has four cooperating parts:
 
 ```text
 Hermes Agent / Open WebUI / n8n ─┐
-Content Bot (writer calls) ──────┼──► Smart Router v0.6.1 ──► 9router/OmniRoute ──► Providers
+Content Bot (writer calls) ──────┼──► Smart Router v0.6.2 ──► 9router/OmniRoute ──► Providers
 Telegram polling (Hermes + bot) ─┘
 ```
 
