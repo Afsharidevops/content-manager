@@ -32,7 +32,7 @@ Do not bump `VERSION`, Smart Router package/image versions, or Execution Broker 
 Current release state:
 
 - stack/runtime release: `v0.5.9`
-- Smart Router image: `afsharidevops/hermes-smart-router:0.6.1`
+- Smart Router image: `afsharidevops/hermes-smart-router:0.6.2`
 - Smart Router mutable current tag: `afsharidevops/hermes-smart-router:latest`
 - Execution Broker image: `afsharidevops/hermes-execution-broker:0.1.3`
 
@@ -41,11 +41,11 @@ Fork release state (Content Manager):
 - fork/content release: `content-manager-v0.4.1`
 - Content Bot image: `afsharidevops/content-bot:0.4.3`
 - Content Bot mutable current tag: `afsharidevops/content-bot:latest`
-- Media Studio image: `afsharidevops/media-studio:0.4.0`
+- Media Studio image: `afsharidevops/media-studio:0.5.1`
 - Media Studio mutable current tag: `afsharidevops/media-studio:latest`
 - NotebookLM Worker image: `afsharidevops/notebooklm-worker:0.1.0`
 - NotebookLM Worker mutable current tag: `afsharidevops/notebooklm-worker:latest`
-- Operator panel image: `afsharidevops/content-panel:0.4.1`
+- Operator panel image: `afsharidevops/content-panel:0.5.0`
 - Operator panel mutable current tag: `afsharidevops/content-panel:latest`
 
 The Content Bot, Media Studio, and operator panel images are rebuilt and

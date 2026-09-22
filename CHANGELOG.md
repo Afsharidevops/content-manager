@@ -5,6 +5,28 @@ Older component-specific history remains in the component release-note files and
 
 The current runtime release is **v0.5.9**.
 
+### Features — content production platform: agents, timeline renderer, operations console (2026-09-22)
+
+- The Smart Router gains the four content production agents (Storyboard, Video
+  Director, Media Planning, NotebookLM Recovery) as registered agents with
+  deterministic normalizers, exposed on `GET /v1/content/agents` and
+  `POST /v1/content/{storyboard,timeline,video-plan,media-plan,recover}`, so
+  planning rides on the existing registry, orchestrator, approvals and audit
+  trail. Release: Smart Router `0.6.2`.
+- Media Studio gains the `timeline-video` driver: a validated timeline document
+  renders to one MP4 with ffmpeg (per-scene fragments, transitions, narration
+  track, brand chip), and `POST /timeline/validate` checks a document with the
+  renderer's own normalizer without rendering. The renderer never receives a
+  raw script. Release: Media Studio `0.5.1` (timeline driver in `0.5.0`).
+- The operator panel becomes the Content Operations Center: Video Studio plans,
+  validates, renders and tracks jobs (status, log tail, cancel, retry,
+  download, preview), Hermes shows the control-plane agents, routing profiles
+  and measured telemetry, Orchestration lists runs with steps, approvals and
+  reviewer verdicts, and Knowledge lists bases and runs retrieval tests.
+  Release: operator panel `0.5.0`.
+- NotebookLM keeps its place as the research connector; its failures now feed
+  the Recovery Agent instead of blind retries.
+
 ### Features — NotebookLM Video Overviews for the Content Bot (2026-09-15)
 
 - A new optional worker (`notebooklm-worker`, compose profile `notebooklm`)

@@ -150,6 +150,64 @@ clips, NotebookLM for narrated overviews. See `docs/NOTEBOOKLM-STUDIO.md`.
   of it.
 - Publish adapters beyond Telegram are not implemented yet.
 
+## Production pipeline (content production platform)
+
+Phase 2 moved video quality out of browser automation and into the stack, so a
+plan is reproducible and a render is deterministic:
+
+```text
+research / topic / script
+        |
+        v
+Smart Router content agents        (Storyboard -> Video Director)
+        |
+        v
+timeline JSON                      (scenes, narration, transitions, animations)
+        |
+        v
+Media Studio timeline-video        (validate -> ffmpeg fragments -> one MP4)
+        |
+        v
+operator panel Video Studio        (queue, preview, retry, download)
+```
+
+- **Smart Router** (`smart-router 0.6.2`, `content_agents.py`) owns the four
+  production roles: Storyboard, Video Director, Media Planning, and NotebookLM
+  Recovery. They are registered like any other agent, so the existing agent
+  registry, orchestrator, approvals, budgets, and audit trail apply to them
+  without new subsystems. The endpoints are `GET /v1/content/agents` and
+  `POST /v1/content/{storyboard,timeline,video-plan,media-plan,recover}`.
+- **Deterministic normalizers** clamp every model answer into the published
+  schema, and the timeline the Video Director returns is the only document the
+  renderer accepts. A raw script never reaches the renderer, so a bad model
+  answer cannot produce an unrenderable job.
+- **Media Studio** (`0.5.1`) adds the `timeline-video` driver next to the
+  browser drivers. It validates the timeline (`POST /timeline/validate`),
+  renders one fragment per scene with ffmpeg, joins them with the requested
+  transitions, overlays the narration track and the brand chip, and writes one
+  MP4. No browser session is involved, so a render does not depend on the
+  NotebookLM or Flow UI.
+- **NotebookLM** stays available for the flows it is genuinely good at (web
+  research and source-backed audio/video), and its failures now feed the
+  Recovery Agent with a recorded page state instead of being retried blindly.
+- **Operator panel** (`0.5.0`) is the operations side: Video Studio plans,
+  validates, renders, and tracks jobs; Hermes, Orchestration and Knowledge
+  expose the control-plane agents, runs, and retrieval.
+
+### Why ffmpeg instead of a Remotion driver
+
+Remotion renders React compositions with a headless Chromium, which would add a
+Node toolchain and a browser to the renderer image for effects the stack does
+not need yet. The `timeline-video` driver keeps the same contract (timeline
+JSON in, MP4 out) on top of the ffmpeg that Media Studio already ships, so the
+renderer stays deterministic, offline, and small. The driver interface is the
+extension point: `media-studio/drivers/` can take a `remotion-video` driver
+later without touching the agents, the timeline schema, or the panel.
+
+The older browser path is unchanged for photographers of record: the operator
+prompt + upload flow and the `video-edit` driver keep working, and the timeline
+pipeline can consume those uploaded clips as scene assets.
+
 ## Scheduled routines
 
 `editorial-policy.yaml` gains a `routines:` list; each entry queues
