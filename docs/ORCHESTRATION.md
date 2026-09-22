@@ -96,6 +96,34 @@ Every transition writes an audit event (`orchestration.create`,
 `smart_router_orchestration_runs_total` and
 `smart_router_orchestration_steps_total`.
 
+## Content production agents
+
+Four production roles are seeded into the control database on startup. They
+appear on the panel's Agents page and in the orchestrator catalog like any
+other agent, and they also serve the deterministic content endpoints.
+
+| Agent | Capability |
+| --- | --- |
+| Storyboard Agent | Topic/script/research notes -> scenes with hooks, pacing, visual direction |
+| Video Director Agent | Script or storyboard -> render timeline document |
+| Media Planning Agent | Scenes -> one asset decision per scene, cheapest source first |
+| NotebookLM Recovery Agent | Recorded browser page state -> one recovery action |
+
+| Method and path | Permission | Purpose |
+| --- | --- | --- |
+| `GET /v1/content/agents` | client | List the seeded agents and their control-database IDs |
+| `POST /v1/content/storyboard` | client | Build a storyboard |
+| `POST /v1/content/timeline` | client | Build a render timeline for the Media Studio `timeline-video` driver |
+| `POST /v1/content/video-plan` | client | Storyboard and timeline in one call |
+| `POST /v1/content/media-plan` | client | Plan the assets for a scene list |
+| `POST /v1/content/recover` | client | Ask for one recovery decision for a stalled browser step |
+
+Seeding only adds missing names, so an operator edit in the panel survives a
+restart. Every answer goes through a deterministic normalizer that clamps
+durations, transitions, animations, and asset types, and a malformed answer
+gets one repair round trip before the request fails with
+`content_agent_failed`.
+
 ## Configuration
 
 | Variable | Default | Meaning |

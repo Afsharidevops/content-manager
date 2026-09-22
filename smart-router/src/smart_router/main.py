@@ -16,6 +16,7 @@ from starlette.routing import Mount, Route
 
 from . import __version__
 from . import anthropic as anthropic_mod
+from . import content_agents as content_agents_mod
 from . import responses as responses_mod
 from .budget import BudgetResult, enforce_budget, propose_budget
 from .config import Settings
@@ -98,6 +99,23 @@ def create_app(
     async def lifespan(app: Starlette):
         app.state.client = httpx.AsyncClient(timeout=timeout, transport=transport)
         try:
+            if control_plane.enabled:
+                # Content production agents are seeded once; operator edits in
+                # the panel are preserved because existing names are skipped.
+                try:
+                    seeded = content_agents_mod.ensure_content_agents(control_plane)
+                    if seeded["created"]:
+                        logger.info(
+                            json.dumps(
+                                {"event": "content_agents_seeded", "created": seeded["created"]}
+                            )
+                        )
+                except Exception as error:  # noqa: BLE001 - seeding must not block startup
+                    logger.error(
+                        json.dumps(
+                            {"event": "content_agents_seed_failed", "reason": type(error).__name__}
+                        )
+                    )
             yield
         finally:
             await app.state.client.aclose()
@@ -461,6 +479,115 @@ def create_app(
             headers={"Cache-Control": "no-store"},
         )
 
+    async def _content_json(request: Request) -> dict | JSONResponse:
+        """Parse one JSON object body for a content endpoint."""
+        try:
+            payload = await request.json()
+        except Exception:  # noqa: BLE001 - malformed body
+            return _openai_error("the request body must be a JSON object", "invalid_body", 400)
+        if not isinstance(payload, dict):
+            return _openai_error("the request body must be a JSON object", "invalid_body", 400)
+        return payload
+
+    def _content_error(error: content_agents_mod.ContentAgentError) -> JSONResponse:
+        return _openai_error(error.message, error.code, 502)
+
+    async def content_agents_list(request: Request) -> Response:
+        """List the seeded content production agents and their IDs."""
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        try:
+            ids = content_agents_mod.content_agent_ids(control_plane)
+        except Exception as error:  # noqa: BLE001 - control database may be off
+            return _openai_error(
+                f"the control database is unavailable: {type(error).__name__}",
+                "control_plane_unavailable",
+                503,
+            )
+        return JSONResponse(
+            {
+                "data": [
+                    {
+                        "name": definition.name,
+                        "description": definition.description,
+                        "tier": definition.tier,
+                        "profile": definition.profile,
+                        "agent_id": ids.get(definition.name),
+                    }
+                    for definition in content_agents_mod.CONTENT_AGENTS
+                ]
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def content_storyboard(request: Request) -> Response:
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        payload = await _content_json(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            storyboard = await content_agents_mod.build_storyboard(control_plane, payload)
+        except content_agents_mod.ContentAgentError as error:
+            return _content_error(error)
+        return JSONResponse({"storyboard": storyboard}, headers={"Cache-Control": "no-store"})
+
+    async def content_timeline(request: Request) -> Response:
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        payload = await _content_json(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            timeline = await content_agents_mod.build_timeline(control_plane, payload)
+        except content_agents_mod.ContentAgentError as error:
+            return _content_error(error)
+        return JSONResponse({"timeline": timeline}, headers={"Cache-Control": "no-store"})
+
+    async def content_video_plan(request: Request) -> Response:
+        """Storyboard and timeline in one call: the Phase 2 pipeline bridge."""
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        payload = await _content_json(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            plan = await content_agents_mod.plan_video(control_plane, payload)
+        except content_agents_mod.ContentAgentError as error:
+            return _content_error(error)
+        return JSONResponse(plan, headers={"Cache-Control": "no-store"})
+
+    async def content_media_plan(request: Request) -> Response:
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        payload = await _content_json(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            plan = await content_agents_mod.build_media_plan(control_plane, payload)
+        except content_agents_mod.ContentAgentError as error:
+            return _content_error(error)
+        return JSONResponse({"media_plan": plan}, headers={"Cache-Control": "no-store"})
+
+    async def content_recover(request: Request) -> Response:
+        """Return one recovery decision for a stalled NotebookLM step."""
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        payload = await _content_json(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            decision = await content_agents_mod.recovery_decision(control_plane, payload)
+        except content_agents_mod.ContentAgentError as error:
+            return _content_error(error)
+        return JSONResponse({"decision": decision}, headers={"Cache-Control": "no-store"})
+
     async def router_info(_: Request) -> Response:
         return JSONResponse({
             "version": __version__,
@@ -483,6 +610,12 @@ def create_app(
         Route("/dashboard/api/traces", dashboard_traces, methods=["GET"]),
         Route("/dashboard/api/traces/{request_id:str}", dashboard_trace, methods=["GET"]),
         Mount("/control", app=control_plane.app),
+        Route("/v1/content/agents", content_agents_list, methods=["GET"]),
+        Route("/v1/content/storyboard", content_storyboard, methods=["POST"]),
+        Route("/v1/content/timeline", content_timeline, methods=["POST"]),
+        Route("/v1/content/video-plan", content_video_plan, methods=["POST"]),
+        Route("/v1/content/media-plan", content_media_plan, methods=["POST"]),
+        Route("/v1/content/recover", content_recover, methods=["POST"]),
         Route("/v1/models", models, methods=["GET"]),
         Route("/v1/tools", tools, methods=["GET"]),
         Route("/v1/chat/completions", completions, methods=["POST"]),
