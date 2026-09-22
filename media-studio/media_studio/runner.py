@@ -21,6 +21,7 @@ _DRIVER_MODULES = {
     "api-image": ("media_studio.drivers.api_image", "ApiImageDriver"),
     "api-video": ("media_studio.drivers.api_video", "ApiVideoDriver"),
     "video-edit": ("media_studio.drivers.video_edit", "VideoEditDriver"),
+    "timeline-video": ("media_studio.drivers.timeline_video", "TimelineVideoDriver"),
     "flow-video": ("media_studio.drivers.flow_video", "FlowVideoDriver"),
     "gemini-image": ("media_studio.drivers.gemini_image", "GeminiImageDriver"),
 }

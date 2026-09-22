@@ -33,7 +33,7 @@ class Settings:
     bind_ip: str = "127.0.0.1"
     port: int = 8850
     api_token: str = ""
-    drivers: tuple[str, ...] = ("api-image", "api-video", "flow-video", "video-edit")
+    drivers: tuple[str, ...] = ("api-image", "api-video", "flow-video", "video-edit", "timeline-video")
     writer_base_url: str = ""
     writer_api_key: str = ""
     writer_model: str = ""
@@ -54,6 +54,7 @@ class Settings:
     video_edit_max_side: int = 1920
     video_edit_max_seconds: int = 0
     video_edit_timeout_seconds: int = 900
+    timeline_timeout_seconds: int = 1800
     upload_ttl_seconds: int = 86400
     session_mode: str = "cdp"
     cdp_url: str = "http://127.0.0.1:9222"
@@ -71,7 +72,7 @@ class Settings:
         drivers = tuple(
             part.strip()
             for part in _env(
-                "MEDIA_STUDIO_DRIVERS", "api-image,api-video,flow-video,video-edit"
+                "MEDIA_STUDIO_DRIVERS", "api-image,api-video,flow-video,video-edit,timeline-video"
             ).split(",")
             if part.strip()
         )
@@ -111,6 +112,9 @@ class Settings:
             video_edit_max_seconds=_env_int("MEDIA_STUDIO_VIDEO_EDIT_MAX_SECONDS", 0),
             video_edit_timeout_seconds=_env_int(
                 "MEDIA_STUDIO_VIDEO_EDIT_TIMEOUT_SECONDS", 900
+            ),
+            timeline_timeout_seconds=_env_int(
+                "MEDIA_STUDIO_TIMELINE_TIMEOUT_SECONDS", 1800
             ),
             upload_ttl_seconds=_env_int("MEDIA_STUDIO_UPLOAD_TTL_SECONDS", 86400),
             session_mode=_env("MEDIA_STUDIO_SESSION_MODE", "cdp").lower(),

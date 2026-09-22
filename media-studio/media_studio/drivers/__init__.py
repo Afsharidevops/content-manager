@@ -30,6 +30,11 @@ DRIVERS: dict[str, DriverMeta] = {
         label="Normalise an operator-uploaded video with ffmpeg",
         group="api",
     ),
+    "timeline-video": DriverMeta(
+        name="timeline-video",
+        label="Render a timeline document (scenes, narration, transitions) to MP4",
+        group="api",
+    ),
     "flow-video": DriverMeta(
         name="flow-video",
         label="Google Flow video generation (Flow account session)",

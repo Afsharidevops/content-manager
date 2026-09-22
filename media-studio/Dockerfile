@@ -1,7 +1,7 @@
 FROM python:3.13-slim-bookworm
 
 LABEL org.opencontainers.image.title="Media Studio" \
-      org.opencontainers.image.version="0.4.0" \
+      org.opencontainers.image.version="0.5.0" \
       org.opencontainers.image.description="Browser automation worker for Google Flow and Gemini media generation jobs"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -11,7 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TMPDIR=/tmp
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates fonts-noto-core \
+    && apt-get install --yes --no-install-recommends ca-certificates fonts-noto-core libraqm0 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10005 mediastudio \

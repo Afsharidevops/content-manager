@@ -102,7 +102,7 @@ After the connection tests green in the router, store the model that belongs to
 it, then restart the two services that read the value:
 
 ```bash
-MEDIA_STUDIO_DRIVERS=api-image,api-video,flow-video,video-edit
+MEDIA_STUDIO_DRIVERS=api-image,api-video,flow-video,video-edit,timeline-video
 MEDIA_STUDIO_VIDEO_MODEL=xai/grok-imagine-video
 CONTENT_MEDIA_VIDEO_DRIVER=api-video
 docker compose up -d media-studio content-bot
@@ -319,6 +319,64 @@ ffmpeg and returns one `edited-<name>.mp4` artifact:
 back to `imageio-ffmpeg` from `requirements.txt`, so no system package is
 needed. `video-edit` must be listed in `MEDIA_STUDIO_DRIVERS` (it is part of
 the shipped default). `Publish as-is` never calls Media Studio.
+
+### Timeline render (deterministic video)
+
+The `timeline-video` driver renders a **timeline document** to one MP4 with
+ffmpeg. Planning agents (the Smart Router content agents) produce that
+document; the renderer never receives a raw script, so the same timeline
+always produces the same video. Submit the timeline inside the job params,
+either as an object or as a JSON string:
+
+```bash
+curl -sS -X POST "$MEDIA_STUDIO_URL/jobs" \
+  -H "Authorization: Bearer $MEDIA_STUDIO_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "driver": "timeline-video",
+        "prompt": "render the timeline",
+        "params": {
+          "timeline": {
+            "version": 1,
+            "meta": {"title": "Docker on RouterOS", "aspect_ratio": "9:16",
+                      "brand": {"label": "Locallab", "position": "bottom-right"}},
+            "audio": {"upload_id": "<upload-id>", "volume": 1.0},
+            "scenes": [
+              {"duration": 4, "narration": "متن صحنه اول", "animation": "zoom-in"},
+              {"duration": 5, "narration": "Second beat", "transition": "fade",
+               "upload_id": "<upload-id>", "asset_type": "image"},
+              {"duration": 3, "narration": "Closing line", "transition": "wipeleft"}
+            ]
+          }
+        }
+      }'
+```
+
+Scene fields:
+
+| Field | Values | Notes |
+| --- | --- | --- |
+| `duration` | 0.5 – 120 seconds | clamped on validation |
+| `narration` | text | painted on the card, or into the caption band over an asset |
+| `visual` | text | optional heading; also used as the card text when `narration` is empty |
+| `asset_type` | `auto`, `text`, `solid`, `image`, `video` | `auto` picks image/video when an asset is present, text otherwise |
+| `upload_id` | upload id | resolved inside the uploads directory only |
+| `asset_path` | absolute path | must live under the uploads or the job work directory |
+| `transition` | `cut`, `fade`, `dissolve`, `slideleft`, `slideright`, `wipeleft`, `wipeup`, `circleopen` | the first scene is always `cut` |
+| `animation` | `none`, `zoom-in`, `zoom-out`, `pan-left`, `pan-right` | Ken Burns style motion on stills |
+| `emotion` | free text | passed through as metadata for upstream planning |
+
+Meta fields: `aspect_ratio` (`9:16`, `16:9`, `1:1`, `4:5`), `resolution`
+(explicit `1080x1920` overrides the preset), `fps` (24/25/30/50/60),
+`subtitle` (paint captions over image and video scenes), and `brand`
+(`label`, `position`, `style`). The optional `audio` block adds one narration
+track (padded with `apad` and trimmed with `-shortest`). Generated cards use
+the brand gradient palette, and Persian text is shaped right-to-left when
+the image ships `libraqm` (it does).
+
+`MEDIA_STUDIO_TIMELINE_TIMEOUT_SECONDS` (default 1800) bounds each ffmpeg
+call. `timeline-video` must be listed in `MEDIA_STUDIO_DRIVERS` (it is part
+of the shipped default).
 
 ### Brand chip
 
