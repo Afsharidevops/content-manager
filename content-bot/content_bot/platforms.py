@@ -240,12 +240,15 @@ def needs_video(profile: PlatformProfile) -> bool:
 
 
 def has_video(record: dict) -> bool:
-    """True when the draft carries a video file."""
+    """True when the draft carries a video file reachable for publication."""
     media = record.get("media") or {}
     if str(media.get("kind") or "") == "video":
-        return True
+        if media.get("local_path") or media.get("file_id"):
+            return True
     return any(
-        str(item.get("kind") or "") == "video" for item in (media.get("files") or [])
+        str(item.get("kind") or "") == "video"
+        and (item.get("local_path") or item.get("file_id"))
+        for item in (media.get("files") or [])
     )
 
 
