@@ -69,6 +69,18 @@ class ContentAgentDefinition:
     profile: str = "standard"
 
 
+SCRIPT_SYSTEM_PROMPT = (
+    "You are the Hermes Script Agent. Turn a topic or research notes into a concise, accurate video script. "
+    "Use a compelling hook, coherent narration, and a clear call to action appropriate to the requested platform. "
+    "Do not invent facts absent from the input. Reply with one JSON object matching this schema:\n"
+    "{\n"
+    "  \"title\": \"video title\",\n"
+    "  \"hook\": \"the opening line to grab attention\",\n"
+    "  \"body\": \"the full script narration, formatted with paragraphs\",\n"
+    "  \"call_to_action\": \"the closing action phrase\"\n"
+    "}"
+)
+
 STORYBOARD_SYSTEM_PROMPT = (
     "You are the Hermes Storyboard Agent for short-form and long-form video. "
     "Split the given content into ordered scenes, give every scene one concrete visual direction, "
@@ -132,6 +144,18 @@ def _storyboard_prompt(payload: dict[str, Any]) -> str:
         f"animations from {list(ANIMATIONS)}, and asset types from {list(ASSET_TYPES)}."
     )
 
+
+def _script_prompt(payload: dict[str, Any]) -> str:
+    return (
+        "Write a video script from this request.\n\n"
+        f"Topic: {payload.get('topic') or '(not given)'}\n"
+        f"Research notes: {payload.get('research') or payload.get('notes') or '(not given)'}\n"
+        f"Platform: {payload.get('platform') or 'short-form social video'}\n"
+        f"Duration: {payload.get('duration') or 'unspecified'}\n"
+        f"Style: {payload.get('style') or 'clear and engaging'}\n"
+        f"Language: {payload.get('language') or 'English'}\n\n"
+        "Reply with: {\"title\": \"\", \"hook\": \"\", \"body\": \"\", \"call_to_action\": \"\"}."
+    )
 
 def _scene_prompt(payload: dict[str, Any]) -> str:
     return (
@@ -473,6 +497,20 @@ class ContentAgentError(RuntimeError):
         self.code = code
 
 
+async def build_script(cp: Any, payload: dict[str, Any], *, agent_id: int | None = None, profile: str = "") -> dict[str, str]:
+    """Return a structured script suitable for the Storyboard Agent."""
+    answer = await _json_call(
+        cp,
+        system_prompt=SCRIPT_SYSTEM_PROMPT,
+        user_prompt=_script_prompt(payload),
+        profile=profile,
+        agent_id=agent_id,
+    )
+    fields = {key: str(answer.get(key) or "").strip() for key in ("title", "hook", "body", "call_to_action")}
+    if not fields["body"]:
+        raise ContentAgentError("script body is required", "script_invalid")
+    return fields
+
 async def build_storyboard(cp: Any, payload: dict[str, Any], *, agent_id: int | None = None, profile: str = "") -> dict[str, Any]:
     """Return a validated storyboard for one request."""
     answer = await _json_call(
@@ -567,6 +605,11 @@ async def recovery_decision(cp: Any, payload: dict[str, Any], *, agent_id: int |
 
 
 CONTENT_AGENTS: tuple[ContentAgentDefinition, ...] = (
+    ContentAgentDefinition(
+        name="Script Agent",
+        description="Converts a topic or research notes into a structured video script with a hook and call to action.",
+        system_prompt=SCRIPT_SYSTEM_PROMPT,
+    ),
     ContentAgentDefinition(
         name="Storyboard Agent",
         description=(

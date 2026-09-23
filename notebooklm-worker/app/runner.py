@@ -28,6 +28,7 @@ from app.models import (
     STATUS_UPLOADING,
 )
 from app.notebook import NotebookEditor, load_selectors
+from app.recovery import RecoveryClient
 
 LOGGER = logging.getLogger("notebooklm.runner")
 
@@ -59,6 +60,7 @@ class RunContext:
     logs_dir: str
     videos_dir: str
     progress: object  # callable(stage: str) -> None
+    recovery: RecoveryClient
 
 
 def run_browser_flow(ctx: RunContext) -> str:
@@ -124,12 +126,23 @@ def run_browser_flow(ctx: RunContext) -> str:
             ctx.progress(STAGE_DOWNLOAD)
             target = os.path.join(ctx.videos_dir, f"{job.id}.mp4")
             return video_mod.download_video(page, target, settings, ctx.selectors)
-        except Exception:
+        except Exception as error:
             if settings.keep_screenshots:
                 try:
                     browser_mod.snapshot_page(page, ctx.logs_dir, prefix=job.id)
                 except Exception as error:  # noqa: BLE001 - a report must not mask the failure
                     LOGGER.warning("Snapshot for job %s failed: %s", job.id, error)
+            decision = getattr(ctx, "recovery", None)
+            if decision is not None:
+                recovery = decision.decide(
+                    step=ctx.job.stage or "browser_flow",
+                    attempt=1,
+                    error=error,
+                    page=page,
+                )
+                if recovery:
+                    action = decision.apply(page, recovery)
+                    LOGGER.warning("Recovery decision for job %s: %s", ctx.job.id, action)
             raise
 
 
@@ -215,6 +228,7 @@ class JobRunner:
                 logs_dir=self.logs_dir,
                 videos_dir=self.videos_dir,
                 progress=lambda stage: self._progress(job.id, stage),
+                recovery=RecoveryClient(self.settings),
             )
             path = self.automation(context)
             self.store.update(job.id, video_path=str(path or ""), stage="")

@@ -408,6 +408,24 @@ def create_app(
             return v51_route.error
         selected_tier = v51_route.tier
         effective_model = v51_route.model
+        automatic_fallbacks = []
+        for fallback_tier in ("strong", "standard", "fast"):
+            fallback_model = settings.tier(fallback_tier).model
+            if (
+                fallback_tier != selected_tier
+                and fallback_model != effective_model
+                and tier_satisfies_capabilities(fallback_tier, decision.facts, settings)
+                and fallback_model not in automatic_fallbacks
+            ):
+                automatic_fallbacks.append(fallback_model)
+        configured_fallbacks = list(getattr(request.state, "v56_fallback_models", []) or [])
+        request.state.v56_fallback_models = configured_fallbacks + [
+            model for model in automatic_fallbacks if model not in configured_fallbacks
+        ]
+        request.state.v56_retry_count = max(
+            int(getattr(request.state, "v56_retry_count", 0) or 0),
+            len(request.state.v56_fallback_models),
+        )
         body["model"] = effective_model
         outbound = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
         _safe_log_decision(
@@ -534,6 +552,19 @@ def create_app(
             return _content_error(error)
         return JSONResponse({"storyboard": storyboard}, headers={"Cache-Control": "no-store"})
 
+    async def content_script(request: Request) -> Response:
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        payload = await _content_json(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            script = await content_agents_mod.build_script(control_plane, payload)
+        except content_agents_mod.ContentAgentError as error:
+            return _content_error(error)
+        return JSONResponse({"script": script}, headers={"Cache-Control": "no-store"})
+
     async def content_scene(request: Request) -> Response:
         """Regenerate one storyboard scene for the operator's scene editor."""
         auth_error = _client_auth_error(request, settings)
@@ -625,6 +656,7 @@ def create_app(
         Route("/dashboard/api/traces/{request_id:str}", dashboard_trace, methods=["GET"]),
         Mount("/control", app=control_plane.app),
         Route("/v1/content/agents", content_agents_list, methods=["GET"]),
+        Route("/v1/content/script", content_script, methods=["POST"]),
         Route("/v1/content/storyboard", content_storyboard, methods=["POST"]),
         Route("/v1/content/scene", content_scene, methods=["POST"]),
         Route("/v1/content/timeline", content_timeline, methods=["POST"]),
@@ -693,7 +725,7 @@ async def _dispatch(
             attempt = 0
             current_content = content
             response = await proxy_buffered(request.app.state.client, "POST", url, headers, current_content)
-            while response.status_code in {408, 425, 429, 500, 502, 503, 504} and attempt < retry_count:
+            while _retryable_upstream_response(response) and attempt < retry_count:
                 attempt += 1
                 control = getattr(request.app.state, "control_plane", None)
                 if control is not None:
@@ -724,6 +756,25 @@ async def _dispatch(
         # status and usage while the client receives its own protocol.
         response = await transform(response)
     return response
+
+def _retryable_upstream_response(response: Response) -> bool:
+    if response.status_code in {408, 425, 429, 500, 502, 503, 504}:
+        return True
+    if response.status_code not in {400, 404, 410, 422}:
+        return False
+    message = response.body.decode("utf-8", "replace").lower()
+    model_failure_markers = (
+        "model is unavailable",
+        "model unavailable",
+        "model is not supported",
+        "model not supported",
+        "unsupported model",
+        "model not found",
+        "unknown model",
+        "has reached its end of life",
+        "no longer available",
+    )
+    return any(marker in message for marker in model_failure_markers)
 
 
 def _buffered_response(response: Response) -> Response:

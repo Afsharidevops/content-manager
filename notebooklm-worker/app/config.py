@@ -69,6 +69,10 @@ class Settings:
     google_email: str = ""
     google_password: str = ""
     google_totp_secret: str = ""
+    recovery_enabled: bool = True
+    recovery_url: str = ""
+    recovery_api_key: str = ""
+    recovery_timeout_seconds: int = 20
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -87,6 +91,10 @@ class Settings:
             google_email=_env("NOTEBOOKLM_GOOGLE_EMAIL", ""),
             google_password=_env("NOTEBOOKLM_GOOGLE_PASSWORD", ""),
             google_totp_secret=_env("NOTEBOOKLM_GOOGLE_TOTP_SECRET", ""),
+            recovery_enabled=_env_bool("NOTEBOOKLM_RECOVERY_ENABLED", True),
+            recovery_url=_env("NOTEBOOKLM_RECOVERY_URL", ""),
+            recovery_api_key=_env("NOTEBOOKLM_RECOVERY_API_KEY", ""),
+            recovery_timeout_seconds=_env_int("NOTEBOOKLM_RECOVERY_TIMEOUT_SECONDS", 20),
             headless=_env_bool("NOTEBOOKLM_HEADLESS", True),
             home_url=_env("NOTEBOOKLM_HOME_URL", "https://notebook.google.com/"),
             timeout_seconds=_env_int("NOTEBOOKLM_TIMEOUT", 1800),

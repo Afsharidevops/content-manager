@@ -1212,6 +1212,46 @@ class PanelApp:
         chunks = result.get("chunks") if isinstance(result, dict) else None
         return {"ok": True, "chunks": chunks if chunks is not None else 0}
 
+    def knowledge_source(self, payload: dict) -> dict:
+        """Fetch a URL or PDF file and ingest its content into a knowledge base."""
+        from panel.ingest_utils import fetch_url, _extract_pdf
+        kb_id = int(payload.get("kb_id") or 0)
+        if not kb_id:
+            raise CommandError("a knowledge base id is required.")
+        url = str(payload.get("url") or "").strip()
+        file_path = str(payload.get("file_path") or "").strip()
+        if url:
+            if not url.startswith(("http://", "https://")):
+                raise CommandError("invalid URL.")
+            try:
+                title, text = fetch_url(url, timeout=int(payload.get("timeout", 30)))
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
+            if not text.strip():
+                raise CommandError("the URL returned no readable text.")
+            return self.knowledge_ingest({
+                "kb_id": kb_id,
+                "source": url,
+                "title": str(payload.get("title") or title)[:300],
+                "content": text,
+            })
+        if file_path:
+            if not os.path.isfile(file_path):
+                raise CommandError(f"file not found: {file_path}")
+            try:
+                title, text = _extract_pdf(file_path, file_path)
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
+            if not text.strip():
+                raise CommandError("PDF extraction produced empty text.")
+            return self.knowledge_ingest({
+                "kb_id": kb_id,
+                "source": file_path,
+                "title": str(payload.get("title") or os.path.basename(file_path))[:300],
+                "content": text,
+            })
+        raise CommandError("provide a url or file_path.")
+
     def knowledge_search(self, payload: dict) -> dict:
         """Retrieval test: run one query against the selected knowledge bases."""
         query = str(payload.get("query") or "").strip()
@@ -1510,9 +1550,13 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, self.app.knowledge_overview())
             return
         if method == "POST" and parts == ["knowledge", "documents"]:
+            body = _read_json(self)
+            self._send_json(HTTPStatus.OK, self.app.knowledge_ingest(body))
+            return
+        if method == "POST" and parts == ["knowledge", "sources"]:
             self._require_csrf()
             body = self._read_body()
-            self._send_json(HTTPStatus.OK, self.app.knowledge_ingest(body))
+            self._send_json(HTTPStatus.OK, self.app.knowledge_source(body))
             return
         if method == "POST" and parts == ["knowledge", "search"]:
             self._require_csrf()

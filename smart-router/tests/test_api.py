@@ -65,6 +65,55 @@ def test_auto_routes_to_tier_and_applies_budget(settings):
     assert echoed["model"] == "combo-fast"
     assert echoed["max_tokens"] <= settings.fast.max_output
 
+def test_auto_retries_an_unsupported_model_with_a_different_tier(settings):
+    models = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/v1/chat/completions":
+            return upstream(request)
+        data = json.loads(request.content)
+        models.append(data["model"])
+        if len(models) == 1:
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."
+                    }
+                },
+            )
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "model": data["model"]})
+
+    app = create_app(settings, httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": "translate hello"}]},
+        )
+
+    assert response.status_code == 200
+    assert models == [settings.fast.model, settings.strong.model]
+
+def test_auto_does_not_retry_an_unrelated_bad_request(settings):
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        if request.url.path != "/v1/chat/completions":
+            return upstream(request)
+        calls += 1
+        return httpx.Response(400, json={"error": {"message": "messages must not be empty"}})
+
+    app = create_app(settings, httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": "translate hello"}]},
+        )
+
+    assert response.status_code == 400
+    assert calls == 1
+
 
 def test_client_api_key_is_terminated_at_router(settings):
     captured = {}
