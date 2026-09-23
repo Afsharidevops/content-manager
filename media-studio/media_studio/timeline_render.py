@@ -36,15 +36,26 @@ from media_studio.video_edit import _overlay_position
 CUT_SECONDS = 0.04
 
 _FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Bold.ttf",
     "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
     "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf",
-    "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
     "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
     "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 )
+
+#: Characters that carry no glyph in most Arabic-script fonts. They only steer
+#: shaping, so they are dropped before drawing to avoid tofu boxes.
+_ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\u200e\u200f\ufeff"
+_ZERO_WIDTH_TABLE = {ord(char): None for char in _ZERO_WIDTH_CHARS}
+
+
+def strip_zero_width(text: str) -> str:
+    """Drop zero-width marks that render as empty boxes without libraqm."""
+    return str(text or "").translate(_ZERO_WIDTH_TABLE)
 
 #: Gradient stops used for generated cards, keyed by scene index modulo the
 #: palette length so consecutive text scenes do not look identical.
@@ -121,7 +132,7 @@ def _draw_bidi(draw: Any, position: tuple[float, float], text: str, font: Any, f
             return
         except (ValueError, TypeError):
             pass
-    draw.text(position, text, font=font, fill=fill)
+    draw.text(position, strip_zero_width(text), font=font, fill=fill)
 
 
 def _gradient(size: tuple[int, int], stops: tuple[tuple[int, int, int], ...]):
@@ -501,12 +512,16 @@ def render_timeline(
     log: Callable[[str], None],
     resolve_asset: Callable[[dict], str | None],
     timeout_seconds: int = 1800,
+    brand_label: str = "",
 ) -> dict:
     """Render one normalized timeline to ``destination`` and return a summary.
 
     ``resolve_asset`` receives the scene or audio mapping and must return a
     local file path, or ``None`` when the asset cannot be found; the renderer
     then falls back to a generated card for that scene.
+
+    ``brand_label`` is the deployment brand. It always wins over any label a
+    planning agent wrote into the timeline, so one install stamps one brand.
     """
     scenes = list(timeline.get("scenes") or [])
     meta = dict(timeline.get("meta") or {})
@@ -568,12 +583,12 @@ def render_timeline(
 
     brand_png = ""
     brand = dict(meta.get("brand") or {})
-    brand_label = str(brand.get("label") or "").strip()
-    if brand_label:
+    label = str(brand_label or "").strip()
+    if label:
         brand_path = os.path.join(work_root, "brand.png")
         if branding_mod.render_chip_file(
             brand_path,
-            brand_label,
+            label,
             max_side=max(36, round(height * 0.052)),
             style=str(brand.get("style") or "aurora"),
         ):

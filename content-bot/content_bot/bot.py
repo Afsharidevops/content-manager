@@ -2411,7 +2411,12 @@ class ContentBot:
             job_id = self.media.submit(
                 "timeline-video",
                 title,
-                params={"timeline": timeline},
+                params={
+                    "timeline": timeline,
+                    "scene_images": True,
+                    "scene_image_size": "1024x1792",
+                    "scene_image_max": 8,
+                },
             )
         except media_mod.MediaStudioError as error:
             log.warning("agent video render submit failed for draft %s: %s", draft_id, error)

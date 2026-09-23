@@ -47,6 +47,9 @@ class Settings:
     video_poll_seconds: int = 10
     video_timeout_seconds: int = 900
     image_size: str = "1024x1024"
+    scene_image_enabled: bool = True
+    scene_image_size: str = "1024x1792"
+    scene_image_max: int = 8
     brand_label: str = "Locallab"
     brand_position: str = "bottom-right"
     brand_style: str = "aurora"
@@ -104,6 +107,9 @@ class Settings:
             video_poll_seconds=_env_int("MEDIA_STUDIO_VIDEO_POLL_SECONDS", 10),
             video_timeout_seconds=_env_int("MEDIA_STUDIO_VIDEO_TIMEOUT_SECONDS", 900),
             image_size=_env("MEDIA_STUDIO_IMAGE_SIZE", "1024x1024"),
+            scene_image_enabled=_env_bool("MEDIA_STUDIO_SCENE_IMAGES", True),
+            scene_image_size=_env("MEDIA_STUDIO_SCENE_IMAGE_SIZE", "1024x1792"),
+            scene_image_max=_env_int("MEDIA_STUDIO_SCENE_IMAGE_MAX", 8),
             brand_label=brand_label,
             brand_position=_env("MEDIA_STUDIO_BRAND_POSITION", "bottom-right"),
             brand_style=_env("MEDIA_STUDIO_BRAND_STYLE", "aurora"),

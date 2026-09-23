@@ -384,7 +384,9 @@ def normalize_timeline_document(payload: Any) -> dict[str, Any]:
             "fps": fps,
             "subtitle": bool(meta_in.get("subtitle", True)),
             "brand": {
-                "label": _text(brand_in.get("label"), 80),
+                # The deployment brand is a render-time setting, never a model
+                # choice: Media Studio stamps its configured label instead.
+                "label": "",
                 "position": _pick(
                     brand_in.get("position"),
                     ("top-left", "top-right", "bottom-left", "bottom-right"),

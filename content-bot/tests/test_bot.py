@@ -3397,7 +3397,18 @@ class AgentVideoFlowTests(MediaFlowHarness):
         self.assertEqual(1, len(self.media.validations))
         self.assertEqual(self.video_plan()["timeline"], self.media.validations[0]["timeline"])
         self.assertEqual(
-            [("timeline-video", "Generated title", {"timeline": self.video_plan()["timeline"]})],
+            [
+                (
+                    "timeline-video",
+                    "Generated title",
+                    {
+                        "timeline": self.video_plan()["timeline"],
+                        "scene_images": True,
+                        "scene_image_size": "1024x1792",
+                        "scene_image_max": 8,
+                    },
+                )
+            ],
             self.media.submits,
         )
         self.assertIn("Rendering started", self.answers())

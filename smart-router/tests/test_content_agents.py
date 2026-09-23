@@ -117,7 +117,9 @@ def test_normalize_timeline_document_is_render_ready():
     result = ca.normalize_timeline_document(dict(TIMELINE_ANSWER))
     assert result["meta"]["resolution"] == "1080x1920"
     assert result["meta"]["fps"] == 30
-    assert result["meta"]["brand"]["label"] == "Locallab"
+    # The deployment stamps its own brand at render time, so a label invented
+    # by the model never survives normalization.
+    assert result["meta"]["brand"]["label"] == ""
     assert result["scenes"][0]["transition"] == "cut"
     assert result["scenes"][1]["transition"] == "wipeleft"
     assert result["scenes"][1]["animation"] == "zoom-in"
