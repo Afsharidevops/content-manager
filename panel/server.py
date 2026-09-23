@@ -1550,7 +1550,8 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, self.app.knowledge_overview())
             return
         if method == "POST" and parts == ["knowledge", "documents"]:
-            body = _read_json(self)
+            self._require_csrf()
+            body = self._read_body()
             self._send_json(HTTPStatus.OK, self.app.knowledge_ingest(body))
             return
         if method == "POST" and parts == ["knowledge", "sources"]:
