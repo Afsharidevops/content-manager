@@ -1318,7 +1318,7 @@ else
   smart_router_standard_model="${smart_router_standard_model:-combo-standard}"
   smart_router_strong_model="${smart_router_strong_model:-combo-strong}"
   smart_router_coding_model="${smart_router_coding_model:-combo-strong}"
-  smart_router_vision_model="${smart_router_vision_model:-combo-strong}"
+  smart_router_vision_model="${smart_router_vision_model:-combo-vision}"
   smart_router_observe_model="${smart_router_observe_model:-ai}"
   smart_router_fail_open_model="${smart_router_fail_open_model:-ai}"
 fi
@@ -1339,7 +1339,7 @@ if [[ "$router_backend_changed" == true && "$install_smart_router" == true ]]; t
     smart_router_standard_model="combo-standard"
     smart_router_strong_model="combo-strong"
     smart_router_coding_model="combo-strong"
-    smart_router_vision_model="combo-strong"
+    smart_router_vision_model="combo-vision"
     smart_router_observe_model="ai"
     smart_router_fail_open_model="ai"
   fi
@@ -2763,6 +2763,7 @@ if [[ "$install_nine" == true && ( "$install_hermes" == true || "$install_webui"
     -e SMART_ROUTER_FAST_MODEL="$smart_router_fast_model" \
     -e SMART_ROUTER_STANDARD_MODEL="$smart_router_standard_model" \
     -e SMART_ROUTER_STRONG_MODEL="$smart_router_strong_model" \
+    -e SMART_ROUTER_VISION_MODEL="$smart_router_vision_model" \
     -e HERMES_MODEL_NAME="$model_name" \
     nine-router node --input-type=module < "$ROOT_DIR/scripts/bootstrap-openwebui.mjs")"
   openwebui_api_key="$(sed -n 's/^OPENWEBUI_API_KEY=//p' <<< "$bootstrap_output" | tail -n1)"
@@ -2983,7 +2984,7 @@ if [[ "$install_smart_router" == true ]]; then
       "$smart_router_fast_model" "$smart_router_standard_model" "$smart_router_strong_model"
     info "Resolve auto/best-* aliases in the OmniRoute dashboard before enabling route mode."
   else
-    warn "Customize combo-fast, combo-standard, and combo-strong in 9router before enabling route mode."
+    warn "Customize combo-fast, combo-standard, combo-strong, and combo-vision in 9router before enabling route mode."
   fi
 fi
 if [[ "$install_hermes" == true && -n "$telegram_token" ]]; then

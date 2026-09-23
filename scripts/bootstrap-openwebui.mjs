@@ -87,6 +87,7 @@ if (provisionOpenWebUI || (provisionHermes && (hermesModelName === "ai" || provi
         process.env.SMART_ROUTER_FAST_MODEL || "combo-fast",
         process.env.SMART_ROUTER_STANDARD_MODEL || "combo-standard",
         process.env.SMART_ROUTER_STRONG_MODEL || "combo-strong",
+        process.env.SMART_ROUTER_VISION_MODEL || "combo-vision",
       ];
       const statuses = tierNames.map((name) =>
         upsertCombo(name, freeModels, { createOnly: true }),
