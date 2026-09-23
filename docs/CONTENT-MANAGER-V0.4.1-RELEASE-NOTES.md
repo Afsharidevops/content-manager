@@ -60,7 +60,7 @@ Studio 0.4.0 with video generation over an API.
   published by `.github/workflows/publish-panel.yml`.
 - Media Studio image: `afsharidevops/media-studio:0.4.0` (plus `:latest`),
   published by `.github/workflows/publish-media-studio.yml`.
-- Helm chart: `hermes-linux-stack` 0.6.3 carries the new component tags and is
+- Helm chart: `hermes-linux-stack` 0.6.4 carries the new component tags and is
   published by `.github/workflows/publish-helm-chart.yml` on the release tag.
 - Platform: Hermes Linux Stack v0.5.9 (inherited unchanged upstream).
 

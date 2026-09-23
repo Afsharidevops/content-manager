@@ -52,6 +52,7 @@ from .control_db import (
     EvalDatasetItem,
     EvalRun,
     ModelCatalogEntry,
+    ProductionJob,
 )
 from .knowledge_v51 import KnowledgeManager
 from .acl_v52 import ACLManager
@@ -66,6 +67,8 @@ from .security_v51 import Identity, ROLE_PERMISSIONS, SecurityManager, bearer
 from .guardrails_v56 import GuardrailEngine
 from .graph_v59 import normalize_graph, router_graph_plan
 from . import orchestrator_v60
+from . import content_agents as content_agents_mod
+from . import production_jobs as production_jobs_mod
 
 
 @dataclass
@@ -138,6 +141,8 @@ class ControlPlane:
         self.acl = ACLManager(self.db)
         self.policy = PolicyEngine(self.db)
         self.redis = RedisCoordinator()
+        self.media_studio_url = os.getenv("SMART_ROUTER_MEDIA_STUDIO_URL", "").strip().rstrip("/")
+        self.media_studio_token = env_or_file("SMART_ROUTER_MEDIA_STUDIO_TOKEN")
         self.provider_health = ProviderHealthRegistry(self.db)
         self.oidc = OIDCManager(settings.hmac_secret)
         self.internal_token = hmac.new(settings.hmac_secret.encode(), b"hermes-v0.5.2-internal", hashlib.sha256).hexdigest()
@@ -525,6 +530,12 @@ class ControlPlane:
             Route("/api/evaluations", self.evaluations_api, methods=["GET", "POST"]),
             Route("/api/model-catalog", self.model_catalog_api, methods=["GET"]),
             Route("/api/model-catalog/sync", self.model_catalog_sync_api, methods=["POST"]),
+            Route("/api/production/jobs", self.production_jobs_api, methods=["GET", "POST"]),
+            Route("/api/production/jobs/{job_id:int}", self.production_job_api, methods=["GET", "DELETE"]),
+            Route("/api/production/jobs/{job_id:int}/storyboard", self.production_storyboard_api, methods=["POST"]),
+            Route("/api/production/jobs/{job_id:int}/timeline", self.production_timeline_api, methods=["POST"]),
+            Route("/api/production/jobs/{job_id:int}/render", self.production_render_api, methods=["POST", "GET"]),
+            Route("/api/production/jobs/{job_id:int}/artifact/{name:str}", self.production_artifact_api, methods=["GET"]),
             Route("/api/marketplace", self.marketplace_api, methods=["GET"]),
             Route("/api/onboarding", self.onboarding_api, methods=["GET", "PUT"]),
             Route("/api/identity", self.identity_api, methods=["GET"]),
@@ -1722,6 +1733,231 @@ class ControlPlane:
             session.commit()
         self.db.audit(identity.actor, identity.role, "model_catalog.sync", detail={"models": len(models)})
         return JSONResponse({"ok": True, "models": len(models)})
+
+    async def production_jobs_api(self, request: Request) -> Response:
+        identity = self._admin_identity(request, "agents.run" if request.method == "POST" else "panel.read")
+        if isinstance(identity, Response):
+            return identity
+        if request.method == "POST":
+            data = await _json(request)
+            topic = str(data.get("topic", "")).strip()[:4000]
+            script = str(data.get("script", "")).strip()[:40000]
+            if not topic and not script:
+                return _error("topic or script is required", "invalid_production_job", 422)
+            aspect_ratio = str(data.get("aspect_ratio", "9:16")).strip()
+            if aspect_ratio not in {"9:16", "16:9"}:
+                return _error("aspect_ratio must be 9:16 or 16:9", "invalid_production_aspect_ratio", 422)
+            title = str(data.get("title", "")).strip()[:300] or topic[:300] or "Untitled production"
+            row = production_jobs_mod.create_job(
+                self.db,
+                title=title,
+                topic=topic,
+                script=script,
+                platform=str(data.get("platform", "")).strip()[:120],
+                aspect_ratio=aspect_ratio,
+                language=str(data.get("language", "en")).strip()[:20] or "en",
+                style=str(data.get("style", "")).strip()[:60],
+                actor=identity.actor,
+            )
+            self.db.audit(identity.actor, identity.role, "production.create", str(row.id), detail={"aspect_ratio": aspect_ratio})
+            return JSONResponse(production_jobs_mod._job_dict(row), status_code=201)
+        try:
+            limit = max(1, min(500, int(request.query_params.get("limit", "100"))))
+        except ValueError:
+            limit = 100
+        status = str(request.query_params.get("status", "")).strip()[:40]
+        rows = production_jobs_mod.list_jobs(self.db, limit=limit, status=status)
+        return JSONResponse([production_jobs_mod._job_dict(row) for row in rows])
+
+    async def production_job_api(self, request: Request) -> Response:
+        permission = "agents.manage" if request.method == "DELETE" else "panel.read"
+        identity = self._admin_identity(request, permission)
+        if isinstance(identity, Response):
+            return identity
+        job_id = int(request.path_params["job_id"])
+        if request.method == "DELETE":
+            with self.db.session() as session:
+                row = session.get(ProductionJob, job_id)
+                if row is None:
+                    return Response(status_code=404)
+                session.delete(row)
+                session.commit()
+            self.db.audit(identity.actor, identity.role, "production.delete", str(job_id))
+            return JSONResponse({"ok": True})
+        row = production_jobs_mod.get_job(self.db, job_id)
+        if row is None:
+            return Response(status_code=404)
+        return JSONResponse(production_jobs_mod._job_dict(row))
+
+    async def production_storyboard_api(self, request: Request) -> Response:
+        identity = self._admin_identity(request, "agents.run")
+        if isinstance(identity, Response):
+            return identity
+        job_id = int(request.path_params["job_id"])
+        row = production_jobs_mod.get_job(self.db, job_id)
+        if row is None:
+            return Response(status_code=404)
+        try:
+            storyboard = await content_agents_mod.build_storyboard(
+                self,
+                {
+                    "topic": row.topic,
+                    "script": row.script,
+                    "platform": row.platform,
+                    "language": row.language,
+                    "style": row.style,
+                },
+            )
+        except content_agents_mod.ContentAgentError as exc:
+            production_jobs_mod.transition(self.db, job_id, status="failed", error=exc.message)
+            return _error(exc.message, exc.code, 422)
+        title = storyboard.get("title") or row.title
+        with self.db.session() as session:
+            stored = session.get(ProductionJob, job_id)
+            if stored is None:
+                return Response(status_code=404)
+            stored.title = str(title)[:300]
+            stored.storyboard_json = json.dumps(storyboard, separators=(",", ":"))
+            stored.status = "storyboard_created"
+            stored.error = ""
+            stored.updated_at = datetime.now(timezone.utc).isoformat()
+            session.commit()
+            session.refresh(stored)
+        self.db.audit(identity.actor, identity.role, "production.storyboard", str(job_id))
+        return JSONResponse(production_jobs_mod._job_dict(stored))
+
+    async def production_timeline_api(self, request: Request) -> Response:
+        identity = self._admin_identity(request, "agents.run")
+        if isinstance(identity, Response):
+            return identity
+        job_id = int(request.path_params["job_id"])
+        row = production_jobs_mod.get_job(self.db, job_id)
+        if row is None:
+            return Response(status_code=404)
+        storyboard = production_jobs_mod._load_json(row.storyboard_json)
+        if not storyboard:
+            return _error("create a storyboard before a timeline", "production_storyboard_required", 409)
+        try:
+            timeline = await content_agents_mod.build_timeline(
+                self,
+                {
+                    "topic": row.topic,
+                    "script": row.script,
+                    "storyboard": storyboard,
+                    "aspect_ratio": row.aspect_ratio,
+                    "language": row.language,
+                },
+            )
+        except content_agents_mod.ContentAgentError as exc:
+            production_jobs_mod.transition(self.db, job_id, status="failed", error=exc.message)
+            return _error(exc.message, exc.code, 422)
+        stored = production_jobs_mod.transition(self.db, job_id, status="timeline_ready", timeline=timeline)
+        self.db.audit(identity.actor, identity.role, "production.timeline", str(job_id))
+        return JSONResponse(production_jobs_mod._job_dict(stored))
+
+    async def production_render_api(self, request: Request) -> Response:
+        identity = self._admin_identity(request, "agents.run" if request.method == "POST" else "panel.read")
+        if isinstance(identity, Response):
+            return identity
+        job_id = int(request.path_params["job_id"])
+        row = production_jobs_mod.get_job(self.db, job_id)
+        if row is None:
+            return Response(status_code=404)
+        if request.method == "GET":
+            return await self._production_render_status(row)
+        timeline = production_jobs_mod._load_json(row.timeline_json)
+        if not timeline:
+            return _error("create a timeline before rendering", "production_timeline_required", 409)
+        if not self.media_studio_url:
+            return _error("SMART_ROUTER_MEDIA_STUDIO_URL is not configured", "media_studio_unavailable", 503)
+        headers = {"Authorization": f"Bearer {self.media_studio_token}"} if self.media_studio_token else {}
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(
+                    self.media_studio_url + "/jobs",
+                    headers=headers,
+                    json={"driver": "timeline-video", "prompt": row.title, "params": {"timeline": timeline}},
+                )
+                payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            return _error(f"Media Studio submission failed: {type(exc).__name__}", "media_studio_unavailable", 503)
+        if response.status_code >= 400:
+            return _error(str(payload.get("error", "Media Studio rejected the render"))[:1000], "media_studio_render_rejected", 502)
+        job = payload.get("job") if isinstance(payload.get("job"), dict) else {}
+        ms_job_id = str(job.get("id", ""))
+        if not ms_job_id:
+            return _error("Media Studio returned no render job id", "media_studio_invalid_response", 502)
+        stored = production_jobs_mod.transition(self.db, job_id, status="rendering", ms_job_id=ms_job_id, error="")
+        self.db.audit(identity.actor, identity.role, "production.render", str(job_id), detail={"media_studio_job_id": ms_job_id})
+        return JSONResponse(production_jobs_mod._job_dict(stored) | {"render": job}, status_code=202)
+
+    async def _production_render_status(self, row: ProductionJob) -> Response:
+        if not row.ms_job_id:
+            return _error("no render has been submitted", "production_render_required", 409)
+        if not self.media_studio_url:
+            return _error("SMART_ROUTER_MEDIA_STUDIO_URL is not configured", "media_studio_unavailable", 503)
+        headers = {"Authorization": f"Bearer {self.media_studio_token}"} if self.media_studio_token else {}
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.get(self.media_studio_url + f"/jobs/{row.ms_job_id}", headers=headers)
+                payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            return _error(f"Media Studio status check failed: {type(exc).__name__}", "media_studio_unavailable", 503)
+        if response.status_code >= 400:
+            return _error(str(payload.get("error", "Media Studio job not available"))[:1000], "media_studio_status_failed", 502)
+        render = payload.get("job") if isinstance(payload.get("job"), dict) else {}
+        render_status = str(render.get("status", ""))
+        status = "rendering"
+        error = ""
+        artifact_name = ""
+        if render_status == "done":
+            status = "done"
+            artifacts = render.get("artifacts") if isinstance(render.get("artifacts"), list) else []
+            for artifact in artifacts:
+                if isinstance(artifact, dict) and artifact.get("name"):
+                    artifact_name = str(artifact["name"])
+                    break
+        elif render_status in {"failed", "canceled"}:
+            status = "failed"
+            error = str(render.get("error", "Media Studio render failed"))[:4000]
+        stored = production_jobs_mod.transition(
+            self.db,
+            row.id,
+            status=status,
+            ms_artifact_name=artifact_name,
+            error=error,
+        )
+        return JSONResponse(production_jobs_mod._job_dict(stored) | {"render": render})
+
+    async def production_artifact_api(self, request: Request) -> Response:
+        identity = self._admin_identity(request, "panel.read")
+        if isinstance(identity, Response):
+            return identity
+        job_id = int(request.path_params["job_id"])
+        name = str(request.path_params["name"])
+        if not name or name != os.path.basename(name):
+            return _error("invalid artifact name", "invalid_production_artifact", 422)
+        row = production_jobs_mod.get_job(self.db, job_id)
+        if row is None:
+            return Response(status_code=404)
+        if not row.ms_job_id:
+            return _error("no render has been submitted", "production_render_required", 409)
+        if not self.media_studio_url:
+            return _error("SMART_ROUTER_MEDIA_STUDIO_URL is not configured", "media_studio_unavailable", 503)
+        headers = {"Authorization": f"Bearer {self.media_studio_token}"} if self.media_studio_token else {}
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                response = await client.get(self.media_studio_url + f"/artifacts/{row.ms_job_id}/{name}", headers=headers)
+        except httpx.HTTPError as exc:
+            return _error(f"Media Studio artifact download failed: {type(exc).__name__}", "media_studio_unavailable", 503)
+        if response.status_code >= 400:
+            return _error("Media Studio artifact not found", "production_artifact_not_found", 404)
+        content_type = response.headers.get("content-type", "application/octet-stream")
+        return Response(
+            response.content,
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
 
     async def marketplace_api(self, request: Request) -> Response:
         identity = self._admin_identity(request, "panel.read")

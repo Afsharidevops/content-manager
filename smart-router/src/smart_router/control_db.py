@@ -476,6 +476,28 @@ class OutcomeEvent(Base):
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
 
+class ProductionJob(Base):
+    __tablename__ = "v64_production_jobs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(300), default="")
+    topic: Mapped[str] = mapped_column(Text, default="")
+    script: Mapped[str] = mapped_column(Text, default="")
+    platform: Mapped[str] = mapped_column(String(120), default="")
+    aspect_ratio: Mapped[str] = mapped_column(String(20), default="9:16")
+    language: Mapped[str] = mapped_column(String(20), default="en")
+    style: Mapped[str] = mapped_column(String(60), default="")
+    status: Mapped[str] = mapped_column(String(40), default="draft", index=True)
+    storyboard_json: Mapped[str] = mapped_column(Text, default="{}")
+    timeline_json: Mapped[str] = mapped_column(Text, default="{}")
+    media_plan_json: Mapped[str] = mapped_column(Text, default="{}")
+    ms_job_id: Mapped[str] = mapped_column(String(120), default="")
+    ms_artifact_name: Mapped[str] = mapped_column(String(300), default="")
+    actor: Mapped[str] = mapped_column(String(160), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+    updated_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+
+
 class ControlDB:
     def __init__(self, url: str):
         self.url = url

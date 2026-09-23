@@ -244,6 +244,13 @@ class BotTestCase(unittest.TestCase):
         """Turn the opt-in manual platform packages on for one test."""
         self.bot.settings = replace(self.bot.settings, platforms_enabled=True)
 
+    def test_stale_callback_answer_is_ignored(self):
+        def stale_answer(query_id, text):
+            raise TelegramError("answerCallbackQuery HTTP 400: query is too old")
+
+        self.api.answer_callback_query = stale_answer
+        self.bot.handle_callback({"id": "stale-query", "from": {"id": 11}, "data": "unknown"})
+
     def test_help_and_status_follow_the_platform_switch(self):
         self.assertNotIn("More platforms", self.bot.help_text())
         self.assertIn("Platform packages: disabled", self.bot.status_text())

@@ -157,9 +157,37 @@ POST /v1/content/recover     {step, attempt, error, url, page_state}            
 <p class="muted">Every valid key may call the content endpoints; the operating agent profiles are selected server-side.</p>
 </div>
 
+<div class="card section">
+<h2>15. Video Studio production jobs</h2>
+<p class="muted">The Operations Center stores production jobs under <b>/control/api/production</b>, runs the storyboard and timeline steps through the content agents, and submits render-ready timelines to Media Studio.</p>
+<div class="code">GET  /control/api/production/jobs?limit=100&amp;status=timeline_ready      -> [{job}]
+POST /control/api/production/jobs  {topic, script, platform, aspect_ratio, language, style} -> {job}
+GET  /control/api/production/jobs/{id}                         -> {job with storyboard, timeline, media_plan}
+DELETE /control/api/production/jobs/{id}                       -> {ok:true}
+POST /control/api/production/jobs/{id}/storyboard              -> {job status=storyboard_created}
+POST /control/api/production/jobs/{id}/timeline                -> {job status=timeline_ready}
+POST /control/api/production/jobs/{id}/render                  -> {job status=rendering, render:{...}}
+GET  /control/api/production/jobs/{id}/render                  -> {job status=rendering|done|failed, render:{...}}
+GET  /control/api/production/jobs/{id}/artifact/{name}         -> downloaded artifact bytes</div>
+<div class="code">curl -s -X POST http://HOST:PORT/control/api/production/jobs \
+  -H "Authorization: Bearer $SMART_ROUTER_ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"topic":"Container networking","platform":"youtube","aspect_ratio":"9:16","language":"en"}'
+
+curl -s -X POST http://HOST:PORT/control/api/production/jobs/1/storyboard \
+  -H "Authorization: Bearer $SMART_ROUTER_ADMIN_API_KEY"
+
+curl -s -X POST http://HOST:PORT/control/api/production/jobs/1/timeline \
+  -H "Authorization: Bearer $SMART_ROUTER_ADMIN_API_KEY"
+
+curl -s -X POST http://HOST:PORT/control/api/production/jobs/1/render \
+  -H "Authorization: Bearer $SMART_ROUTER_ADMIN_API_KEY"</div>
+<p class="muted">Supported aspect ratios are <b>9:16</b> and <b>16:9</b>. Rendering requires <b>SMART_ROUTER_MEDIA_STUDIO_URL</b>; add <b>SMART_ROUTER_MEDIA_STUDIO_TOKEN</b> when Media Studio enforces bearer-token authentication.</p>
+</div>
+
 <div class="split section">
 <div class="card">
-<h2>15. Operations Center API</h2>
+<h2>16. Operations Center API</h2>
 <p class="muted">Base path <b>/control/api</b>. Reads need <b>panel.read</b> or the matching <b>*.read</b> permission; writes need the <b>*.manage</b>/<b>*.run</b> permission for the resource. Listings accept GET, mutations POST/PUT/DELETE.</p>
 <div class="code">GET|POST        /control/api/users            PUT|DELETE /control/api/users/{id}
 GET|POST        /control/api/groups           PUT|DELETE /control/api/groups/{id}
@@ -185,7 +213,7 @@ curl -s -X POST http://HOST:PORT/control/api/keys \
   -d '{"name":"codex-laptop","role":"user","rpm":120,"tpm":2000000}'</div>
 </div>
 <div class="card">
-<h2>16. Virtual key lifecycle</h2>
+<h2>17. Virtual key lifecycle</h2>
 <div class="code">Create   Access -> Users &amp; Keys -> Create API key
          POST /control/api/keys        (the srk_ value is returned once)
 Limits   Access -> Users &amp; Keys -> Edit limits

@@ -2698,7 +2698,7 @@ class ContentBot:
         query_id = str(callback.get("id") or "")
         sender = (callback.get("from") or {}).get("id")
         if not self._is_allowed(sender):
-            self.api.answer_callback_query(query_id, "Not allowed.")
+            self._safe_answer(query_id, "Not allowed.")
             return
         data = str(callback.get("data") or "")
         if data.startswith("media:"):
@@ -2706,13 +2706,13 @@ class ContentBot:
             if len(tokens) == 3:
                 self._media_callback(query_id, tokens[1], tokens[2])
             else:
-                self.api.answer_callback_query(query_id, "Unknown media action.")
+                self._safe_answer(query_id, "Unknown media action.")
             return
         if data.startswith("platforms:"):
             draft_id = data.split(":", 1)[1]
             record = self._package_record(draft_id)
             if record is None:
-                self.api.answer_callback_query(query_id, "This draft is no longer active.")
+                self._safe_answer(query_id, "This draft is no longer active.")
                 return
             self._offer_platforms(query_id, record)
             return
@@ -2720,7 +2720,7 @@ class ContentBot:
             draft_id = data.split(":", 1)[1]
             record = self._package_record(draft_id)
             if record is None:
-                self.api.answer_callback_query(query_id, "This draft is no longer active.")
+                self._safe_answer(query_id, "This draft is no longer active.")
                 return
             _status, detail = panel_actions_mod.send_post_package(self, record)
             self._safe_answer(query_id, detail)
@@ -2730,15 +2730,15 @@ class ContentBot:
             if len(tokens) == 3 and tokens[2]:
                 self._platform_choice(query_id, tokens[1], tokens[2])
             else:
-                self.api.answer_callback_query(query_id, "Unknown platform action.")
+                self._safe_answer(query_id, "Unknown platform action.")
             return
         action, separator, draft_id = data.partition(":")
         if not separator or not draft_id:
-            self.api.answer_callback_query(query_id, "Unknown action.")
+            self._safe_answer(query_id, "Unknown action.")
             return
         record = self.state.get_draft(draft_id)
         if record is None:
-            self.api.answer_callback_query(query_id, "This draft is no longer active.")
+            self._safe_answer(query_id, "This draft is no longer active.")
             return
         chat_id = record.get("chat_id")
         message_id = record.get("message_id")
@@ -2765,7 +2765,7 @@ class ContentBot:
                     self.preview_text(record),
                     self._approval_keyboard(draft_id),
                 )
-            self.api.answer_callback_query(query_id, "Draft kept.")
+            self._safe_answer(query_id, "Draft kept.")
             return
         if action == "reject":
             if record.get("feedback"):
@@ -2781,7 +2781,7 @@ class ContentBot:
                         "delete it, or Cancel to keep it.",
                         telegram_mod.discard_confirm_keyboard(draft_id),
                     )
-                self.api.answer_callback_query(
+                self._safe_answer(
                     query_id,
                     "Press Reject again to confirm discarding.",
                 )
@@ -2792,13 +2792,13 @@ class ContentBot:
                     self.api.edit_message_text(chat_id, int(message_id), "Rejected.")
                 except telegram_mod.TelegramError:
                     pass
-            self.api.answer_callback_query(query_id, "Draft rejected.")
+            self._safe_answer(query_id, "Draft rejected.")
             return
-        self.api.answer_callback_query(query_id, "Unknown action.")
+        self._safe_answer(query_id, "Unknown action.")
 
     def _revise_draft(self, query_id: str, record: dict, chat_id, message_id) -> None:
         if self.writer is None:
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "No writer endpoint is configured; cannot revise.",
             )
@@ -2858,10 +2858,10 @@ class ContentBot:
         """Send the manual-upload platform chooser for one draft."""
         chat_id = record.get("chat_id")
         if chat_id is None:
-            self.api.answer_callback_query(query_id, "No chat is attached to this draft.")
+            self._safe_answer(query_id, "No chat is attached to this draft.")
             return
         if not self.settings.platforms_enabled:
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "Platform upload packages are turned off "
                 "(CONTENT_PLATFORMS_ENABLED).",
@@ -2870,7 +2870,7 @@ class ContentBot:
         policy = workflow.load_policy(self.settings.policy_dir)
         profiles = self._platform_profiles(policy)
         if not profiles:
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "No platform is configured; add a platforms section to "
                 "editorial-policy.yaml.",
@@ -2990,14 +2990,14 @@ class ContentBot:
     def _platform_choice(self, query_id: str, key: str, draft_id: str) -> None:
         """Publish to one platform, or hand over its package when it is manual."""
         if not self.settings.platforms_enabled:
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "Platform actions are turned off (CONTENT_PLATFORMS_ENABLED).",
             )
             return
         record = self._package_record(draft_id)
         if record is None:
-            self.api.answer_callback_query(query_id, "This draft is no longer active.")
+            self._safe_answer(query_id, "This draft is no longer active.")
             return
         policy = workflow.load_policy(self.settings.policy_dir)
         profiles = self._platform_profiles(policy)
@@ -3007,7 +3007,7 @@ class ContentBot:
             return
         profile = profiles.get(wanted)
         if profile is None:
-            self.api.answer_callback_query(query_id, "Unknown platform.")
+            self._safe_answer(query_id, "Unknown platform.")
             return
         channel = self._channel_for(profile)
         if channel is None:
@@ -3277,7 +3277,7 @@ class ContentBot:
     def _send_platform_package(self, query_id: str, key: str, draft_id: str) -> None:
         """Send one platform package plus the stored media for a draft."""
         if not self.settings.platforms_enabled:
-            self.api.answer_callback_query(
+            self._safe_answer(
                 query_id,
                 "Platform upload packages are turned off "
                 "(CONTENT_PLATFORMS_ENABLED).",
@@ -3285,17 +3285,17 @@ class ContentBot:
             return
         record = self._package_record(draft_id)
         if record is None:
-            self.api.answer_callback_query(query_id, "This draft is no longer active.")
+            self._safe_answer(query_id, "This draft is no longer active.")
             return
         policy = workflow.load_policy(self.settings.policy_dir)
         profiles = self._platform_profiles(policy)
         profile = profiles.get(str(key or "").strip().lower())
         if profile is None:
-            self.api.answer_callback_query(query_id, "Unknown platform.")
+            self._safe_answer(query_id, "Unknown platform.")
             return
         chat_id = record.get("chat_id")
         if chat_id is None:
-            self.api.answer_callback_query(query_id, "No chat is attached to this draft.")
+            self._safe_answer(query_id, "No chat is attached to this draft.")
             return
         package_record = self._target_record(record, profile, policy)
         try:
@@ -3305,7 +3305,7 @@ class ContentBot:
                 parse_mode="HTML",
             )
         except telegram_mod.TelegramError as error:
-            self.api.answer_callback_query(query_id, f"Package failed: {error}")
+            self._safe_answer(query_id, f"Package failed: {error}")
             return
         self._send_package_media(chat_id, package_record, profile)
         self._safe_answer(query_id, f"{profile.label} package sent.")

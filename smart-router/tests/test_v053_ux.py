@@ -4,7 +4,7 @@ from smart_router.panel_v56 import PANEL_HTML
 
 
 def test_v054_runtime_and_flight_deck_surface():
-    assert __version__ == "0.6.3"
+    assert __version__ == "0.6.4"
     body = dashboard_response(version=__version__).body.decode("utf-8")
     assert "Hermes Flight Deck" in body
     assert "Auto refresh" in body

@@ -33,7 +33,7 @@ The current runtime release is **v0.5.9**.
 - Operator panel `0.5.2`: the n8n exposure note states that Hermes reaches
   n8n over the internal Docker network, so the host publish only adds LAN
   access and binding the port to loopback does not affect the agent.
-- Smart Router `0.6.3` adds `POST /v1/content/scene`: the Storyboard Agent
+- Smart Router `0.6.4` adds `POST /v1/content/scene`: the Storyboard Agent
   rewrites one scene of an existing storyboard (index, instruction, draft
   context) and the answer is repaired with the storyboard scene bounds, so the
   operator's scene editor regenerates a single scene instead of a whole plan.
@@ -42,7 +42,7 @@ The current runtime release is **v0.5.9**.
   (edit, reorder, add, remove, per-scene regenerate), validated against the
   renderer, approved or rejected with a note, and rendered through the
   `timeline-video` driver with the job tracked on the draft.
-- Smart Router `0.6.3` also makes virtual API keys fully removable:
+- Smart Router `0.6.4` also makes virtual API keys fully removable:
   `DELETE /control/api/keys/{id}?purge=true` deletes the key instead of the
   reversible revoke, answers `409 key_in_use` while ACL rules or budgets still
   reference it, and `cascade=true` removes those references in the same
@@ -469,7 +469,7 @@ platform; this section tracks the fork additions.
   the writer values, and `MEDIA_STUDIO_DRIVERS` now ships
   `api-image,api-video,flow-video,video-edit`.
 - Content Bot 0.4.1, operator panel 0.4.1, and Media Studio 0.4.0. The Helm
-  chart moves to 0.6.3 with the same image tags.
+  chart moves to 0.6.4 with the same image tags.
 
 ### Fork release — Content Manager v0.4.0 (2026-09-14)
 
