@@ -156,3 +156,12 @@ pre{background:rgba(7,11,22,.9);border:1px solid var(--line);border-radius:12px;
 .pfield input{width:100%}
 .pkey{font-size:11px;opacity:.6;justify-self:start}
 .oktext{color:var(--ok)}
+
+/* storyboard editor */
+.scene{border:1px solid var(--line);border-radius:12px;padding:12px;background:rgba(11,17,30,.66)}
+.scene textarea{min-height:90px}
+.scene label>span{font-size:11px}
+
+/* built-in documentation */
+.docs h3{font-size:13px;text-transform:none;letter-spacing:.02em;color:var(--strong)}
+.docs pre{min-height:0;max-height:none}

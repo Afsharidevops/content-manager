@@ -69,6 +69,72 @@ def test_group_permanent_delete_protects_acl_references(tmp_path, monkeypatch):
         assert client.delete(f"/api/groups/{group['id']}?purge=true&cascade=true", headers=_headers()).status_code == 200
 
 
+def test_user_revoke_then_permanent_delete(tmp_path, monkeypatch):
+    cp = _cp(tmp_path, monkeypatch)
+    with TestClient(cp.app) as client:
+        created = client.post("/api/users", headers=_headers(), json={"username": "delete-me", "password": "strong-password-123", "role": "user"})
+        assert created.status_code == 200
+        user = next(row for row in created.json() if row["username"] == "delete-me")
+        assert client.delete(f"/api/users/{user['id']}", headers=_headers()).status_code == 200
+        revoked = next(row for row in client.get("/api/users", headers=_headers()).json() if row["id"] == user["id"])
+        assert revoked["active"] is False
+        assert client.delete(f"/api/users/{user['id']}?purge=true", headers=_headers()).status_code == 200
+        assert all(row["id"] != user["id"] for row in client.get("/api/users", headers=_headers()).json())
+        assert client.delete(f"/api/users/{user['id']}?purge=true", headers=_headers()).status_code == 404
+
+
+def test_user_permanent_delete_protects_references(tmp_path, monkeypatch):
+    cp = _cp(tmp_path, monkeypatch)
+    with TestClient(cp.app) as client:
+        created = client.post("/api/users", headers=_headers(), json={"username": "referenced-user", "password": "strong-password-123", "role": "user"})
+        user = next(row for row in created.json() if row["username"] == "referenced-user")
+        key = client.post("/api/keys", headers=_headers(), json={"name": "user-key", "role": "user", "user_id": user["id"]}).json()
+        protected = client.delete(f"/api/users/{user['id']}?purge=true", headers=_headers())
+        assert protected.status_code == 409
+        assert protected.json()["error"]["code"] == "user_in_use"
+        assert protected.json()["error"]["details"]["api_keys"] == [key["keys"][0]["id"]]
+        assert client.delete(f"/api/users/{user['id']}?purge=true&cascade=true", headers=_headers()).status_code == 200
+        remaining_key = next(row for row in client.get("/api/keys", headers=_headers()).json() if row["id"] == key["keys"][0]["id"])
+        assert remaining_key["user_id"] is None
+
+
+def test_api_key_revoke_then_permanent_delete(tmp_path, monkeypatch):
+    cp = _cp(tmp_path, monkeypatch)
+    with TestClient(cp.app) as client:
+        created = client.post("/api/keys", headers=_headers(), json={"name": "ci-client", "role": "user"}).json()
+        key = next(row for row in created["keys"] if row["name"] == "ci-client")
+        assert created["created_key"].startswith("srk_")
+        assert client.delete(f"/api/keys/{key['id']}", headers=_headers()).status_code == 200
+        revoked = next(row for row in client.get("/api/keys", headers=_headers()).json() if row["id"] == key["id"])
+        assert revoked["active"] is False
+        assert client.delete(f"/api/keys/{key['id']}?purge=true", headers=_headers()).status_code == 200
+        assert all(row["id"] != key["id"] for row in client.get("/api/keys", headers=_headers()).json())
+        assert client.delete(f"/api/keys/{key['id']}?purge=true", headers=_headers()).status_code == 404
+
+
+def test_api_key_permanent_delete_protects_acl_and_budget_references(tmp_path, monkeypatch):
+    cp = _cp(tmp_path, monkeypatch)
+    with TestClient(cp.app) as client:
+        created = client.post("/api/keys", headers=_headers(), json={"name": "pipeline-key", "role": "user"}).json()
+        key = next(row for row in created["keys"] if row["name"] == "pipeline-key")
+        assert client.post("/api/acls", headers=_headers(), json={
+            "subject_type": "virtual_key", "subject_value": str(key["id"]), "resource_type": "knowledge",
+            "resource_id": "1", "permission": "knowledge.read", "effect": "allow",
+        }).status_code == 200
+        budgets = client.post("/api/budgets", headers=_headers(), json={
+            "scope_type": "api_key", "scope_value": "pipeline-key", "monthly_usd": 10,
+        }).json()
+        budget_id = next(row for row in budgets if row["scope_value"] == "pipeline-key")["id"]
+        protected = client.delete(f"/api/keys/{key['id']}?purge=true", headers=_headers())
+        assert protected.status_code == 409
+        assert protected.json()["error"]["code"] == "key_in_use"
+        assert protected.json()["error"]["details"]["budgets"] == [budget_id]
+        assert client.delete(f"/api/keys/{key['id']}?purge=true&cascade=true", headers=_headers()).status_code == 200
+        assert all(row["id"] != key["id"] for row in client.get("/api/keys", headers=_headers()).json())
+        assert all(row["id"] != budget_id for row in client.get("/api/budgets", headers=_headers()).json())
+        assert all(row["subject_value"] != str(key["id"]) for row in client.get("/api/acls", headers=_headers()).json())
+
+
 def test_platform_crud_for_pipelines_workflows_prompts_and_evaluations(tmp_path, monkeypatch):
     cp = _cp(tmp_path, monkeypatch)
     with TestClient(cp.app) as client:

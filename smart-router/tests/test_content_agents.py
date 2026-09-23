@@ -86,6 +86,33 @@ def test_normalize_storyboard_rejects_empty_answers():
         raise AssertionError("empty storyboard should be rejected")
 
 
+def test_normalize_scene_forces_the_first_scene_to_a_cut():
+    result = ca.normalize_scene(
+        {"duration": 999, "narration": "start", "visual": "Title", "transition": "wipeup", "animation": "bogus"},
+        index=1,
+    )
+    assert result["index"] == 1
+    assert result["transition"] == "cut"
+    assert result["duration"] == 20.0
+    assert result["animation"] == "none"
+
+
+def test_normalize_scene_keeps_a_later_scene_transition():
+    result = ca.normalize_scene({"narration": "second", "transition": "wipeleft"}, index=3)
+    assert result["index"] == 3
+    assert result["transition"] == "wipeleft"
+    assert result["asset_type"] == "text"
+
+
+def test_normalize_scene_requires_some_text():
+    try:
+        ca.normalize_scene({"duration": 4})
+    except ValueError as error:
+        assert "neither narration nor a visual" in str(error)
+    else:  # pragma: no cover - the call above must raise
+        raise AssertionError("an empty scene should be rejected")
+
+
 def test_normalize_timeline_document_is_render_ready():
     result = ca.normalize_timeline_document(dict(TIMELINE_ANSWER))
     assert result["meta"]["resolution"] == "1080x1920"
@@ -205,6 +232,26 @@ def test_plan_video_chains_storyboard_into_timeline(tmp_path, monkeypatch):
     assert plan["timeline"]["scenes"][0]["transition"] == "cut"
 
 
+def test_build_scene_regenerates_one_scene(tmp_path, monkeypatch):
+    import asyncio
+
+    cp = _cp(tmp_path, monkeypatch)
+    answer = {"index": 3, "duration": 6, "narration": "rewritten", "visual": "chart", "transition": "fade"}
+    calls = []
+    cp._local_chat = _chat([json.dumps(answer)], calls)
+    scene = asyncio.run(
+        ca.build_scene(
+            cp,
+            {"topic": "docker", "index": 3, "instruction": "make it shorter", "storyboard": STORYBOARD_ANSWER},
+        )
+    )
+    assert scene["index"] == 3
+    assert scene["duration"] == 6.0
+    prompt = calls[0]["messages"][1]["content"]
+    assert "make it shorter" in prompt
+    assert "Storyboard JSON" in prompt
+
+
 def test_recovery_decision_returns_one_action(tmp_path, monkeypatch):
     import asyncio
 
@@ -237,6 +284,7 @@ def test_content_endpoints_serve_the_pipeline(settings, tmp_path, monkeypatch):
             json.dumps(TIMELINE_ANSWER),
             json.dumps(STORYBOARD_ANSWER),
             json.dumps(TIMELINE_ANSWER),
+            json.dumps({"index": 2, "duration": 5, "narration": "دوم", "transition": "fade"}),
         ]
     )
     headers = {"x-hermes-internal": cp.internal_token}
@@ -254,6 +302,15 @@ def test_content_endpoints_serve_the_pipeline(settings, tmp_path, monkeypatch):
         plan = client.post("/v1/content/video-plan", headers=headers, json={"topic": "docker"})
         assert plan.status_code == 200
         assert set(plan.json()) == {"storyboard", "timeline"}
+
+        scene = client.post(
+            "/v1/content/scene",
+            headers=headers,
+            json={"topic": "docker", "index": 2, "instruction": "shorten this scene"},
+        )
+        assert scene.status_code == 200
+        assert scene.json()["scene"]["index"] == 2
+        assert scene.json()["scene"]["transition"] == "fade"
 
 
 def test_content_endpoints_reject_bad_bodies(settings, tmp_path, monkeypatch):

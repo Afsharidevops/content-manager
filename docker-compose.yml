@@ -136,7 +136,7 @@ services:
 
   smart-router:
     profiles: ["smart-router"]
-    image: ${SMART_ROUTER_IMAGE_REPOSITORY:-afsharidevops/hermes-smart-router}:${SMART_ROUTER_IMAGE_TAG:-0.6.2}
+    image: ${SMART_ROUTER_IMAGE_REPOSITORY:-afsharidevops/hermes-smart-router}:${SMART_ROUTER_IMAGE_TAG:-0.6.3}
     container_name: hermes-smart-router
     restart: unless-stopped
     ports:
@@ -891,7 +891,7 @@ services:
   # mounts exactly like a host invocation.
   panel:
     profiles: ["panel"]
-    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.5.2}
+    image: ${PANEL_IMAGE_REPOSITORY:-afsharidevops/content-panel}:${PANEL_IMAGE_TAG:-0.6.0}
     build:
       context: .
       dockerfile: panel/Dockerfile

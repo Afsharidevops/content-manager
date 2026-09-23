@@ -77,6 +77,13 @@ STORYBOARD_SYSTEM_PROMPT = (
     "that are absent from the source material. Reply with one JSON object only."
 )
 
+SCENE_SYSTEM_PROMPT = (
+    "You are the Hermes Storyboard Agent revising one scene of an existing storyboard. "
+    "Rewrite only the requested scene, keep its role in the story and every other scene untouched, and follow the "
+    "operator instruction for this revision. Write narration in the requested language between 2 and 20 seconds of "
+    "spoken content and never invent facts that are absent from the source material. Reply with one JSON object only."
+)
+
 VIDEO_DIRECTOR_SYSTEM_PROMPT = (
     "You are the Hermes Video Director Agent. You convert a script or storyboard into a timeline document that a "
     "deterministic ffmpeg renderer executes. The renderer receives only your timeline, never the raw script, so every "
@@ -122,6 +129,32 @@ def _storyboard_prompt(payload: dict[str, Any]) -> str:
         "}\n"
         f"Use at most {MAX_SCENES} scenes, durations between {MIN_SCENE_SECONDS:.0f} and "
         f"{MAX_SCENE_SECONDS:.0f} seconds, transitions from {list(TRANSITIONS)}, "
+        f"animations from {list(ANIMATIONS)}, and asset types from {list(ASSET_TYPES)}."
+    )
+
+
+def _scene_prompt(payload: dict[str, Any]) -> str:
+    return (
+        "Rewrite one scene of this storyboard.\n\n"
+        f"Topic or brief: {payload.get('topic') or '(not given)'}\n"
+        f"Script or research notes: {payload.get('script') or '(not given)'}\n"
+        f"Storyboard JSON: {json.dumps(payload.get('storyboard'), ensure_ascii=False) if payload.get('storyboard') else '(not given)'}\n"
+        f"Scene number to rewrite: {payload.get('index') or 1}\n"
+        f"Operator instruction: {payload.get('instruction') or '(none - rewrite it for clarity and pacing)'}\n"
+        f"Language: {payload.get('language') or 'match the source language'}\n\n"
+        "Keep the scene's role in the story: the same beat, in the same order, with the same call to action when it "
+        "carries one. Reply with this JSON shape:\n"
+        "{\n"
+        '  "index": 2,\n'
+        '  "duration": 4,\n'
+        '  "narration": "the spoken line for this scene",\n'
+        '  "visual": "what the viewer sees",\n'
+        '  "emotion": "curious",\n'
+        '  "transition": "fade",\n'
+        '  "animation": "zoom-in",\n'
+        '  "asset_type": "text"\n'
+        "}\n"
+        f"Durations stay between {MIN_SCENE_SECONDS:.0f} and 20 seconds, transitions come from {list(TRANSITIONS)}, "
         f"animations from {list(ANIMATIONS)}, and asset types from {list(ASSET_TYPES)}."
     )
 
@@ -201,6 +234,14 @@ def _clamp_float(value: Any, low: float, high: float, default: float) -> float:
     return max(low, min(high, number))
 
 
+def _clamp_int(value: Any, low: int, high: int, default: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))
+
+
 def _pick(value: Any, choices: tuple[str, ...], default: str) -> str:
     chosen = str(value or "").strip().lower()
     return chosen if chosen in choices else default
@@ -240,6 +281,29 @@ def normalize_storyboard(payload: Any, *, default_transition: str = "fade") -> d
         "hook": _text(payload.get("hook"), 400),
         "scenes": scenes,
         "total_duration": round(sum(scene["duration"] for scene in scenes), 2),
+    }
+
+
+def normalize_scene(payload: Any, *, index: int = 1, default_transition: str = "fade") -> dict[str, Any]:
+    """Clamp one regenerated scene into the storyboard scene shape."""
+    if not isinstance(payload, dict):
+        raise ValueError("the scene answer is not a JSON object")
+    narration = _text(payload.get("narration"), 2000)
+    visual = _text(payload.get("visual"), 600)
+    if not narration and not visual:
+        raise ValueError("the scene answer carries neither narration nor a visual")
+    transition = _pick(payload.get("transition"), TRANSITIONS, default_transition)
+    if index <= 1:
+        transition = "cut"
+    return {
+        "index": index,
+        "duration": round(_clamp_float(payload.get("duration"), MIN_SCENE_SECONDS, 20.0, 4.0), 2),
+        "narration": narration,
+        "visual": visual,
+        "emotion": _text(payload.get("emotion"), 60),
+        "transition": transition,
+        "animation": _pick(payload.get("animation"), ANIMATIONS, "none"),
+        "asset_type": _pick(payload.get("asset_type"), ASSET_TYPES, "text"),
     }
 
 
@@ -422,6 +486,22 @@ async def build_storyboard(cp: Any, payload: dict[str, Any], *, agent_id: int | 
         return normalize_storyboard(answer)
     except ValueError as error:
         raise ContentAgentError(str(error), "storyboard_invalid") from error
+
+
+async def build_scene(cp: Any, payload: dict[str, Any], *, agent_id: int | None = None, profile: str = "") -> dict[str, Any]:
+    """Regenerate one storyboard scene and leave every other scene to the caller."""
+    index = _clamp_int(payload.get("index"), 1, MAX_SCENES, 1)
+    answer = await _json_call(
+        cp,
+        system_prompt=SCENE_SYSTEM_PROMPT,
+        user_prompt=_scene_prompt({**payload, "index": index}),
+        profile=profile,
+        agent_id=agent_id,
+    )
+    try:
+        return normalize_scene(answer, index=index)
+    except ValueError as error:
+        raise ContentAgentError(str(error), "scene_invalid") from error
 
 
 async def build_timeline(cp: Any, payload: dict[str, Any], *, agent_id: int | None = None, profile: str = "") -> dict[str, Any]:

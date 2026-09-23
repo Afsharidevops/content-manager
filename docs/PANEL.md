@@ -150,7 +150,7 @@ needed when `COMPOSE_PROFILES` does not already include it.
 
 ### Content Operations Center
 
-Four views turn the console into the operations side of the content
+Five views turn the console into the operations side of the content
 production pipeline. They read the stack `.env` and talk to the other
 services on the stack network, so no new container variables are required.
 
@@ -162,6 +162,19 @@ services on the stack network, so no new container variables are required.
   error, log tail, cancel, retry, artifact download, and an inline preview of
   finished clips. Artifacts stream through the panel session, so the Media
   Studio port itself never has to be published.
+- **Storyboard** - the scene editor for video drafts. **Plan draft** runs the
+  Storyboard and Video Director agents once and stores the answer under
+  `data/panel/storyboards/`; the editor then lists the drafts beside a scene
+  list where each scene carries its duration, narration, visual, emotion,
+  asset type, transition and animation. Scenes can be edited, reordered,
+  removed, added, or regenerated one at a time (`Regenerate` asks the
+  Storyboard Agent for that scene only and leaves the rest of the draft
+  alone). **Validate** checks the assembled document against the renderer's
+  normalizer, **Approve**/**Reject** record the verdict in the draft's trail,
+  and **Render** submits the document to the Media Studio `timeline-video`
+  driver and then follows the job on the draft (the trail keeps every status
+  change). Drafts survive panel restarts because each one is a JSON file; the
+  panel never stores them in a database.
 - **Hermes** - the control-plane summary: router version, mode and policy,
   routed requests, measured cost, average latency and error rate for the last
   24 hours, the agent registry, the four seeded content production agents,
@@ -175,6 +188,13 @@ services on the stack network, so no new container variables are required.
   document** form (pick a base, give a title, paste the text; the router chunks
   and embeds it), and a retrieval test: select bases, run a query, and read the
   scored matches.
+- **Docs** - the built-in manual for the panel itself: one card per view
+  explaining what it shows and how to use it, followed by the complete `/api/`
+  reference (session and CSRF rules, status and inventory reads, video and
+  storyboard endpoints, configuration/environment/platform writes, the
+  Hermes/orchestration/knowledge proxies, NotebookLM session endpoints,
+  whitelisted actions, a curl login-and-write example, and the error contract).
+  The base URL in the examples is the origin the operator is already using.
 
 A section that cannot be reached (missing `SMART_ROUTER_ADMIN_API_KEY`, an
 internal URL that does not answer, or a driver the worker did not load) is
@@ -287,7 +307,7 @@ Keep the token out of proxy logs; the console never puts it in a URL.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PANEL_IMAGE_REPOSITORY` | `afsharidevops/content-panel` | Image repository |
-| `PANEL_IMAGE_TAG` | `0.5.2` | Image tag; the Compose service also builds locally when the image is missing |
+| `PANEL_IMAGE_TAG` | `0.6.0` | Image tag; the Compose service also builds locally when the image is missing |
 | `PANEL_BIND_IP` | `127.0.0.1` | Host address the console binds to |
 | `PANEL_PORT` | `8899` | Host port |
 | `PANEL_ACTIONS_ENABLED` | `true` | `false` serves read-only views |

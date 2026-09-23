@@ -33,6 +33,27 @@ The current runtime release is **v0.5.9**.
 - Operator panel `0.5.2`: the n8n exposure note states that Hermes reaches
   n8n over the internal Docker network, so the host publish only adds LAN
   access and binding the port to loopback does not affect the agent.
+- Smart Router `0.6.3` adds `POST /v1/content/scene`: the Storyboard Agent
+  rewrites one scene of an existing storyboard (index, instruction, draft
+  context) and the answer is repaired with the storyboard scene bounds, so the
+  operator's scene editor regenerates a single scene instead of a whole plan.
+- Operator panel `0.6.0` adds the Storyboard view: drafts planned by the
+  agents are stored under `data/panel/storyboards/` and edited scene by scene
+  (edit, reorder, add, remove, per-scene regenerate), validated against the
+  renderer, approved or rejected with a note, and rendered through the
+  `timeline-video` driver with the job tracked on the draft.
+- Smart Router `0.6.3` also makes virtual API keys fully removable:
+  `DELETE /control/api/keys/{id}?purge=true` deletes the key instead of the
+  reversible revoke, answers `409 key_in_use` while ACL rules or budgets still
+  reference it, and `cascade=true` removes those references in the same
+  transaction. Access -> Users & Keys gains the Delete button and an Active
+  column next to the existing Revoke action.
+- Both consoles now document themselves. The Smart Router Docs page covers
+  every navigation area, the complete HTTP API (OpenAI-compatible,
+  Anthropic-compatible and content production surfaces), the virtual key
+  lifecycle and ready-to-copy Codex and Claude client configurations. The
+  operator panel gains a Docs view with one section per panel view plus the
+  full `/api/` reference and curl automation examples.
 
 ### Features — NotebookLM Video Overviews for the Content Bot (2026-09-15)
 

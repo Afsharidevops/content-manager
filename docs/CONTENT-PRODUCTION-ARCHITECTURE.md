@@ -171,12 +171,15 @@ Media Studio timeline-video        (validate -> ffmpeg fragments -> one MP4)
 operator panel Video Studio        (queue, preview, retry, download)
 ```
 
-- **Smart Router** (`smart-router 0.6.2`, `content_agents.py`) owns the four
+- **Smart Router** (`smart-router 0.6.3`, `content_agents.py`) owns the four
   production roles: Storyboard, Video Director, Media Planning, and NotebookLM
   Recovery. They are registered like any other agent, so the existing agent
   registry, orchestrator, approvals, budgets, and audit trail apply to them
   without new subsystems. The endpoints are `GET /v1/content/agents` and
-  `POST /v1/content/{storyboard,timeline,video-plan,media-plan,recover}`.
+  `POST /v1/content/{storyboard,scene,timeline,video-plan,media-plan,recover}`.
+  `POST /v1/content/scene` is the scene editor's revision path: it rewrites one
+  storyboard scene from the draft context and an operator instruction, so a
+  revision never redraws the scenes the operator already approved.
 - **Deterministic normalizers** clamp every model answer into the published
   schema, and the timeline the Video Director returns is the only document the
   renderer accepts. A raw script never reaches the renderer, so a bad model
@@ -190,9 +193,12 @@ operator panel Video Studio        (queue, preview, retry, download)
 - **NotebookLM** stays available for the flows it is genuinely good at (web
   research and source-backed audio/video), and its failures now feed the
   Recovery Agent with a recorded page state instead of being retried blindly.
-- **Operator panel** (`0.5.0`) is the operations side: Video Studio plans,
-  validates, renders, and tracks jobs; Hermes, Orchestration and Knowledge
-  expose the control-plane agents, runs, and retrieval.
+- **Operator panel** (`0.6.0`) is the operations side: Video Studio plans,
+  validates, renders, and tracks jobs; Storyboard keeps each draft as a JSON
+  file that is edited scene by scene (edit, reorder, per-scene regenerate,
+  approve/reject) and rendered through the same `timeline-video` driver;
+  Hermes, Orchestration and Knowledge expose the control-plane agents, runs,
+  and retrieval.
 
 ### Why ffmpeg instead of a Remotion driver
 

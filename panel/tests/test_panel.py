@@ -21,6 +21,7 @@ from panel.editors import ConfigStore, EditError, EnvStore
 from panel.platforms import PLATFORMS, PlatformStore, _linkedin_author, platform_for
 from panel.server import PanelApp, PanelHandler
 from panel.stack import CommandError, StackView
+from panel.storyboards import DRAFT_ID_RE, StoryboardMissing, StoryboardStore
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = REPO_ROOT / "panel" / "static"
@@ -2246,9 +2247,32 @@ class StaticAssetTest(unittest.TestCase):
         self.assertIn("/static/app.js", index)
         self.assertIn("/static/style.css", index)
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram", "/api/storage", "/api/backups", "/api/platforms", "/api/video/studio", "/api/video/plan", "/api/video/render", "/api/video/timeline/validate", "/api/video/jobs/", "/api/hermes/overview", "/api/orchestration/runs", "/api/knowledge"):
+        for endpoint in ("/api/login", "/api/session", "/api/status", "/api/config/", "/api/env/", "/api/logs/", "/api/actions/", "/api/drafts", "/api/instagram", "/api/storage", "/api/backups", "/api/platforms", "/api/video/studio", "/api/video/plan", "/api/video/render", "/api/video/timeline/validate", "/api/video/jobs/", "/api/video/storyboards", "/api/hermes/overview", "/api/orchestration/runs", "/api/knowledge"):
             self.assertIn(endpoint, script)
         self.assertIn("X-Panel-Csrf", script)
+
+    def test_console_documents_every_view_and_the_panel_api(self):
+        script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn('{ id: "docs", label: "Docs"', script)
+        self.assertIn('currentView === "docs"', script)
+        self.assertIn("async function renderDocs()", script)
+        for view in (
+            "Overview", "Pipeline state", "Platforms", "Configuration", "Environment",
+            "Storage", "Backups", "Logs", "Video Studio", "Storyboard", "Hermes",
+            "Orchestration", "Knowledge", "NotebookLM", "Actions",
+        ):
+            self.assertIn(f'title: "{view}"', script)
+        for endpoint in (
+            "POST /api/login",
+            "GET /api/status",
+            "PUT      /api/env/<KEY>",
+            "POST   /api/video/storyboards/<id>/approve | reject | render",
+            "POST /api/actions/<name>",
+            "GET  /api/hermes/overview",
+        ):
+            self.assertIn(endpoint, script)
+        style = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
+        self.assertIn(".docs pre", style)
 
 
 class ComposeWiringTest(unittest.TestCase):
@@ -2284,6 +2308,282 @@ class ComposeWiringTest(unittest.TestCase):
         for command in ("panel-enable", "panel-disable", "panel-status", "panel-token", "panel-rotate-token"):
             self.assertIn(command, script)
         self.assertIn("$PANEL_DIR/token", script)
+
+
+class StoryboardStoreTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        self.store = StoryboardStore(self.root)
+
+    def _create(self, scenes=None, **meta):
+        return self.store.create(
+            brief={"topic": "docker", "script": "notes", "language": "fa", "style": "calm", "duration": 30},
+            storyboard={
+                "title": "Docker on RouterOS",
+                "hook": "Your router runs containers",
+                "scenes": [{"narration": "one", "role": "hook"}],
+            },
+            timeline={
+                "version": 1,
+                "meta": {"aspect_ratio": "16:9", "brand": {"label": "Locallab"}, **meta},
+                "scenes": scenes
+                or [
+                    {"duration": 4, "narration": "one", "visual": "Title", "transition": "fade"},
+                    {"duration": 5, "narration": "two", "transition": "wipeleft", "asset_type": "image"},
+                ],
+            },
+        )
+
+    def test_create_keeps_the_plan_and_mirrors_the_storyboard(self):
+        draft = self._create()
+        self.assertRegex(draft["id"], DRAFT_ID_RE)
+        self.assertEqual(draft["status"], "draft")
+        self.assertEqual(draft["title"], "Docker on RouterOS")
+        self.assertEqual(draft["brief"]["topic"], "docker")
+        self.assertEqual(draft["timeline"]["meta"]["aspect_ratio"], "16:9")
+        self.assertEqual(draft["timeline"]["meta"]["brand"]["label"], "Locallab")
+        self.assertEqual(draft["timeline"]["meta"]["fps"], 30)
+        self.assertEqual(draft["timeline"]["scenes"][0]["transition"], "cut")
+        self.assertEqual(draft["timeline"]["scenes"][1]["transition"], "wipeleft")
+        self.assertEqual(draft["storyboard"]["scenes"][1]["narration"], "two")
+        self.assertEqual(draft["storyboard"]["total_duration"], 9.0)
+        self.assertEqual([row["action"] for row in draft["trail"]], ["created"])
+
+    def test_update_replaces_scenes_and_clamps_values(self):
+        draft = self._create()
+        updated = self.store.update(
+            draft["id"],
+            {
+                "title": "Docker containers",
+                "hook": "New hook",
+                "scenes": [
+                    {"duration": "abc", "narration": "one"},
+                    {"duration": 999, "narration": "two", "transition": "slideleft"},
+                    {"duration": 6, "narration": "three", "animation": "zoom-in"},
+                ],
+            },
+        )
+        self.assertEqual(updated["title"], "Docker containers")
+        self.assertEqual(updated["storyboard"]["hook"], "New hook")
+        self.assertEqual(updated["timeline"]["scenes"][1]["duration"], 120.0)
+        self.assertEqual(updated["timeline"]["scenes"][1]["transition"], "slideleft")
+        self.assertEqual(updated["timeline"]["scenes"][2]["animation"], "zoom-in")
+        self.assertEqual(updated["storyboard"]["total_duration"], 130.0)
+        summary = self.store.list()[0]
+        self.assertEqual(summary["scenes"], 3)
+        self.assertEqual(summary["title"], "Docker containers")
+
+    def test_update_rejects_empty_and_oversized_scene_lists(self):
+        draft = self._create()
+        with self.assertRaises(ValueError):
+            self.store.update(draft["id"], {"scenes": []})
+        with self.assertRaises(ValueError):
+            self.store.update(draft["id"], {"scenes": [{"narration": "x"}] * 41})
+
+    def test_replace_scene_keeps_the_other_scenes(self):
+        draft = self._create()
+        updated = self.store.replace_scene(
+            draft["id"], 2, {"duration": 7, "narration": "rewritten", "transition": "dissolve"}
+        )
+        self.assertEqual(updated["timeline"]["scenes"][0]["narration"], "one")
+        self.assertEqual(updated["timeline"]["scenes"][1]["narration"], "rewritten")
+        self.assertEqual(updated["timeline"]["scenes"][1]["duration"], 7.0)
+        with self.assertRaises(ValueError):
+            self.store.replace_scene(draft["id"], 9, {"narration": "nope"})
+
+    def test_verdicts_and_job_statuses_move_the_draft(self):
+        draft = self._create()
+        approved = self.store.set_status(draft["id"], "approved", "looks good")
+        self.assertEqual(approved["status"], "approved")
+        self.assertEqual(approved["trail"][-1]["note"], "looks good")
+        with self.assertRaises(ValueError):
+            self.store.set_status(draft["id"], "rendered")
+        rendering = self.store.record_job(draft["id"], {"id": "job-1", "status": "queued", "driver": "timeline-video"})
+        self.assertEqual(rendering["status"], "rendering")
+        self.assertEqual(rendering["job"]["id"], "job-1")
+        rendered = self.store.record_job(draft["id"], {"id": "job-1", "status": "done"})
+        self.assertEqual(rendered["status"], "rendered")
+        failed = self.store.record_job(draft["id"], {"id": "job-1", "status": "failed", "error": "ffmpeg"})
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["job"]["artifact"], "ffmpeg")
+
+    def test_missing_ids_and_odd_paths_are_rejected(self):
+        draft = self._create()
+        with self.assertRaises(StoryboardMissing):
+            self.store.read("20260101-000000-abcdef")
+        with self.assertRaises(StoryboardMissing):
+            self.store.read("../../etc/passwd")
+        with self.assertRaises(StoryboardMissing):
+            self.store.delete("not-a-draft-id")
+        self.assertEqual(len(self.store.list()), 1)
+        self.store.delete(draft["id"])
+        self.assertEqual(self.store.list(), [])
+
+    def test_a_broken_file_never_hides_the_valid_drafts(self):
+        draft = self._create()
+        self.store.dir.mkdir(parents=True, exist_ok=True)
+        (self.store.dir / "20260101-000000-aaaaaa.json").write_text("{not json", encoding="utf-8")
+        self.assertEqual([row["id"] for row in self.store.list()], [draft["id"]])
+
+
+class PanelStoryboardApiTest(unittest.TestCase):
+    def setUp(self):
+        self.root = make_root()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        self.app = PanelApp(self.root, "token-value")
+        self.app.router_request = self._router
+        self.app.media_studio_request = self._studio
+        PanelHandler.app = self.app
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), PanelHandler)
+        self.server.app = self.app
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.server.server_close)
+        self.port = self.server.server_address[1]
+        self.cookie = ""
+
+    @staticmethod
+    def _router(method, path, payload=None, **kwargs):
+        if path == "/v1/content/video-plan":
+            return {
+                "storyboard": {"title": "Docker on RouterOS", "hook": "hook", "scenes": [{"narration": "one"}]},
+                "timeline": {
+                    "version": 1,
+                    "meta": {"aspect_ratio": "9:16"},
+                    "scenes": [
+                        {"duration": 4, "narration": "one", "transition": "fade"},
+                        {"duration": 5, "narration": "two", "transition": "wipeleft"},
+                    ],
+                },
+            }
+        if path == "/v1/content/scene":
+            return {
+                "scene": {
+                    "index": payload["index"],
+                    "duration": 6,
+                    "narration": "rewritten",
+                    "transition": "dissolve",
+                }
+            }
+        raise AssertionError(f"unexpected router path {path}")
+
+    @staticmethod
+    def _studio(method, path, payload=None, **kwargs):
+        if method == "POST" and path == "/jobs":
+            return {"job": {"id": "job-7", "driver": "timeline-video", "status": "queued"}}
+        if method == "GET" and path == "/jobs/job-7":
+            return {"job": {"id": "job-7", "driver": "timeline-video", "status": "done"}}
+        raise AssertionError(f"unexpected studio call {method} {path}")
+
+    def request(self, method, path, payload=None, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        body = json.dumps(payload) if payload is not None else None
+        request_headers = dict(headers or {})
+        if body is not None:
+            request_headers["Content-Type"] = "application/json"
+        if self.cookie:
+            request_headers["Cookie"] = self.cookie
+        connection.request(method, path, body=body, headers=request_headers)
+        response = connection.getresponse()
+        raw = response.read().decode("utf-8")
+        set_cookie = response.getheader("Set-Cookie") or ""
+        connection.close()
+        if set_cookie.startswith("panel_session="):
+            self.cookie = set_cookie.split(";", 1)[0]
+        return response.status, raw
+
+    def login(self):
+        self.request("POST", "/api/login", {"token": "token-value"})
+
+    def test_storyboard_endpoints_need_authentication(self):
+        for method, path in (
+            ("GET", "/api/video/storyboards"),
+            ("GET", "/api/video/storyboards/20260101-000000-abcdef"),
+        ):
+            status, _ = self.request(method, path)
+            self.assertEqual(status, 401)
+
+    def test_the_draft_lifecycle_over_http(self):
+        self.login()
+        status, body = self.request(
+            "POST",
+            "/api/video/storyboards",
+            {"topic": "docker", "aspect_ratio": "9:16"},
+            headers={"X-Panel-Csrf": "1"},
+        )
+        self.assertEqual(status, 200)
+        draft = json.loads(body)["draft"]
+        draft_id = draft["id"]
+        self.assertEqual(len(draft["timeline"]["scenes"]), 2)
+
+        status, body = self.request("GET", "/api/video/storyboards")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(json.loads(body)["drafts"]), 1)
+
+        status, body = self.request(
+            "PUT",
+            f"/api/video/storyboards/{draft_id}",
+            {"title": "Edited", "scenes": [{"duration": 3, "narration": "one"}, {"duration": 4, "narration": "edited"}]},
+            headers={"X-Panel-Csrf": "1"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["draft"]["timeline"]["scenes"][1]["narration"], "edited")
+
+        status, body = self.request(
+            "POST",
+            f"/api/video/storyboards/{draft_id}/scenes/2/regenerate",
+            {"instruction": "shorten"},
+            headers={"X-Panel-Csrf": "1"},
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertEqual(payload["scene"]["narration"], "rewritten")
+        self.assertEqual(payload["draft"]["timeline"]["scenes"][0]["narration"], "one")
+
+        status, body = self.request(
+            "POST", f"/api/video/storyboards/{draft_id}/approve", {"note": "ok"}, headers={"X-Panel-Csrf": "1"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["draft"]["status"], "approved")
+
+        status, body = self.request("POST", f"/api/video/storyboards/{draft_id}/render", {}, headers={"X-Panel-Csrf": "1"})
+        self.assertEqual(status, 200)
+        rendered = json.loads(body)
+        self.assertEqual(rendered["job"]["id"], "job-7")
+        self.assertEqual(rendered["draft"]["status"], "rendering")
+
+        status, body = self.request("GET", f"/api/video/storyboards/{draft_id}")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["draft"]["status"], "rendered")
+
+        status, _ = self.request("DELETE", f"/api/video/storyboards/{draft_id}", headers={"X-Panel-Csrf": "1"})
+        self.assertEqual(status, 200)
+        status, _ = self.request("GET", f"/api/video/storyboards/{draft_id}")
+        self.assertEqual(status, 404)
+
+    def test_storyboard_writes_require_csrf(self):
+        self.login()
+        status, body = self.request("POST", "/api/video/storyboards", {"topic": "docker"})
+        self.assertEqual(status, 403)
+        self.assertIn("X-Panel-Csrf", body)
+
+    def test_out_of_range_scene_and_rejected_render_are_rejected(self):
+        self.login()
+        _, body = self.request("POST", "/api/video/storyboards", {"topic": "docker"}, headers={"X-Panel-Csrf": "1"})
+        draft_id = json.loads(body)["draft"]["id"]
+        status, body = self.request(
+            "POST",
+            f"/api/video/storyboards/{draft_id}/scenes/9/regenerate",
+            {},
+            headers={"X-Panel-Csrf": "1"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("outside this draft", body)
+        self.request("POST", f"/api/video/storyboards/{draft_id}/reject", {}, headers={"X-Panel-Csrf": "1"})
+        status, body = self.request("POST", f"/api/video/storyboards/{draft_id}/render", {}, headers={"X-Panel-Csrf": "1"})
+        self.assertEqual(status, 400)
+        self.assertIn("rejected", body)
 
 
 if __name__ == "__main__":

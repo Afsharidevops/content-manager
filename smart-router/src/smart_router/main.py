@@ -534,6 +534,20 @@ def create_app(
             return _content_error(error)
         return JSONResponse({"storyboard": storyboard}, headers={"Cache-Control": "no-store"})
 
+    async def content_scene(request: Request) -> Response:
+        """Regenerate one storyboard scene for the operator's scene editor."""
+        auth_error = _client_auth_error(request, settings)
+        if auth_error:
+            return auth_error
+        payload = await _content_json(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            scene = await content_agents_mod.build_scene(control_plane, payload)
+        except content_agents_mod.ContentAgentError as error:
+            return _content_error(error)
+        return JSONResponse({"scene": scene}, headers={"Cache-Control": "no-store"})
+
     async def content_timeline(request: Request) -> Response:
         auth_error = _client_auth_error(request, settings)
         if auth_error:
@@ -612,6 +626,7 @@ def create_app(
         Mount("/control", app=control_plane.app),
         Route("/v1/content/agents", content_agents_list, methods=["GET"]),
         Route("/v1/content/storyboard", content_storyboard, methods=["POST"]),
+        Route("/v1/content/scene", content_scene, methods=["POST"]),
         Route("/v1/content/timeline", content_timeline, methods=["POST"]),
         Route("/v1/content/video-plan", content_video_plan, methods=["POST"]),
         Route("/v1/content/media-plan", content_media_plan, methods=["POST"]),

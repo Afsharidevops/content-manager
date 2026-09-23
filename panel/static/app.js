@@ -11,11 +11,13 @@ const VIEWS = [
   { id: "backups", label: "Backups", title: "Backups", hint: "Stack archives with their sections, sizes and creation times." },
   { id: "logs", label: "Logs", title: "Service logs", hint: "Tail docker compose logs without leaving the console." },
   { id: "video", label: "Video Studio", title: "Video studio", hint: "Plan a video with the Storyboard and Video Director agents, edit the timeline, then render it with the deterministic Media Studio driver." },
+  { id: "storyboard", label: "Storyboard", title: "Storyboard editor", hint: "Drafts planned by the agents: edit scenes, reorder them, regenerate one with the Storyboard Agent, then approve and render." },
   { id: "hermes", label: "Hermes", title: "Hermes control center", hint: "Agents, routing profiles, models and measured routing telemetry from the Hermes control plane." },
   { id: "orchestration", label: "Orchestration", title: "Orchestration center", hint: "Multi-agent runs with their steps, approvals, reviewer results and failures." },
   { id: "knowledge", label: "Knowledge", title: "Knowledge center", hint: "Knowledge bases, document counts and live retrieval testing." },
   { id: "notebooklm", label: "NotebookLM", title: "NotebookLM video", hint: "Session management, credential sign-in and session import for the Google NotebookLM video provider." },
   { id: "actions", label: "Actions", title: "Stack actions", hint: "A fixed whitelist of compose and manage.sh actions. Nothing else runs." },
+  { id: "docs", label: "Docs", title: "Panel guide & API", hint: "How every view works, the complete panel HTTP API reference, and ready-to-copy curl examples." },
 ];
 
 const root = document.getElementById("shell");
@@ -27,6 +29,7 @@ const banner = document.getElementById("banner");
 
 let session = null;
 let currentView = "overview";
+let storyboardSelection = null;
 let toastTimer = null;
 let autoRefreshTimer = null;
 
@@ -156,27 +159,37 @@ function selectView(id) {
   loadView();
 }
 
-async function loadView() {
-  page.replaceChildren(h("div", { class: "muted", text: "Loading..." }));
-  try {
-    if (currentView === "overview") await renderOverview();
-    else if (currentView === "state") await renderState();
-    else if (currentView === "platforms") await renderPlatforms();
-    else if (currentView === "config") await renderConfig();
-    else if (currentView === "env") await renderEnv();
-    else if (currentView === "storage") await renderStorage();
-    else if (currentView === "backups") await renderBackups();
-    else if (currentView === "logs") await renderLogs();
-    else if (currentView === "video") await renderVideoStudio();
-    else if (currentView === "hermes") await renderHermes();
-    else if (currentView === "orchestration") await renderOrchestration();
-    else if (currentView === "knowledge") await renderKnowledge();
-    else if (currentView === "actions") await renderActions();
-    else if (currentView === "notebooklm") await renderNotebookLM();
-  } catch (error) {
-    if (String(error.message) === "session expired") return;
-    page.replaceChildren(h("div", { class: "banner error", text: String(error.message) }));
-  }
+// Views run one at a time: a slow render that was already in flight must not
+// replace the page after the operator switched to another view.
+let viewQueue = Promise.resolve();
+
+function loadView() {
+  const run = async () => {
+    page.replaceChildren(h("div", { class: "muted", text: "Loading..." }));
+    try {
+      if (currentView === "overview") await renderOverview();
+      else if (currentView === "state") await renderState();
+      else if (currentView === "platforms") await renderPlatforms();
+      else if (currentView === "config") await renderConfig();
+      else if (currentView === "env") await renderEnv();
+      else if (currentView === "storage") await renderStorage();
+      else if (currentView === "backups") await renderBackups();
+      else if (currentView === "logs") await renderLogs();
+      else if (currentView === "video") await renderVideoStudio();
+      else if (currentView === "storyboard") await renderStoryboard();
+      else if (currentView === "hermes") await renderHermes();
+      else if (currentView === "orchestration") await renderOrchestration();
+      else if (currentView === "knowledge") await renderKnowledge();
+      else if (currentView === "actions") await renderActions();
+      else if (currentView === "notebooklm") await renderNotebookLM();
+      else if (currentView === "docs") await renderDocs();
+    } catch (error) {
+      if (String(error.message) === "session expired") return;
+      page.replaceChildren(h("div", { class: "banner error", text: String(error.message) }));
+    }
+  };
+  viewQueue = viewQueue.then(run, run);
+  return viewQueue;
 }
 
 /* ----------------------------------------------------------------- views */
@@ -917,7 +930,7 @@ async function renderVideoStudio() {
       }
       if (result.timeline) timelineBox.value = JSON.stringify(result.timeline, null, 2);
       const totals = result.totals || {};
-      planStatus.textContent = `Timeline valid: ${totals.scenes || 0} scene(s), ${totals.duration_seconds || 0}s, ${totals.resolution || ""} @ ${totals.fps || ""}fps.`;
+      editorStatus.textContent = `Timeline valid: ${totals.scenes || 0} scene(s), ${totals.duration_seconds || 0}s, ${totals.resolution || ""} @ ${totals.fps || ""}fps.`;
       notify("Timeline is valid");
     } catch (error) {
       showBanner(String(error.message), "error");
@@ -1062,6 +1075,352 @@ async function renderVideoStudio() {
         ["Job", "Driver", "Status", "Created", "Error", "Artifacts", "Actions"],
         jobRows,
       ),
+    ),
+  );
+}
+
+const STORYBOARD_ASSET_TYPES = ["auto", "text", "solid", "image", "video"];
+const STORYBOARD_TRANSITIONS = ["cut", "fade", "dissolve", "slideleft", "slideright", "wipeleft", "wipeup", "circleopen"];
+const STORYBOARD_ANIMATIONS = ["none", "zoom-in", "zoom-out", "pan-left", "pan-right"];
+
+function storyboardStatusChip(status) {
+  const value = String(status || "draft");
+  const kind = value === "approved" || value === "rendered" ? "ok" : value === "rejected" || value === "failed" ? "warn" : "";
+  return h("span", { class: `chip ${kind}`.trim(), text: value });
+}
+
+function selectControl(choices, current, extra = {}) {
+  const select = h("select", extra, ...choices.map((choice) => h("option", { value: choice, text: choice })));
+  select.value = choices.includes(current) ? current : choices[0];
+  return select;
+}
+
+function sceneSelect(name, choices, current) {
+  return selectControl(choices, current, { "data-field": name });
+}
+
+function sceneField(label, control) {
+  return h("label", { class: "grid" }, h("span", { class: "muted small", text: label }), control);
+}
+
+async function renderStoryboard() {
+  const data = await api("/api/video/storyboards");
+  const drafts = data.drafts || [];
+  if (storyboardSelection && !drafts.some((row) => row.id === storyboardSelection)) storyboardSelection = null;
+  storyboardSelection = storyboardSelection || (drafts[0] || {}).id || null;
+  const detail = storyboardSelection
+    ? await api(`/api/video/storyboards/${encodeURIComponent(storyboardSelection)}`)
+    : null;
+  const draft = detail ? detail.draft : null;
+  const draftMeta = (draft && draft.timeline && draft.timeline.meta) || {};
+  const draftBrand = (draftMeta.brand || {}).label || "";
+  // The list is fetched before the draft, so a render job that finished in
+  // between would otherwise leave a stale chip and metric on screen.
+  const listed = drafts.find((row) => row.id === storyboardSelection);
+  if (draft && listed) {
+    listed.status = draft.status;
+    listed.job_status = (draft.job || {}).status || listed.job_status;
+  }
+
+  const topicInput = h("input", { type: "text", placeholder: "Topic or brief, e.g. Running Docker containers on MikroTik RouterOS" });
+  const scriptInput = h("textarea", { style: "min-height:110px", placeholder: "Optional script or research notes (the Storyboard Agent's source)" });
+  const planAspect = selectControl(["9:16", "16:9", "1:1", "4:5"], draftMeta.aspect_ratio || "9:16");
+  const planLanguage = h("input", { type: "text", placeholder: "fa", style: "width:80px" });
+  const planSeconds = h("input", { type: "number", min: "5", max: "600", value: "45", style: "width:90px" });
+  const planBrand = h("input", { type: "text", placeholder: "Brand label", value: draftBrand });
+  const aspectSelect = selectControl(["9:16", "16:9", "1:1", "4:5"], draftMeta.aspect_ratio || "9:16");
+  const brandInput = h("input", { type: "text", placeholder: "Brand label", value: draftBrand });
+  const titleInput = h("input", { type: "text", value: (draft && draft.title) || "" });
+  const hookInput = h("input", { type: "text", value: ((draft && draft.storyboard) || {}).hook || "" });
+  const planStatus = h("div", { class: "muted small" });
+  const editorStatus = h("div", { class: "muted small" });
+  const sceneList = h("div", { class: "grid" });
+
+  async function createDraft() {
+    planStatus.textContent = "Planning with the Storyboard and Video Director agents...";
+    try {
+      const result = await api("/api/video/storyboards", {
+        method: "POST",
+        body: {
+          topic: topicInput.value,
+          script: scriptInput.value,
+          aspect_ratio: planAspect.value,
+          language: planLanguage.value,
+          duration: Number(planSeconds.value) || 0,
+          brand: planBrand.value,
+        },
+      });
+      storyboardSelection = (result.draft || {}).id || storyboardSelection;
+      notify("Draft planned");
+      await loadView();
+    } catch (error) {
+      planStatus.textContent = "";
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  function collectScenes() {
+    return Array.from(sceneList.querySelectorAll("[data-scene]")).map((node) => {
+      const read = (name) => {
+        const field = node.querySelector(`[data-field="${name}"]`);
+        return field ? field.value : "";
+      };
+      return {
+        duration: Number(read("duration")) || 4,
+        narration: read("narration"),
+        visual: read("visual"),
+        emotion: read("emotion"),
+        asset_type: read("asset_type"),
+        transition: read("transition"),
+        animation: read("animation"),
+      };
+    });
+  }
+
+  async function saveScenes(scenes, extra = {}) {
+    const result = await api(`/api/video/storyboards/${encodeURIComponent(storyboardSelection)}`, {
+      method: "PUT",
+      body: { scenes, ...extra },
+    });
+    return result.draft;
+  }
+
+  async function save() {
+    try {
+      await saveScenes(collectScenes(), {
+        title: titleInput.value,
+        hook: hookInput.value,
+        meta: { brand: { label: brandInput.value } },
+      });
+      notify("Draft saved");
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function moveScene(index, delta) {
+    if (index + delta < 0 || index + delta >= sceneList.children.length) return;
+    const scenes = collectScenes();
+    const [moved] = scenes.splice(index, 1);
+    scenes.splice(index + delta, 0, moved);
+    try {
+      await saveScenes(scenes);
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function removeScene(index) {
+    const scenes = collectScenes();
+    if (scenes.length <= 1) {
+      showBanner("A draft needs at least one scene.", "error");
+      return;
+    }
+    scenes.splice(index, 1);
+    try {
+      await saveScenes(scenes);
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function addScene() {
+    const scenes = collectScenes();
+    scenes.push({ duration: 4, narration: "", visual: "", asset_type: "text", transition: "fade", animation: "none", emotion: "" });
+    try {
+      await saveScenes(scenes);
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function regenerateScene(index) {
+    const instruction = window.prompt(`Instruction for scene ${index + 1} (optional)`, "");
+    if (instruction === null) return;
+    notify(`Regenerating scene ${index + 1}...`);
+    try {
+      await api(`/api/video/storyboards/${encodeURIComponent(storyboardSelection)}/scenes/${index + 1}/regenerate`, {
+        method: "POST",
+        body: { instruction },
+      });
+      notify(`Scene ${index + 1} rewritten`);
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function validate() {
+    const timeline = { version: 1, meta: { aspect_ratio: aspectSelect.value, brand: { label: brandInput.value } }, scenes: collectScenes() };
+    try {
+      const result = await api("/api/video/timeline/validate", { method: "POST", body: { timeline } });
+      if (result.ok === false) {
+        showBanner(`Timeline rejected${result.field ? ` (${result.field})` : ""}: ${result.error}`, "error");
+        return;
+      }
+      const totals = result.totals || {};
+      planStatus.textContent = `Timeline valid: ${totals.scenes || 0} scene(s), ${totals.duration_seconds || 0}s, ${totals.resolution || ""} @ ${totals.fps || ""}fps.`;
+      notify("Timeline is valid");
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function verdict(action) {
+    const note = action === "reject" ? window.prompt("Why is this draft rejected?", "") : "";
+    if (action === "reject" && note === null) return;
+    try {
+      await api(`/api/video/storyboards/${encodeURIComponent(storyboardSelection)}/${action}`, {
+        method: "POST",
+        body: { note: note || "" },
+      });
+      notify(action === "approve" ? "Draft approved" : "Draft rejected");
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function render() {
+    try {
+      const result = await api(`/api/video/storyboards/${encodeURIComponent(storyboardSelection)}/render`, {
+        method: "POST",
+        body: { brand: brandInput.value },
+      });
+      notify(`Render job ${(result.job || {}).id || "?"} queued`);
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  async function removeDraft() {
+    if (!window.confirm("Delete this draft?")) return;
+    try {
+      await api(`/api/video/storyboards/${encodeURIComponent(storyboardSelection)}`, { method: "DELETE" });
+      storyboardSelection = null;
+      notify("Draft deleted");
+      await loadView();
+    } catch (error) {
+      showBanner(String(error.message), "error");
+    }
+  }
+
+  const scenes = draft && draft.timeline ? draft.timeline.scenes || [] : [];
+  scenes.forEach((scene, index) => {
+    const narration = h("textarea", { "data-field": "narration", style: "min-height:90px" });
+    narration.value = scene.narration || "";
+    sceneList.append(
+      h("div", { class: "scene grid", "data-scene": String(index + 1) },
+        h("div", { class: "spread" },
+          h("strong", { text: `Scene ${index + 1}` }),
+          h("div", { class: "row" },
+            h("button", { class: "btn small", type: "button", text: "Up", disabled: index === 0, onclick: () => moveScene(index, -1) }),
+            h("button", { class: "btn small", type: "button", text: "Down", disabled: index === scenes.length - 1, onclick: () => moveScene(index, 1) }),
+            h("button", { class: "btn small", type: "button", text: "Regenerate", onclick: () => regenerateScene(index) }),
+            h("button", { class: "btn small danger", type: "button", text: "Remove", onclick: () => removeScene(index) }),
+          ),
+        ),
+        h("div", { class: "grid cols-2" },
+          sceneField("Duration (s)", h("input", { type: "number", min: "0.5", max: "120", step: "0.5", value: String(scene.duration || 4), "data-field": "duration" })),
+          sceneField("Emotion", h("input", { type: "text", value: scene.emotion || "", placeholder: "calm", "data-field": "emotion" })),
+        ),
+        sceneField("Narration", narration),
+        sceneField("Visual", h("input", { type: "text", value: scene.visual || "", "data-field": "visual" })),
+        h("div", { class: "grid cols-3" },
+          sceneField("Asset", sceneSelect("asset_type", STORYBOARD_ASSET_TYPES, scene.asset_type)),
+          sceneField("Transition", sceneSelect("transition", STORYBOARD_TRANSITIONS, scene.transition)),
+          sceneField("Animation", sceneSelect("animation", STORYBOARD_ANIMATIONS, scene.animation)),
+        ),
+      ),
+    );
+  });
+
+  const draftList = h("div", { class: "filelist" },
+    ...drafts.map((row) =>
+      h("button", {
+        class: row.id === storyboardSelection ? "active" : "",
+        type: "button",
+        onclick: () => { storyboardSelection = row.id; loadView(); },
+      },
+        h("div", { class: "row" }, h("strong", { text: row.title || row.id }), storyboardStatusChip(row.status)),
+        h("div", { class: "muted small", text: `${row.scenes} scene(s) - ${row.duration}s - ${row.aspect_ratio || "9:16"} - ${row.updated_at}` }),
+        row.job_status ? h("div", { class: "muted small", text: `render ${row.job_status} (${row.job_id})` }) : null,
+      ),
+    ),
+  );
+
+  const job = draft ? draft.job || {} : {};
+  const trail = draft ? draft.trail || [] : [];
+  const editor = draft
+    ? card("Selected draft",
+        h("div", { class: "spread" },
+          h("div", { class: "row" },
+            h("code", { text: draft.id }),
+            storyboardStatusChip(draft.status),
+            job.id ? h("span", { class: "chip", text: `job ${job.id} ${job.status}` }) : null,
+          ),
+          h("div", { class: "row" },
+            h("button", { class: "btn primary", type: "button", text: "Save", onclick: save }),
+            h("button", { class: "btn", type: "button", text: "Validate", onclick: validate }),
+            h("button", { class: "btn", type: "button", text: "Approve", onclick: () => verdict("approve") }),
+            h("button", { class: "btn", type: "button", text: "Reject", onclick: () => verdict("reject") }),
+            h("button", { class: "btn primary", type: "button", text: "Render", onclick: render }),
+            h("button", { class: "btn danger", type: "button", text: "Delete", onclick: removeDraft }),
+          ),
+        ),
+        h("div", { class: "grid cols-2" },
+          sceneField("Title", titleInput),
+          sceneField("Hook", hookInput),
+        ),
+        h("div", { class: "grid cols-2" },
+          sceneField("Aspect ratio", aspectSelect),
+          sceneField("Brand label", brandInput),
+        ),
+        sceneList,
+        h("div", { class: "row" },
+          h("button", { class: "btn", type: "button", text: "Add scene", onclick: addScene }),
+          h("span", { class: "muted small", text: "Reordering saves immediately; Regenerate asks the Storyboard Agent for one scene only." }),
+        ),
+        editorStatus,
+        h("details", { style: "margin-top:8px" },
+          h("summary", { class: "muted small", text: "Approval trail and render job" }),
+          h("div", { class: "grid" },
+            ...trail.map((row) => h("div", { class: "muted small", text: `${row.at} - ${row.action}${row.note ? `: ${row.note}` : ""}` })),
+            job.artifact ? h("div", { class: "error small", text: job.artifact }) : null,
+          ),
+        ),
+      )
+    : card("Selected draft", h("div", { class: "muted", text: "Plan a draft or pick one from the list to start editing scenes." }));
+
+  page.replaceChildren(
+    h("div", { class: "grid cols-4" },
+      metric("Drafts", drafts.length, "storyboard documents"),
+      metric("Approved", drafts.filter((row) => row.status === "approved").length, "ready to render"),
+      metric("Rendering", drafts.filter((row) => row.status === "rendering").length, "in the Media Studio queue"),
+      metric("Rendered", drafts.filter((row) => row.status === "rendered").length, "finished renders"),
+    ),
+    card("Plan a draft",
+      h("div", { class: "grid cols-2" },
+        sceneField("Topic", topicInput),
+        sceneField("Script or notes", scriptInput),
+      ),
+      h("div", { class: "row" },
+        h("label", { class: "row" }, "Aspect", planAspect),
+        h("label", { class: "row" }, "Language", planLanguage),
+        h("label", { class: "row" }, "Seconds", planSeconds),
+        h("label", { class: "row" }, "Brand", planBrand),
+        h("button", { class: "btn primary", type: "button", text: "Plan draft", onclick: createDraft }),
+      ),
+      planStatus,
+    ),
+    h("div", { class: "grid cols-2" },
+      card("Drafts", draftList),
+      editor,
     ),
   );
 }
@@ -1923,6 +2282,238 @@ async function renderBackups() {
     await runActionInto(output, "backup-section", `Back up ${list.join(", ")}`, true, { sections: list.join(",") });
     loadView();
   }
+}
+
+/* ------------------------------------------------------------------- docs */
+
+const PANEL_GUIDE = [
+  {
+    title: "Overview",
+    text: "Container states, disk usage, published ports, stack versions and pipeline counters. First stop after a deploy: is everything up, which ports are published, what does the content pipeline report.",
+  },
+  {
+    title: "Pipeline state",
+    text: "Draft counters, scheduled routines and the most recent drafts with their scheduling results. Use it to see why a draft was skipped, retried or published.",
+  },
+  {
+    title: "Platforms",
+    text: "Per-channel tokens, ids, API base URLs and connection tests. Secrets stay masked; every save writes to .env, so run Apply changes afterwards.",
+  },
+  {
+    title: "Configuration",
+    text: "Validated YAML/JSON editors for the stack config files. A backup is taken before every save; seed restores the shipped template and restore returns a selected backup.",
+  },
+  {
+    title: "Environment",
+    text: "The .env editor. Existing values stay masked, and only known keys can be edited. A saved value reaches the containers after the Apply changes action.",
+  },
+  {
+    title: "Storage",
+    text: "S3 backend, bucket, stack/public endpoints, key prefix and the per-service storage matrix, plus the bundled RustFS state. The status and verify actions run the same checks as manage.sh.",
+  },
+  {
+    title: "Backups",
+    text: "Stack archives with their sections, sizes, versions and creation times. Create a full or partial backup, then restore a section from the newest archive.",
+  },
+  {
+    title: "Logs",
+    text: "Tail docker compose logs for one service at a time. Auto refresh follows the end of the output like tail -f, and the filter box searches the buffered lines client-side.",
+  },
+  {
+    title: "Video Studio",
+    text: "Plan a video through the Storyboard and Video Director agents, validate the timeline document, then render it with the deterministic Media Studio driver. Jobs, retries and artifacts live here.",
+  },
+  {
+    title: "Storyboard",
+    text: "Drafts produced by the agents: edit scene text, reorder or delete scenes, regenerate a single scene with the Storyboard Agent, then approve, reject or render the draft. Drafts are stored as JSON under data/panel/storyboards/.",
+  },
+  {
+    title: "Hermes",
+    text: "Read-only windows into the Hermes control plane: agents, routing profiles, catalogued models and the measured routing telemetry of recent requests.",
+  },
+  {
+    title: "Orchestration",
+    text: "Multi-agent runs with their steps, approval decisions, reviewer verdicts and failures, refreshed from the control plane.",
+  },
+  {
+    title: "Knowledge",
+    text: "Knowledge bases and document counts from the control plane, plus document ingestion and live retrieval testing so a base can be verified before an agent uses it.",
+  },
+  {
+    title: "NotebookLM",
+    text: "Session management for the Google NotebookLM video provider: credentials, interactive sign-in (VNC), session import/export and per-profile render settings.",
+  },
+  {
+    title: "Actions",
+    text: "A fixed whitelist of compose and manage.sh actions (pull, up, restart, backup, storage checks). Nothing outside the whitelist can be executed. Actions are read-only when PANEL_ACTIONS_ENABLED=false.",
+  },
+];
+
+const PANEL_API_GROUPS = [
+  {
+    title: "Authentication and session",
+    text: "The operator token comes from ./manage.sh panel token (or PANEL_TOKEN) and is exchanged for a session cookie. Reads need the cookie, every write also needs the X-Panel-Csrf: 1 header. GET /healthz answers without authentication.",
+    code: [
+      "POST /api/login            {\"token\": \"<panel token>\"}  -> session cookie",
+      "POST /api/logout",
+      "GET  /api/session          version, actions_enabled, panel root, started_at",
+      "GET  /healthz              unauthenticated liveness probe",
+    ].join("\n"),
+  },
+  {
+    title: "Stack status and inventory",
+    text: "Everything the Overview, Pipeline state, Storage, Backups and Logs views display.",
+    code: [
+      "GET /api/status            containers, disk, ports, versions, counters",
+      "GET /api/state             counters, routines, recent drafts",
+      "GET /api/links             published panel, studio and control-plane URLs",
+      "GET /api/actions           whitelisted actions with labels and descriptions",
+      "GET /api/storage           object-storage matrix",
+      "GET /api/backups           backup archives",
+      "GET /api/logs/<service>?lines=500",
+      "GET /api/media/jobs        Media Studio jobs",
+    ].join("\n"),
+  },
+  {
+    title: "Video, timeline and storyboards",
+    text: "The Video Studio and Storyboard views are thin clients over these endpoints. Artifacts are streamed through the panel session, so a render never has to expose the worker port.",
+    code: [
+      "GET    /api/video/studio                              drivers, engines, defaults",
+      "POST   /api/video/plan                                plan through the agents",
+      "POST   /api/video/render                              render a plan or job",
+      "GET    /api/video/jobs/<id>",
+      "POST   /api/video/jobs/<id>/retry",
+      "DELETE /api/video/jobs/<id>                           cancel",
+      "GET    /api/video/artifacts/<job>/<name>              download one artifact",
+      "POST   /api/video/timeline/validate                   validate a timeline document",
+      "GET|POST         /api/video/storyboards",
+      "GET|PUT|DELETE   /api/video/storyboards/<id>",
+      "POST   /api/video/storyboards/<id>/approve | reject | render",
+      "POST   /api/video/storyboards/<id>/scenes/<n>/regenerate",
+    ].join("\n"),
+  },
+  {
+    title: "Configuration, environment and platforms",
+    text: "File edits always create a backup, and platform or environment saves are written to .env, so follow them with the Apply changes action.",
+    code: [
+      "GET      /api/config",
+      "GET|PUT  /api/config/<name>          {\"text\": \"...\"}",
+      "GET      /api/config/<name>/backups",
+      "POST     /api/config/<name>/seed | restore",
+      "GET      /api/env                    masked entries",
+      "PUT      /api/env/<KEY>              {\"key\": \"<KEY>\", \"value\": \"...\"}",
+      "GET      /api/platforms",
+      "PUT      /api/platforms/<platform>   {\"values\": {...}}",
+      "POST     /api/platforms/<platform>/test",
+      "GET      /api/drafts                 pipeline state plus draft results",
+      "POST     /api/drafts/<id>/action     {\"action\": \"...\"}",
+      "GET      /api/instagram",
+      "POST     /api/instagram/refresh",
+    ].join("\n"),
+  },
+  {
+    title: "Hermes, orchestration and knowledge",
+    text: "Proxies into the Hermes control plane; failures are reported as 502 with the upstream message.",
+    code: [
+      "GET  /api/hermes/overview",
+      "GET  /api/orchestration/runs?limit=50",
+      "GET  /api/orchestration/runs/<id>",
+      "GET  /api/knowledge",
+      "POST /api/knowledge/documents",
+      "POST /api/knowledge/search",
+    ].join("\n"),
+  },
+  {
+    title: "NotebookLM provider",
+    text: "Session handling for the Google NotebookLM video provider. Credentials are written to the worker volume; interactive sign-in opens a temporary VNC window.",
+    code: [
+      "GET      /api/notebooklm",
+      "POST     /api/notebooklm/creds          {\"email\", \"password\", \"totp\"}",
+      "POST     /api/notebooklm/login",
+      "POST     /api/notebooklm/start-vnc-login | stop-vnc-login",
+      "POST     /api/notebooklm/import-session {\"session\": {...}}",
+      "GET|POST /api/notebooklm/profiles",
+    ].join("\n"),
+  },
+  {
+    title: "Whitelisted actions",
+    text: "Actions take a JSON body that is passed to the command as parameters (for example a comma-separated backup section list).",
+    code: [
+      "GET  /api/actions",
+      "POST /api/actions/<name>   {\"sections\": \"config,data\"}",
+      "",
+      "Example: POST /api/actions/pull, /api/actions/up, /api/actions/backup,",
+      "         /api/actions/s3-status, /api/actions/s3-verify",
+    ].join("\n"),
+  },
+  {
+    title: "Automation example",
+    text: "A complete round trip with curl: sign in, read the stack status, then change one environment value and apply it.",
+    code: [
+      "TOKEN=$(cat data/panel/token)",
+      "",
+      "curl -s -c /tmp/panel.cookies -H 'Content-Type: application/json' \\",
+      "  -d \"{\\\"token\\\":\\\"$TOKEN\\\"}\" http://192.168.4.222:8899/api/login",
+      "",
+      "curl -s -b /tmp/panel.cookies http://192.168.4.222:8899/api/status",
+      "",
+      "curl -s -b /tmp/panel.cookies -H 'X-Panel-Csrf: 1' \\",
+      "  -H 'Content-Type: application/json' -X PUT \\",
+      "  -d '{\"key\":\"PANEL_ACTIONS_ENABLED\",\"value\":\"true\"}' \\",
+      "  http://192.168.4.222:8899/api/env/PANEL_ACTIONS_ENABLED",
+    ].join("\n"),
+  },
+  {
+    title: "Errors",
+    text: "Every failure returns {\"error\": \"message\"} with a plain HTTP status.",
+    code: [
+      "400  invalid JSON body, config value or action payload",
+      "401  session expired -> POST /api/login again",
+      "403  missing X-Panel-Csrf header (writes only)",
+      "404  unknown endpoint or missing resource",
+      "502  an upstream worker or control-plane call failed",
+      "503  no panel token configured on the server",
+    ].join("\n"),
+  },
+];
+
+async function renderDocs() {
+  const cards = (items) =>
+    items.map((item) =>
+      h(
+        "section",
+        { class: "card" },
+        h("h3", { text: item.title }),
+        h("p", { class: "muted small", text: item.text }),
+        item.code ? h("pre", { text: item.code }) : null,
+      ));
+  const docsUrl = location.origin;
+  page.replaceChildren(
+    h(
+      "section",
+      { class: "card" },
+      h("h2", { text: "Content Console guide" }),
+      h("p", {
+        class: "muted",
+        text:
+          "This built-in guide covers every view of the panel and the complete HTTP API it exposes. The console is a thin, token-protected client over the stack: anything shown here can also be automated " +
+          `against ${docsUrl} with the session cookie and the X-Panel-Csrf header.`,
+      }),
+    ),
+    h("div", { class: "grid cols-2 docs", style: "margin-top:12px" }, ...cards(PANEL_GUIDE)),
+    h(
+      "section",
+      { class: "card", style: "margin-top:16px" },
+      h("h2", { text: "Panel API reference" }),
+      h("p", {
+        class: "muted",
+        text:
+          "All endpoints live under /api/ and answer JSON. Writes send the session cookie plus X-Panel-Csrf: 1; the browser client adds it automatically. " +
+          `Base URL in the examples: ${docsUrl} (the host that publishes the panel port).`,
+      }),
+    ),
+    h("div", { class: "grid cols-2 docs", style: "margin-top:12px" }, ...cards(PANEL_API_GROUPS)),
+  );
 }
 
 /* ------------------------------------------------------------------ login */

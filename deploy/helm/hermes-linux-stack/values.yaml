@@ -3,7 +3,7 @@ replicaCount: 2
 
 image:
   repository: afsharidevops/hermes-smart-router
-  tag: "0.6.2"
+  tag: "0.6.3"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -110,7 +110,7 @@ components:
     enabled: false
     image:
       repository: afsharidevops/content-panel
-      tag: "0.5.2"
+      tag: "0.6.0"
       pullPolicy: IfNotPresent
     existingSecret: ""
     storage:

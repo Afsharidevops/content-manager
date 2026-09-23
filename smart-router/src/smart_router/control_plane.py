@@ -742,7 +742,35 @@ class ControlPlane:
             row = s.get(User, uid)
             if not row: return Response(status_code=404)
             if request.method == "DELETE":
-                row.active = False
+                if request.query_params.get("purge", "").lower() in {"1", "true", "yes"}:
+                    api_keys = list(s.scalars(select(ApiKey).where(ApiKey.user_id == uid)))
+                    groups = list(s.scalars(select(AccessGroup)))
+                    member_groups = [group for group in groups if row.username in _loads(group.member_users_json, [])]
+                    acl_rules = list(s.scalars(select(ACLRule).where(ACLRule.subject_type == "user", ACLRule.subject_value == row.username)))
+                    if (api_keys or member_groups or acl_rules) and request.query_params.get("cascade", "").lower() not in {"1", "true", "yes"}:
+                        return _error(
+                            "user is referenced by API keys, groups, or ACL rules; disable it or retry permanent delete with cascade=true",
+                            "user_in_use",
+                            409,
+                            {
+                                "api_keys": [key.id for key in api_keys],
+                                "groups": [group.id for group in member_groups],
+                                "acl_rules": [rule.id for rule in acl_rules],
+                            },
+                        )
+                    for key in api_keys:
+                        key.user_id = None
+                    for group in member_groups:
+                        members = [member for member in _loads(group.member_users_json, []) if member != row.username]
+                        group.member_users_json = json.dumps(members)
+                        group.updated_at = datetime.now(timezone.utc).isoformat()
+                    for rule in acl_rules:
+                        s.delete(rule)
+                    s.delete(row)
+                    action = "user.delete"
+                else:
+                    row.active = False
+                    action = "user.disable"
             else:
                 d = await _json(request)
                 if d.get("role") in ROLE_PERMISSIONS: row.role = d["role"]
@@ -752,7 +780,7 @@ class ControlPlane:
                     try: row.password_hash = self.security.hash_password(str(d["password"]))
                     except ValueError as exc: return _error(str(exc), "invalid_password", 422)
             s.commit()
-        self.db.audit(identity.actor, identity.role, "user.update", str(uid))
+        self.db.audit(identity.actor, identity.role, action if request.method == "DELETE" else "user.update", str(uid))
         return JSONResponse({"ok": True})
 
     async def groups_api(self, request: Request) -> Response:
@@ -848,8 +876,25 @@ class ControlPlane:
             row = session.get(ApiKey, kid)
             if not row: return Response(status_code=404)
             if request.method == "DELETE":
-                row.active = False
-                action = "key.revoke"
+                if request.query_params.get("purge", "").lower() in {"1", "true", "yes"}:
+                    acl_rules = list(session.scalars(select(ACLRule).where(ACLRule.subject_type == "virtual_key", ACLRule.subject_value == str(kid))))
+                    budgets = list(session.scalars(select(Budget).where(Budget.scope_type == "api_key", Budget.scope_value.in_([row.name, str(kid)]))))
+                    if (acl_rules or budgets) and request.query_params.get("cascade", "").lower() not in {"1", "true", "yes"}:
+                        return _error(
+                            "key is referenced by ACL rules or budgets; revoke it or retry permanent delete with cascade=true",
+                            "key_in_use",
+                            409,
+                            {"acl_rules": [rule.id for rule in acl_rules], "budgets": [budget.id for budget in budgets]},
+                        )
+                    for rule in acl_rules:
+                        session.delete(rule)
+                    for budget in budgets:
+                        session.delete(budget)
+                    session.delete(row)
+                    action = "key.delete"
+                else:
+                    row.active = False
+                    action = "key.revoke"
             else:
                 d = await _json(request)
                 try:

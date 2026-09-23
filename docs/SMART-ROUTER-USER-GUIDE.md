@@ -478,9 +478,12 @@ substitutes the next model from the pipeline `fallback` stage, when configured.
 | **Access** | Users & Keys, Groups, ACLs, Identity | Who can log in, who can call the API, and what each principal may touch |
 | **System** | Execution & Approvals, Onboarding, Docs, System | Live runtime controls, separate execution trust boundary, and the built-in manual |
 
-The built-in **System → Docs** page carries a condensed version of this guide
-inside the container, so an operator on a private network still has the basics
-without external documentation.
+The built-in **System → Docs** page carries the full operator manual and API
+guide inside the container - one section per navigation area, the OpenAI-,
+Anthropic- and content-compatible endpoint lists with curl samples, the
+virtual key lifecycle, and ready-to-copy Codex and Claude client
+configurations - so an operator on a private network never needs external
+documentation.
 
 ## 7. Page-by-page reference
 
@@ -1469,7 +1472,11 @@ its own limits.
 backend. **Add user** takes username, password (12+ characters), role, and team.
 **Create API key** takes name, role, team, RPM, TPM, daily requests, monthly
 budget USD, and allowed tiers (multi-select). Keys can be edited in place for
-limits and revoked; the full secret is displayed only once, at creation.
+limits; **Revoke** stops authentication but keeps the row for audit, while
+**Delete** removes the key permanently. A permanent delete is refused with
+`409 key_in_use` while ACL rules or budgets still reference the key; confirm
+the cascade to remove those references in the same transaction. The full
+secret is displayed only once, at creation.
 
 **API.**
 
@@ -1486,6 +1493,17 @@ curl -sS -X POST "$CTRL/api/keys" \
 `POST /api/keys` returns the `secret` field exactly once. Store it in the client
 configuration immediately; afterwards only the `srk_` prefix and limits are
 available.
+
+```bash
+curl -sS -X DELETE "$CTRL/api/keys/7" \
+  -H "Authorization: Bearer $ADMIN_KEY"          # revoke (reversible)
+
+curl -sS -X DELETE "$CTRL/api/keys/7?purge=true" \
+  -H "Authorization: Bearer $ADMIN_KEY"          # delete the row
+
+curl -sS -X DELETE "$CTRL/api/keys/7?purge=true&cascade=true" \
+  -H "Authorization: Bearer $ADMIN_KEY"          # also drop ACL/budget references
+```
 
 **Rate limits.** `GET /api/rate-limits` reports the stack client, virtual-key
 defaults, anonymous limits, and whether the backend is Redis or the control
@@ -1671,15 +1689,20 @@ curl -sS -X PUT "$CTRL/api/onboarding" -H "Authorization: Bearer $ADMIN_KEY" \
 
 #### Docs
 
-**Purpose.** The built-in operator manual.
+**Purpose.** The built-in operator manual and API guide.
 
 **Use it when.** You are inside a private network without access to this file.
 
-**UI.** Cards covering routing basics (`observe` vs `route`, policy choices),
-system controls and schema compatibility, users/keys/groups/ACLs, Knowledge and
-hybrid RAG, Memory, Agents, Skills, Plugins, Teams and the Orchestrator,
-upgrade/backup commands, a common-troubleshooting block, and the v0.5.9 visual
-studio and execution-boundary notes.
+**UI.** Cards covering sign-in and roles, the first-run checklist, every
+navigation area (Observe, Build, Tools, Routing, Access, System), users and
+virtual keys (including revoke vs permanent delete), upgrade/backup commands
+and troubleshooting, followed by the API guide: base URLs and authentication,
+the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/responses`,
+`/v1/models`, `/v1/tools`), the Anthropic-compatible endpoints
+(`/v1/messages`, `/v1/messages/count_tokens`), the content production
+endpoints, the Operations Center API map, the virtual key lifecycle, and
+copy-ready **Codex** (`~/.codex/config.toml`) and **Claude Code**
+(`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`) samples.
 
 #### System
 

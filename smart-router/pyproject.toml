@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermes-smart-router"
-version = "0.6.2"
+version = "0.6.3"
 description = "OpenAI-compatible privacy-safe three-tier Smart Router for Hermes Linux Stack"
 readme = "README.md"
 requires-python = ">=3.11"

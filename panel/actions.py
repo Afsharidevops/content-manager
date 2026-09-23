@@ -273,7 +273,7 @@ class ActionRunner:
         can still list and read their metadata.
         """
         repository = self._stack_env("PANEL_IMAGE_REPOSITORY") or "afsharidevops/content-panel"
-        tag = self._stack_env("PANEL_IMAGE_TAG") or "0.5.2"
+        tag = self._stack_env("PANEL_IMAGE_TAG") or "0.6.0"
         backups = self.root.parent / f"{self.root.name}-backups"
         command = [
             "docker",

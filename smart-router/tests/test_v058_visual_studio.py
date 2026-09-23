@@ -41,6 +41,33 @@ def test_v058_panel_contains_visual_studios_and_execution_diagnostics():
     assert "key has not been validated yet" in PANEL_HTML
 
 
+def test_v058_panel_docs_cover_the_operator_manual_and_api_guide():
+    assert "Operations Center user manual and API guide" in PANEL_HTML
+    assert "__PANEL_DOCS_JSON__" not in PANEL_HTML
+    for marker in (
+        "Codex client configuration",
+        "Claude client configuration",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "wire_api",
+        "/v1/chat/completions",
+        "/v1/messages",
+        "/v1/content/storyboard",
+        "purge=true",
+        "key_in_use",
+    ):
+        assert marker in PANEL_HTML, marker
+
+
+def test_v058_users_and_keys_offer_revoke_and_permanent_delete():
+    assert "Permanently delete API key" in PANEL_HTML
+    assert "onclick=\"purgeKey(" in PANEL_HTML
+    assert "Delete the referencing ACL rules and budgets too?" in PANEL_HTML
+    assert "Permanently delete user" in PANEL_HTML
+    assert "onclick=\"purgeUser(" in PANEL_HTML
+    assert "user_in_use" in PANEL_HTML
+
+
 def test_knowledge_pipeline_crud_and_validation(tmp_path, monkeypatch):
     cp = _cp(tmp_path, monkeypatch)
     graph = {

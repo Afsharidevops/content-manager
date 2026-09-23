@@ -2486,7 +2486,7 @@ panel_disable() {
 panel_build() {
   local repository tag
   repository="$(env_value "$ENV_FILE" PANEL_IMAGE_REPOSITORY)"; repository="${repository:-afsharidevops/content-panel}"
-  tag="$(env_value "$ENV_FILE" PANEL_IMAGE_TAG)"; tag="${tag:-0.5.2}"
+  tag="$(env_value "$ENV_FILE" PANEL_IMAGE_TAG)"; tag="${tag:-0.6.0}"
   "${DOCKER[@]}" build -t "$repository:$tag" -f "$ROOT_DIR/panel/Dockerfile" "$ROOT_DIR"
   printf 'Built %s:%s from panel/Dockerfile\n' "$repository" "$tag"
 }

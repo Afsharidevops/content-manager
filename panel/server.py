@@ -43,6 +43,7 @@ from panel.drafts import (
 from panel.editors import ConfigStore, EditError, EnvStore
 from panel.platforms import PlatformStore
 from panel.stack import CommandError, StackView
+from panel.storyboards import StoryboardError, StoryboardMissing, StoryboardStore
 
 SESSION_COOKIE = "panel_session"
 SESSION_SALT = b"panel-session-v1"
@@ -90,6 +91,7 @@ class PanelApp:
         self.config = ConfigStore(self.root)
         self.env = EnvStore(self.root)
         self.platforms = PlatformStore(self.root, self.env)
+        self.storyboards = StoryboardStore(self.root)
         self.actions = ActionRunner(self.root, enabled=self.actions_enabled)
         self.started_at = time.time()
 
@@ -1028,6 +1030,110 @@ class PanelApp:
         fresh = job.get("job") if isinstance(job, dict) else None
         return {"job": self._render_job_row(fresh or {})}
 
+    # ---------------------------------------------------- storyboard drafts
+
+    def storyboard_list(self) -> dict:
+        """The scene-editor draft list, newest first."""
+        return {"drafts": self.storyboards.list()}
+
+    def storyboard_create(self, payload: dict) -> dict:
+        """Plan one draft with the agents and store it for scene editing."""
+        plan = self.video_plan(payload)
+        storyboard = plan.get("storyboard") if isinstance(plan, dict) else None
+        timeline = plan.get("timeline") if isinstance(plan, dict) else None
+        if not isinstance(timeline, dict) or not timeline.get("scenes"):
+            raise CommandError("the agents returned no timeline scenes to edit.")
+        draft = self.storyboards.create(
+            brief={
+                "topic": payload.get("topic", ""),
+                "script": payload.get("script", ""),
+                "language": payload.get("language", ""),
+                "style": payload.get("style", ""),
+                "duration": payload.get("duration") or 0,
+            },
+            storyboard=storyboard if isinstance(storyboard, dict) else {},
+            timeline=timeline,
+        )
+        return {"draft": draft}
+
+    def storyboard_read(self, draft_id: str) -> dict:
+        """One draft, with its render job refreshed while it is running."""
+        draft = self.storyboards.read(draft_id)
+        job = draft.get("job") if isinstance(draft.get("job"), dict) else {}
+        job_id = str(job.get("id") or "")
+        if job_id and str(job.get("status") or "") in {"queued", "running"}:
+            record = None
+            try:
+                payload = self.media_studio_request("GET", f"/jobs/{quote_id(job_id)}", timeout=10)
+                record = payload.get("job") if isinstance(payload, dict) else None
+            except (CommandError, urllib.error.URLError, ValueError, socket.timeout, OSError):
+                record = None
+            if isinstance(record, dict):
+                draft = self.storyboards.record_job(draft_id, record)
+        return {"draft": draft}
+
+    def storyboard_update(self, draft_id: str, payload: dict) -> dict:
+        return {"draft": self.storyboards.update(draft_id, payload)}
+
+    def storyboard_delete(self, draft_id: str) -> dict:
+        self.storyboards.delete(draft_id)
+        return {"ok": True}
+
+    def storyboard_verdict(self, draft_id: str, status: str, note: str = "") -> dict:
+        """Record the operator's approve/reject decision on a draft."""
+        return {"draft": self.storyboards.set_status(draft_id, status, note)}
+
+    def storyboard_scene_regenerate(self, draft_id: str, index: int, payload: dict) -> dict:
+        """Rewrite one scene with the Storyboard Agent, keeping the others."""
+        draft = self.storyboards.read(draft_id)
+        timeline = draft.get("timeline") if isinstance(draft.get("timeline"), dict) else {}
+        scenes = timeline.get("scenes") if isinstance(timeline.get("scenes"), list) else []
+        if not scenes:
+            raise StoryboardError("this draft has no scenes to rewrite.")
+        if index < 1 or index > len(scenes):
+            raise StoryboardError(f"scene {index} is outside this draft (1-{len(scenes)}).")
+        brief = draft.get("brief") if isinstance(draft.get("brief"), dict) else {}
+        result = self.router_request(
+            "POST",
+            "/v1/content/scene",
+            {
+                "topic": brief.get("topic") or draft.get("title") or "",
+                "script": brief.get("script") or "",
+                "storyboard": draft.get("storyboard") or {},
+                "index": index,
+                "instruction": str(payload.get("instruction") or "").strip(),
+                "language": brief.get("language") or "",
+            },
+            timeout=90,
+        )
+        scene = result.get("scene") if isinstance(result, dict) else None
+        if not isinstance(scene, dict):
+            raise CommandError("the Storyboard Agent returned no scene to apply.")
+        draft = self.storyboards.replace_scene(draft_id, index, scene)
+        return {"draft": draft, "scene": draft["timeline"]["scenes"][index - 1]}
+
+    def storyboard_render(self, draft_id: str, payload: dict) -> dict:
+        """Queue the draft's timeline and follow the job on the draft."""
+        draft = self.storyboards.read(draft_id)
+        status = str(draft.get("status") or "")
+        if status == "rejected":
+            raise StoryboardError("a rejected draft cannot be rendered.")
+        if status == "rendering":
+            raise StoryboardError("this draft is already rendering.")
+        timeline = draft.get("timeline") if isinstance(draft.get("timeline"), dict) else {}
+        if not timeline.get("scenes"):
+            raise StoryboardError("this draft has no scenes to render.")
+        result = self.video_render(
+            {
+                "timeline": timeline,
+                "title": draft.get("title") or "storyboard render",
+                "brand": payload.get("brand", ""),
+            }
+        )
+        job = result.get("job") if isinstance(result, dict) else None
+        draft = self.storyboards.record_job(draft_id, job if isinstance(job, dict) else {})
+        return {"draft": draft, "job": job if isinstance(job, dict) else {}}
+
     def _router_read(self, path: str, *, timeout: int = 30) -> tuple[object, str]:
         """Read one router endpoint, reporting failure instead of raising."""
         try:
@@ -1251,6 +1357,10 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.FORBIDDEN, str(error))
         except (EditError, DraftActionError) as error:
             self._error(HTTPStatus.BAD_REQUEST, str(error))
+        except StoryboardMissing as error:
+            self._error(HTTPStatus.NOT_FOUND, str(error))
+        except StoryboardError as error:
+            self._error(HTTPStatus.BAD_REQUEST, str(error))
         except ActionError as error:
             self._error(HTTPStatus.BAD_REQUEST, str(error))
         except CommandError as error:
@@ -1319,6 +1429,58 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._require_csrf()
             body = self._read_body()
             self._send_json(HTTPStatus.OK, self.app.video_timeline_validate(body))
+            return
+        if method == "GET" and parts == ["video", "storyboards"]:
+            self._send_json(HTTPStatus.OK, self.app.storyboard_list())
+            return
+        if method == "POST" and parts == ["video", "storyboards"]:
+            self._require_csrf()
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.storyboard_create(body))
+            return
+        if len(parts) == 3 and parts[:2] == ["video", "storyboards"]:
+            if method == "GET":
+                self._send_json(HTTPStatus.OK, self.app.storyboard_read(parts[2]))
+                return
+            if method == "PUT":
+                self._require_csrf()
+                body = self._read_body()
+                self._send_json(HTTPStatus.OK, self.app.storyboard_update(parts[2], body))
+                return
+            if method == "DELETE":
+                self._require_csrf()
+                self._send_json(HTTPStatus.OK, self.app.storyboard_delete(parts[2]))
+                return
+        if len(parts) == 4 and parts[:2] == ["video", "storyboards"] and parts[3] in {"approve", "reject"}:
+            if method == "POST":
+                self._require_csrf()
+                body = self._read_body()
+                status = "approved" if parts[3] == "approve" else "rejected"
+                self._send_json(
+                    HTTPStatus.OK,
+                    self.app.storyboard_verdict(parts[2], status, str(body.get("note", ""))),
+                )
+                return
+        if method == "POST" and len(parts) == 4 and parts[:2] == ["video", "storyboards"] and parts[3] == "render":
+            self._require_csrf()
+            body = self._read_body()
+            self._send_json(HTTPStatus.OK, self.app.storyboard_render(parts[2], body))
+            return
+        if (
+            method == "POST"
+            and len(parts) == 6
+            and parts[:2] == ["video", "storyboards"]
+            and parts[3] == "scenes"
+            and parts[5] == "regenerate"
+        ):
+            self._require_csrf()
+            body = self._read_body()
+            if not parts[4].isdigit():
+                raise StoryboardError(f"{parts[4]} is not a scene number.")
+            self._send_json(
+                HTTPStatus.OK,
+                self.app.storyboard_scene_regenerate(parts[2], int(parts[4]), body),
+            )
             return
         if (
             method == "POST"
