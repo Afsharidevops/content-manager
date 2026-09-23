@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -865,13 +866,14 @@ class ControlPlane:
             rows = list(s.scalars(select(ApiKey).order_by(ApiKey.id.desc())))
         payload: Any = [_row_dict(r, exclude={"key_hash"}) | {"allowed_tiers": _loads(r.allowed_tiers_json, [])} for r in rows]
         if revealed:
-            return JSONResponse({"created_key": revealed, "keys": payload})
+            return JSONResponse({"created_key": revealed, "created_key_id": row.id, "keys": payload})
         return JSONResponse(payload)
 
     async def key_api(self, request: Request) -> Response:
         identity = self._admin_identity(request, "keys.manage")
         if isinstance(identity, Response): return identity
         kid = int(request.path_params["key_id"])
+        revealed = None
         with self.db.session() as session:
             row = session.get(ApiKey, kid)
             if not row: return Response(status_code=404)
@@ -912,13 +914,22 @@ class ControlPlane:
                         allowed = sorted({str(x) for x in d["allowed_tiers"] if str(x) in {"fast", "standard", "strong"}})
                         if not allowed: raise ValueError("at least one allowed tier is required")
                         row.allowed_tiers_json = json.dumps(allowed)
-                    if "active" in d: row.active = bool(d["active"])
+                    if d.get("rotate") is True:
+                        revealed = "srk_" + secrets.token_urlsafe(32)
+                        row.key_hash = hashlib.sha256(revealed.encode()).hexdigest()
+                        row.prefix = revealed[:12]
+                        row.active = True
+                        action = "key.rotate"
+                    else:
+                        if "active" in d: row.active = bool(d["active"])
+                        action = "key.update"
                 except (TypeError, ValueError) as exc:
                     return _error(str(exc), "invalid_key", 422)
-                action = "key.update"
             session.commit()
             payload = _row_dict(row, exclude={"key_hash"}) | {"allowed_tiers": _loads(row.allowed_tiers_json, [])}
         self.db.audit(identity.actor, identity.role, action, str(kid), detail={"rpm": payload["rpm"], "tpm": payload["tpm"], "daily_requests": payload["daily_requests"]})
+        if revealed:
+            return JSONResponse(payload | {"ok": True, "created_key": revealed, "created_key_id": kid})
         return JSONResponse(payload | {"ok": True})
 
     async def rate_limits_api(self, request: Request) -> Response:

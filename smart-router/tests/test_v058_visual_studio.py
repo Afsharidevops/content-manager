@@ -62,6 +62,10 @@ def test_v058_panel_docs_cover_the_operator_manual_and_api_guide():
 def test_v058_users_and_keys_offer_revoke_and_permanent_delete():
     assert "Permanently delete API key" in PANEL_HTML
     assert "onclick=\"purgeKey(" in PANEL_HTML
+    assert "onclick=\"rotateKey(" in PANEL_HTML
+    assert "onclick=\"copyKeyById(" in PANEL_HTML
+    assert "onclick=\"toggleKey(" in PANEL_HTML
+    assert "Save this secret now" in PANEL_HTML
     assert "Delete the referencing ACL rules and budgets too?" in PANEL_HTML
     assert "Permanently delete user" in PANEL_HTML
     assert "onclick=\"purgeUser(" in PANEL_HTML

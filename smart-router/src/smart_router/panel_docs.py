@@ -210,8 +210,9 @@ model_provider = "hermes"
 
 [model_providers.hermes]
 name = "Hermes Smart Router"
-base_url = "http://HOST:PORT/v1"
+base_url = "https://sr.stack.locallab.ir/v1"
 env_key = "HERMES_API_KEY"
+experimental_bearer_token = "<SMART_ROUTER_CLIENT_API_KEY>"
 wire_api = "responses"     # Codex uses the Responses API at /v1/responses
 request_max_retries = 3
 stream_max_retries = 2</div>
@@ -222,17 +223,28 @@ codex</div>
 <div class="card">
 <h2>18. Claude client configuration</h2>
 <p class="muted">Claude Code and any Anthropic SDK client can use the router as their endpoint because <b>/v1/messages</b> is implemented natively.</p>
-<div class="code">export ANTHROPIC_BASE_URL="http://HOST:PORT"
+<div class="code"># VS Code — settings.json
+{
+  "claude": {
+    "serverUrl": "https://sr.stack.locallab.ir",
+    "serverType": "custom",
+    "authToken": "srk_...",
+    "model": "auto"
+  }
+}</div>
+<div class="code"># Environment variables (CLI)
+export ANTHROPIC_BASE_URL="https://sr.stack.locallab.ir"
 export ANTHROPIC_AUTH_TOKEN="srk_..."   # sent as Authorization: Bearer
 # or: export ANTHROPIC_API_KEY="srk_..."  # sent as x-api-key
 export ANTHROPIC_MODEL="auto"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="auto"
 claude</div>
 <div class="code"># Python SDK
 from anthropic import Anthropic
-client = Anthropic(base_url="http://HOST:PORT", api_key="srk_...")
+client = Anthropic(base_url="https://sr.stack.locallab.ir", api_key="srk_...")
 client.messages.create(model="auto", max_tokens=512,
                        messages=[{"role": "user", "content": "Hello"}])</div>
-<p class="muted">Session persistence, guardrails, budgets and trace recording behave exactly like the OpenAI surface, so a single key can serve both tools.</p>
+<p class="muted">Session persistence, guardrails, budgets and trace recording behave exactly like the OpenAI surface, so a single key can serve both tools. Set <b>ANTHROPIC_DEFAULT_HAIKU_MODEL=auto</b> when Claude Code defaults to Haiku; the router handles model selection.</p>
 </div>
 </div>
 

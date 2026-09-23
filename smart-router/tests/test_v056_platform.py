@@ -112,6 +112,19 @@ def test_api_key_revoke_then_permanent_delete(tmp_path, monkeypatch):
         assert client.delete(f"/api/keys/{key['id']}?purge=true", headers=_headers()).status_code == 404
 
 
+def test_api_key_rotate_returns_new_secret(tmp_path, monkeypatch):
+    cp = _cp(tmp_path, monkeypatch)
+    with TestClient(cp.app) as client:
+        created = client.post("/api/keys", headers=_headers(), json={"name": "rotating-client", "role": "user"}).json()
+        key = next(row for row in created["keys"] if row["name"] == "rotating-client")
+        rotated = client.put(f"/api/keys/{key['id']}", headers=_headers(), json={"rotate": True})
+        assert rotated.status_code == 200
+        assert rotated.json()["created_key"].startswith("srk_")
+        assert rotated.json()["created_key"] != created["created_key"]
+        assert rotated.json()["prefix"] == rotated.json()["created_key"][:12]
+        assert rotated.json()["active"] is True
+
+
 def test_api_key_permanent_delete_protects_acl_and_budget_references(tmp_path, monkeypatch):
     cp = _cp(tmp_path, monkeypatch)
     with TestClient(cp.app) as client:
