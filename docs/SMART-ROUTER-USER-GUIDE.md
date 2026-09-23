@@ -1974,7 +1974,7 @@ a `*_FILE` variant that reads the value from a mounted file.
 | `SMART_ROUTER_POLICY_VERSION` | `4` | Feature/policy schema version recorded with observations |
 | `SMART_ROUTER_CALIBRATION_FILE` | `/policy/calibrated.json` | Calibrated policy input |
 | `SMART_ROUTER_PREFERRED_TOKEN_FIELD` | `max_tokens` | `max_tokens` or `max_completion_tokens` |
-| `SMART_ROUTER_CONTEXT_TOKEN_SAFETY_FACTOR` | `1.15` | Conservative margin for context gates |
+| `SMART_ROUTER_CONTEXT_TOKEN_SAFETY_FACTOR` | `1.0` | Disabled — upstream enforces context limits; router passes all requests through |
 | `SMART_ROUTER_ALLOW_TIER_OVERRIDES` | `false` | Allow clients to force tiers |
 | `SMART_ROUTER_MAX_REQUEST_BYTES` | `10485760` | Body limit (`413` above it) |
 | `SMART_ROUTER_CONNECT_TIMEOUT_SECONDS` | `10` | Upstream connect timeout |
