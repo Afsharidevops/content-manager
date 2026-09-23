@@ -1,5 +1,8 @@
 """Minimal Telegram Bot API long-polling client (standard library only)."""
 
+
+
+
 from __future__ import annotations
 
 import json
@@ -8,6 +11,59 @@ from content_bot.http import HttpError as _HttpError
 from content_bot.http import request_multipart_many
 from content_bot.http import request_bytes, request_multipart
 from content_bot.http import HttpError, request_json
+
+
+#: Video destination presets: aspect/resolution/size per platform.
+VIDEO_DESTINATIONS: dict[str, dict] = {
+    "reel": {
+        "label": "🎬 IG Reel / Shorts",
+        "aspect_ratio": "9:16",
+        "resolution": "1080x1920",
+        "scene_image_size": "1024x1792",
+        "fps": 30,
+        "scene_image_max": 10,
+    },
+    "youtube": {
+        "label": "▶️ YouTube / Aparat",
+        "aspect_ratio": "16:9",
+        "resolution": "1920x1080",
+        "scene_image_size": "1792x1024",
+        "fps": 30,
+        "scene_image_max": 16,
+    },
+    "telegram": {
+        "label": "🖥 Telegram video",
+        "aspect_ratio": "16:9",
+        "resolution": "1280x720",
+        "scene_image_size": "1792x1024",
+        "fps": 25,
+        "scene_image_max": 8,
+    },
+    "instagram_post": {
+        "label": "🖼 IG Post (4:5)",
+        "aspect_ratio": "4:5",
+        "resolution": "1080x1350",
+        "scene_image_size": "1024x1792",
+        "fps": 30,
+        "scene_image_max": 8,
+    },
+}
+
+
+def video_destination_keyboard(draft_id: str) -> dict:
+    """Choose where the video will be published."""
+    rows = []
+    for key, dest in VIDEO_DESTINATIONS.items():
+        rows.append(
+            [
+                {
+                    "text": dest["label"],
+                    "callback_data": f"media:vid_dest_{key}:{draft_id}",
+                }
+            ]
+        )
+    rows.append([{"text": "❌ Cancel", "callback_data": f"media:none:{draft_id}"}])
+    return {"inline_keyboard": rows}
 
 
 class TelegramError(RuntimeError):
@@ -430,10 +486,15 @@ def ai_video_plan_keyboard(draft_id: str) -> dict:
                     "callback_data": f"media:ai_video:{draft_id}",
                 },
             ],
-            [{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}],
+            [
+                {
+                    "text": "📥 Copy prompt",
+                    "callback_data": f"media:ai_prompt:{draft_id}",
+                }
+            ],
+            [{"text": "❌ Cancel", "callback_data": f"media:none:{draft_id}"}],
         ]
     }
-
 
 #: The three video profiles the NotebookLM worker ships.
 NOTEBOOKLM_PROFILES = (
@@ -461,7 +522,6 @@ def notebooklm_profile_keyboard(draft_id: str) -> dict:
     rows.append([{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}])
     return {"inline_keyboard": rows}
 
-
 def notebooklm_duration_keyboard(draft_id: str, profile_sub: str) -> dict:
     """Pick the video length after the profile has been chosen."""
     rows = [
@@ -477,7 +537,6 @@ def notebooklm_duration_keyboard(draft_id: str, profile_sub: str) -> dict:
     rows.append([cancel])
     rows.append([{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}])
     return {"inline_keyboard": rows}
-
 
 def video_style_keyboard(draft_id: str, *, character: bool) -> dict:
     """Ask whether a hand-made reel uses the saved character or pure AI shots."""
@@ -501,7 +560,6 @@ def video_style_keyboard(draft_id: str, *, character: bool) -> dict:
     )
     rows.append([{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}])
     return {"inline_keyboard": rows}
-
 
 def video_prompt_duration_keyboard(draft_id: str) -> dict:
     """Pick the reel length before the segmented prompt package is built."""

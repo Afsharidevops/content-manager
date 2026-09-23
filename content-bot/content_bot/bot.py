@@ -1262,6 +1262,239 @@ class ContentBot:
         return "\n\n\n".join([header] + blocks)
 
     @staticmethod
+    def _video_destination(key: str = "") -> tuple[str, dict]:
+        """Return the selected video destination preset."""
+        destinations = telegram_mod.VIDEO_DESTINATIONS
+        chosen = str(key or "").strip()
+        if chosen not in destinations:
+            chosen = "reel"
+        return chosen, dict(destinations[chosen])
+
+    def _record_video_destination(self, record: dict) -> tuple[str, dict]:
+        """Return the destination stored on a draft, falling back to Reels."""
+        return self._video_destination(str(record.get("agent_video_destination") or ""))
+
+    @staticmethod
+    def _video_source_script(record: dict) -> str:
+        """Build the script payload shared by video planning and prompt export."""
+        title = str(record.get("title") or "").strip()
+        body = re.sub(r"\s+", " ", str(record.get("body") or "")).strip()
+        source_url = str(record.get("source_url") or "").strip()
+        script = f"{title}\n\n{body}".strip()
+        if source_url:
+            script = f"{script}\n\nSource: {source_url}".strip()
+        return script
+
+    @staticmethod
+    def _apply_video_destination(timeline: dict, destination: dict) -> dict:
+        """Stamp destination aspect, resolution, and fps into a timeline copy."""
+        cloned = json.loads(json.dumps(timeline or {}, ensure_ascii=False))
+        meta = cloned.get("meta") if isinstance(cloned.get("meta"), dict) else {}
+        meta["aspect_ratio"] = str(destination.get("aspect_ratio") or "9:16")
+        meta["resolution"] = str(destination.get("resolution") or "1080x1920")
+        meta["fps"] = int(destination.get("fps") or meta.get("fps") or 30)
+        cloned["meta"] = meta
+        cloned["version"] = cloned.get("version") or 1
+        return cloned
+
+    def _fallback_agent_video_plan(self, record: dict, destination: dict) -> dict:
+        """Build a local storyboard/timeline when the content agents are unavailable."""
+        title = str(record.get("title") or "AI video").strip()
+        body = writer_mod.Writer._strip_source_url(
+            str(record.get("body") or "").strip(),
+            str(record.get("source_url") or "").strip(),
+        )
+        beats = self._fallback_beats(body or title, 4)
+        scenes: list[dict] = []
+        timeline_scenes: list[dict] = []
+        for index, beat in enumerate(beats, start=1):
+            narration = str(beat or title or f"Scene {index}").strip()
+            visual = (
+                "Cinematic editorial visual for this narration, clean background, "
+                "strong focal subject, no text overlays."
+            )
+            scenes.append(
+                {
+                    "duration": 4,
+                    "narration": narration,
+                    "visual": visual,
+                    "emotion": "clear",
+                }
+            )
+            timeline_scenes.append(
+                {
+                    "id": index,
+                    "duration": 4,
+                    "narration": narration,
+                    "visual": visual,
+                    "transition": "fade",
+                    "animation": "zoom-in" if index % 2 else "pan-left",
+                }
+            )
+        storyboard = {
+            "title": title or "AI video",
+            "hook": beats[0] if beats else title,
+            "total_duration": sum(scene["duration"] for scene in scenes),
+            "scenes": scenes,
+        }
+        timeline = self._apply_video_destination(
+            {
+                "version": 1,
+                "meta": {"title": storyboard["title"], "subtitle": True},
+                "scenes": timeline_scenes,
+            },
+            destination,
+        )
+        return {"storyboard": storyboard, "timeline": timeline}
+
+    def _agent_video_plan(self, record: dict, destination: dict, *, timeout: int = 240) -> dict:
+        """Ask the content agents for one storyboard and render timeline."""
+        script = self._video_source_script(record)
+        topic = str(record.get("title") or "").strip() or script[:200] or "Content Manager video"
+        try:
+            plan = self._router_content_request(
+                "/v1/content/video-plan",
+                {
+                    "topic": topic,
+                    "script": script[:8000],
+                    "platform": str(destination.get("label") or "AI video"),
+                    "aspect_ratio": str(destination.get("aspect_ratio") or "9:16"),
+                    "language": "fa",
+                },
+                timeout=timeout,
+            )
+        except media_mod.MediaStudioError as error:
+            log.warning("agent video planner unavailable, using local fallback: %s", error)
+            return self._fallback_agent_video_plan(record, destination)
+        storyboard = plan.get("storyboard")
+        timeline = plan.get("timeline")
+        if not isinstance(storyboard, dict) or not isinstance(timeline, dict):
+            log.warning("agent video planner returned an incomplete result, using local fallback")
+            return self._fallback_agent_video_plan(record, destination)
+        plan["timeline"] = self._apply_video_destination(timeline, destination)
+        return plan
+
+    def _agent_video_prompt_package(
+        self,
+        record: dict,
+        *,
+        storyboard: dict,
+        timeline: dict,
+        destination: dict,
+    ) -> str:
+        """Build one external-generator prompt from the agent plan."""
+        title = str(storyboard.get("title") or record.get("title") or "AI video").strip()
+        hook = str(storyboard.get("hook") or "").strip()
+        scenes = storyboard.get("scenes") if isinstance(storyboard.get("scenes"), list) else []
+        target = str(destination.get("label") or "AI video")
+        aspect = str(destination.get("aspect_ratio") or "9:16")
+        resolution = str(destination.get("resolution") or "1080x1920")
+        lines = [
+            "AI VIDEO PRODUCTION PROMPT",
+            "",
+            f"Target platform: {target}",
+            f"Canvas: {aspect}, {resolution}, {int(destination.get('fps') or 30)} fps",
+            "Language: Persian narration. Keep facts faithful to the source text.",
+            "Style: cinematic, clean, modern, no watermarks, no random text on screen.",
+            "",
+            "SCENARIO",
+            f"Title: {title}",
+        ]
+        if hook:
+            lines.append(f"Hook: {hook}")
+        lines += ["", "STORYBOARD"]
+        for index, scene in enumerate(scenes, 1):
+            if not isinstance(scene, dict):
+                continue
+            lines.append(
+                f"Scene {index}: {scene.get('duration', 4)}s | "
+                f"Narration: {scene.get('narration', '')} | "
+                f"Visual: {scene.get('visual', '')} | "
+                f"Emotion: {scene.get('emotion', '')}"
+            )
+        lines += [
+            "",
+            "TIMELINE JSON",
+            json.dumps(timeline, ensure_ascii=False, indent=2),
+            "",
+            "MASTER INSTRUCTION",
+            "Create the final video from this scenario, storyboard, and timeline. "
+            "Follow the scene order and durations. Use the visual directions for shots/backgrounds, "
+            "keep narration natural in Persian, preserve the selected canvas, and avoid invented facts.",
+        ]
+        return "\n".join(lines)
+
+    def _send_agent_video_prompt_package(
+        self,
+        draft_id: str,
+        *,
+        query_id: str,
+        destination_key: str = "",
+    ) -> None:
+        """Send a copy-ready external prompt based on the content-agent plan."""
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            self._safe_answer(query_id, "This draft is no longer active.")
+            return
+        key, destination = self._video_destination(
+            destination_key or str(record.get("agent_video_destination") or "")
+        )
+        storyboard = record.get("agent_video_storyboard")
+        timeline = record.get("agent_video_timeline")
+        if not isinstance(storyboard, dict) or not isinstance(timeline, dict):
+            try:
+                plan = self._agent_video_plan(record, destination, timeout=240)
+            except media_mod.MediaStudioError as error:
+                log.warning("agent video prompt failed for draft %s: %s", draft_id, error)
+                self._safe_answer(query_id, f"Video prompt failed: {error}")
+                return
+            storyboard = plan["storyboard"]
+            timeline = plan["timeline"]
+            self.state.update_draft(
+                draft_id,
+                {
+                    "agent_video_destination": key,
+                    "agent_video_storyboard": storyboard,
+                    "agent_video_timeline": timeline,
+                },
+            )
+        else:
+            timeline = self._apply_video_destination(timeline, destination)
+        package = self._agent_video_prompt_package(
+            record,
+            storyboard=storyboard,
+            timeline=timeline,
+            destination=destination,
+        )
+        footer = (
+            "Agent video prompt package. Copy this into an external video model, "
+            "generate the video, then send the finished file here."
+        )
+        chat_id = record.get("chat_id")
+        ask_text = f"{footer}\n\n<pre>{_html_escape(package)}</pre>"
+        chunks: list[str] = []
+        if len(ask_text) > self._PROMPT_ASK_MAX:
+            header, _, body_text = package.partition("\nTIMELINE JSON\n")
+            ask_text = f"{footer}\n\n<pre>{_html_escape(header.strip())}</pre>"
+            chunks = self._prompt_chunks(f"TIMELINE JSON\n{body_text}")
+        if not self._begin_user_media_wait(record, kind="video", ask_text=ask_text):
+            self._safe_answer(query_id, "Another media upload is already waiting.")
+            return
+        if chunks and chat_id is not None:
+            for chunk in chunks:
+                try:
+                    self.api.send_message(
+                        chat_id,
+                        f"<pre>{_html_escape(chunk)}</pre>",
+                        parse_mode="HTML",
+                    )
+                except telegram_mod.TelegramError as error:
+                    log.warning("agent video prompt chunk send failed: %s", error)
+        self.state.update_draft(draft_id, {"agent_video_destination": key})
+        self._record_event(draft_id, "agent_video_prompt_sent", key)
+        self._safe_answer(query_id, "Prompt package ready.")
+
+    @staticmethod
     def _prompt_chunks(package: str, limit: int = 3000) -> list[str]:
         """Split a prompt package into one copy-ready message per segment."""
         chunks: list[str] = []
@@ -1765,7 +1998,46 @@ class ContentBot:
             self._safe_answer(query_id, "This draft is no longer active.")
             return
         if sub == "ai_video":
-            self._start_agent_video_plan(draft_id, query_id=query_id)
+            chat_id = record.get("chat_id")
+            ask_id = record.get("ask_message_id")
+            if chat_id is not None and ask_id is not None:
+                self._edit_safe(chat_id, int(ask_id), "Choose a platform for the AI video:", telegram_mod.video_destination_keyboard(draft_id))
+            self._safe_answer(query_id, "Choose a platform.")
+            return
+        if sub.startswith("vid_dest_"):
+            destination_key = sub[len("vid_dest_"):]
+            try:
+                plan = self._agent_video_plan(record, self._video_destination(destination_key)[1], timeout=240)
+            except media_mod.MediaStudioError as error:
+                log.warning("agent video plan failed for draft %s: %s", draft_id, error)
+                chat_id = record.get("chat_id")
+                ask_id = record.get("ask_message_id")
+                if chat_id is not None and ask_id is not None:
+                    self._edit_safe(chat_id, int(ask_id), f"Video planning failed: {error}", telegram_mod.media_choice_keyboard(draft_id, notebooklm=self.notebooklm is not None))
+                self._safe_answer(query_id, f"Planning failed: {error}")
+                return
+            self.state.update_draft(draft_id, {"agent_video_destination": destination_key, "agent_video_storyboard": plan["storyboard"], "agent_video_timeline": plan["timeline"], "media_duration_asked": False})
+            self._record_event(draft_id, "agent_video_planned", destination_key)
+            storyboard = plan["storyboard"]
+            scenes = storyboard.get("scenes") if isinstance(storyboard.get("scenes"), list) else []
+            total = storyboard.get("total_duration")
+            try:
+                total_seconds = float(total)
+            except (TypeError, ValueError):
+                total_seconds = sum(float(s.get("duration") or 4) for s in scenes if isinstance(s, dict))
+            title = str(record.get("title") or "AI video").strip()
+            lines = ["🎬 <b>Video plan ready</b>", f"<b>{html.escape(str(storyboard.get('title') or title))}</b>", f"Hook: {html.escape(str(storyboard.get('hook') or '')[:120])}", f"Scenes: {len(scenes)} — {total_seconds:.0f}s"]
+            for idx, sc in enumerate(scenes[:6], 1):
+                if not isinstance(sc, dict): continue
+                narration = str(sc.get("narration") or "").strip()[:80]
+                lines.append(f"  {idx}. {html.escape(narration)}")
+            if len(scenes) > 6:
+                lines.append(f"  … and {len(scenes) - 6} more scenes")
+            chat_id = record.get("chat_id")
+            ask_id = record.get("ask_message_id")
+            if ask_id is not None and chat_id is not None:
+                self._edit_safe(chat_id, int(ask_id), "\n".join(lines), telegram_mod.ai_video_plan_keyboard(draft_id))
+            self._safe_answer(query_id, "Video plan ready.")
             return
         if sub == "ai_render":
             self._start_agent_video_render(draft_id, query_id=query_id)
@@ -1816,13 +2088,36 @@ class ContentBot:
             self._begin_user_image_wait(record, query_id, multi=True)
             return
         if sub == "get_prompt":
-            # Immediately generate and send the prompt package, no duration/style selection
-            self.state.update_draft(draft_id, {"video_style": "ai"})
-            self._send_video_prompt_package(
-                draft_id,
-                query_id=query_id,
-                seconds=15,
-            )
+            self._send_agent_video_prompt_package(draft_id, query_id=query_id)
+            return
+        if sub == "ai_prompt":
+            storyboard = record.get("agent_video_storyboard")
+            timeline = record.get("agent_video_timeline")
+            if not isinstance(storyboard, dict) or not isinstance(timeline, dict):
+                self._safe_answer(query_id, "Generate a video plan first, then copy the prompt.")
+                return
+            key, destination = self._record_video_destination(record)
+            timeline = self._apply_video_destination(timeline, destination)
+            package = self._agent_video_prompt_package(record, storyboard=storyboard, timeline=timeline, destination=destination)
+            footer = "Agent video prompt package."
+            chat_id = record.get("chat_id")
+            ask_text = f"{footer}\n\n<pre>{_html_escape(package)}</pre>"
+            chunks = []
+            if len(ask_text) > self._PROMPT_ASK_MAX:
+                header, _, body_text = package.partition("\nTIMELINE JSON\n")
+                ask_text = f"{footer}\n\n<pre>{_html_escape(header.strip())}</pre>"
+                chunks = self._prompt_chunks(f"TIMELINE JSON\n{body_text}")
+            if not self._begin_user_media_wait(record, kind="video", ask_text=ask_text):
+                self._safe_answer(query_id, "Another media upload is already waiting.")
+                return
+            if chunks and chat_id is not None:
+                for chunk in chunks:
+                    try:
+                        self.api.send_message(chat_id, f"<pre>{_html_escape(chunk)}</pre>", parse_mode="HTML")
+                    except telegram_mod.TelegramError as error:
+                        log.warning("ai_prompt chunk send failed: %s", error)
+            self._record_event(draft_id, "ai_prompt_sent")
+            self._safe_answer(query_id, "Prompt ready.")
             return
         if sub == "user_video":
             ask_id = record.get("ask_message_id")
@@ -2407,15 +2702,18 @@ class ContentBot:
             self._safe_answer(query_id, f"Timeline invalid: {detail}")
             return
         title = str(record.get("title") or "AI video").strip()
+        key, destination = self._record_video_destination(record)
+        scene_size = str(destination.get("scene_image_size") or "1024x1792")
+        scene_max = int(destination.get("scene_image_max") or 8)
         try:
             job_id = self.media.submit(
                 "timeline-video",
                 title,
                 params={
-                    "timeline": timeline,
+                    "timeline": self._apply_video_destination(timeline, destination),
                     "scene_images": True,
-                    "scene_image_size": "1024x1792",
-                    "scene_image_max": 8,
+                    "scene_image_size": scene_size,
+                    "scene_image_max": scene_max,
                 },
             )
         except media_mod.MediaStudioError as error:

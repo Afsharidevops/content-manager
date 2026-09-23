@@ -1819,7 +1819,7 @@ class MediaFlowTestCase(MediaFlowHarness):
             for method, payload in self.api.calls
             if method == "editMessageText" and isinstance(payload, dict)
         ]
-        self.assertTrue(any("Reel prompt package" in text for text in edits))
+        self.assertTrue(any("Agent video prompt package" in text for text in edits))
         self.assertTrue(any("<pre>" in text for text in edits))
         record = bot.state.load()["drafts"][draft_id]
         self.assertEqual(record["status"], "awaiting_media")
@@ -3374,16 +3374,22 @@ class AgentVideoFlowTests(MediaFlowHarness):
 
         bot._router_content_request = fake_plan
         self.choose(bot, draft_id, "ai_video")
+        self.assertIn(f"media:vid_dest_youtube:{draft_id}", self.media_keyboard_datas())
+        self.choose(bot, draft_id, "vid_dest_youtube")
 
         state = bot.state.load()["drafts"][draft_id]
         self.assertEqual("/v1/content/video-plan", plan_calls[0]["path"])
-        self.assertEqual("9:16", plan_calls[0]["payload"]["aspect_ratio"])
+        self.assertEqual("16:9", plan_calls[0]["payload"]["aspect_ratio"])
+        self.assertEqual("youtube", state["agent_video_destination"])
         self.assertEqual("fa", plan_calls[0]["payload"]["language"])
         self.assertIn("Generated title", plan_calls[0]["payload"]["script"])
         self.assertIn("Generated body text.", plan_calls[0]["payload"]["script"])
         self.assertIn("Source: https://example.com/layers", plan_calls[0]["payload"]["script"])
         self.assertEqual(self.video_plan()["storyboard"], state["agent_video_storyboard"])
-        self.assertEqual(self.video_plan()["timeline"], state["agent_video_timeline"])
+        expected_timeline = self.video_plan()["timeline"] | {
+            "meta": {"aspect_ratio": "16:9", "resolution": "1920x1080", "fps": 30}
+        }
+        self.assertEqual(expected_timeline, state["agent_video_timeline"])
         self.assertIn("Video plan ready", self.texts())
         self.assertIn("Layer reuse makes containers faster", self.texts())
         self.assertIn(f"media:ai_render:{draft_id}", self.media_keyboard_datas())
@@ -3395,17 +3401,17 @@ class AgentVideoFlowTests(MediaFlowHarness):
         self.assertEqual("timeline-video", state["media"]["driver"])
         self.assertEqual("video", state["media"]["kind"])
         self.assertEqual(1, len(self.media.validations))
-        self.assertEqual(self.video_plan()["timeline"], self.media.validations[0]["timeline"])
+        self.assertEqual(expected_timeline, self.media.validations[0]["timeline"])
         self.assertEqual(
             [
                 (
                     "timeline-video",
                     "Generated title",
                     {
-                        "timeline": self.video_plan()["timeline"],
+                        "timeline": expected_timeline,
                         "scene_images": True,
-                        "scene_image_size": "1024x1792",
-                        "scene_image_max": 8,
+                        "scene_image_size": "1792x1024",
+                        "scene_image_max": 16,
                     },
                 )
             ],
@@ -3432,6 +3438,7 @@ class AgentVideoFlowTests(MediaFlowHarness):
         bot, draft_id = self.start()
         bot._router_content_request = lambda path, payload, timeout=180: self.video_plan()
         self.choose(bot, draft_id, "ai_video")
+        self.choose(bot, draft_id, "vid_dest_reel")
         self.media.validation = {"ok": False, "error": "missing scenes"}
 
         self.choose(bot, draft_id, "ai_render")
