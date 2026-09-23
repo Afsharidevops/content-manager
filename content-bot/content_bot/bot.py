@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 import logging
 import os
 import re
@@ -25,6 +26,7 @@ from content_bot import panel_actions as panel_actions_mod
 from content_bot import platforms as platforms_mod
 from content_bot import workflow, writer as writer_mod
 from content_bot.config import BotSettings
+from content_bot.http import request_bytes
 from content_pipeline.normalize import canonicalize_url, content_hash as canonical_content_hash
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
@@ -1716,7 +1718,7 @@ class ContentBot:
         chat_id = record.get("chat_id")
         question = (
             "Add media to this post? Text only / AI image / send your own "
-            "image / video prompt (you create the video)"
+            "image / send your own video / AI video / video prompt"
         )
         if self.notebooklm is not None:
             question += " / NotebookLM video"
@@ -1761,6 +1763,12 @@ class ContentBot:
         record = self.state.get_draft(draft_id)
         if record is None:
             self._safe_answer(query_id, "This draft is no longer active.")
+            return
+        if sub == "ai_video":
+            self._start_agent_video_plan(draft_id, query_id=query_id)
+            return
+        if sub == "ai_render":
+            self._start_agent_video_render(draft_id, query_id=query_id)
             return
         if sub == "none":
             self.state.update_draft(
@@ -2208,6 +2216,239 @@ class ContentBot:
         if chat_id is not None and ask_id is not None:
             self._edit_safe(chat_id, int(ask_id), "⏳ Preparing the sources...")
         self._safe_answer(query_id, "NotebookLM video job started.")
+
+    def _router_content_request(
+        self, path: str, payload: dict, timeout: int = 180
+    ) -> dict:
+        """POST to one Smart Router content endpoint using writer credentials."""
+        base = (self.settings.writer_base_url or "").rstrip("/")
+        if not base:
+            raise media_mod.MediaStudioError(
+                "Smart Router is not configured (CONTENT_WRITER_BASE_URL)."
+            )
+        router_root = base[:-3] if base.endswith("/v1") else base
+        url = f"{router_root.rstrip('/')}/{path.lstrip('/')}"
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if self.settings.writer_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.writer_api_key}"
+        try:
+            status, body = request_bytes(
+                url,
+                method="POST",
+                payload=payload,
+                headers=headers,
+                timeout=timeout,
+                max_bytes=2_000_000,
+            )
+        except ConnectionError as error:
+            raise media_mod.MediaStudioError(
+                f"router content request network error: {error}"
+            ) from error
+        try:
+            result = json.loads(body.decode("utf-8", "replace"))
+        except ValueError as error:
+            raise media_mod.MediaStudioError(
+                f"router content request returned invalid JSON: {error}"
+            ) from error
+        if status >= 400:
+            detail = result.get("error") if isinstance(result, dict) else None
+            if isinstance(detail, dict):
+                message = str(detail.get("message") or detail)
+            else:
+                message = str(detail or body[:200])
+            raise media_mod.MediaStudioError(f"router HTTP {status}: {message}")
+        return result if isinstance(result, dict) else {}
+
+    def _start_agent_video_plan(self, draft_id: str, *, query_id: str = "") -> None:
+        """Plan one bot-managed video through Smart Router content agents."""
+        if self.media is None:
+            self._safe_answer(
+                query_id,
+                "Media Studio is not configured (CONTENT_MEDIA_STUDIO_URL).",
+            )
+            return
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            self._safe_answer(query_id, "This draft is no longer active.")
+            return
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
+        if chat_id is None:
+            self._safe_answer(query_id, "No chat context for this draft.")
+            return
+        if ask_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "🎬 Planning your video with AI agents… This may take a moment.",
+            )
+        self._safe_answer(query_id, "Planning video…")
+        title = str(record.get("title") or "").strip()
+        body = re.sub(r"\s+", " ", str(record.get("body") or "")).strip()
+        source_url = str(record.get("source_url") or "").strip()
+        script = f"{title}\n\n{body}".strip()
+        if source_url:
+            script = f"{script}\n\nSource: {source_url}".strip()
+        try:
+            plan = self._router_content_request(
+                "/v1/content/video-plan",
+                {
+                    "topic": title or body[:200] or "Content Manager video",
+                    "script": script[:8000],
+                    "aspect_ratio": "9:16",
+                    "language": "fa",
+                },
+                timeout=240,
+            )
+        except media_mod.MediaStudioError as error:
+            log.warning("agent video plan failed for draft %s: %s", draft_id, error)
+            if ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"Video planning failed: {error}\nTry again or choose another media type.",
+                    telegram_mod.media_choice_keyboard(
+                        draft_id, notebooklm=self.notebooklm is not None
+                    ),
+                )
+            return
+        storyboard = plan.get("storyboard")
+        timeline = plan.get("timeline")
+        if not isinstance(storyboard, dict) or not isinstance(timeline, dict):
+            if ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    "Video planning returned an incomplete result. Try again.",
+                    telegram_mod.media_choice_keyboard(
+                        draft_id, notebooklm=self.notebooklm is not None
+                    ),
+                )
+            return
+        self.state.update_draft(
+            draft_id,
+            {
+                "agent_video_storyboard": storyboard,
+                "agent_video_timeline": timeline,
+                "media_duration_asked": False,
+            },
+        )
+        self._record_event(draft_id, "agent_video_planned")
+        scenes = storyboard.get("scenes") or []
+        if not isinstance(scenes, list):
+            scenes = []
+        total = storyboard.get("total_duration")
+        try:
+            total_seconds = float(total)
+        except (TypeError, ValueError):
+            total_seconds = sum(
+                float(scene.get("duration") or 4)
+                for scene in scenes
+                if isinstance(scene, dict)
+            )
+        lines = [
+            "🎬 <b>Video plan ready</b>",
+            f"<b>{html.escape(str(storyboard.get('title') or title or 'AI video'))}</b>",
+            f"Hook: {html.escape(str(storyboard.get('hook') or '')[:120])}",
+            f"Scenes: {len(scenes)} — {total_seconds:.0f}s",
+        ]
+        for index, scene in enumerate(scenes[:6], 1):
+            if not isinstance(scene, dict):
+                continue
+            narration = str(scene.get("narration") or "").strip()[:80]
+            lines.append(f"  {index}. {html.escape(narration)}")
+        if len(scenes) > 6:
+            lines.append(f"  … and {len(scenes) - 6} more scenes")
+        if ask_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "\n".join(lines),
+                telegram_mod.ai_video_plan_keyboard(draft_id),
+            )
+
+    def _start_agent_video_render(self, draft_id: str, *, query_id: str = "") -> None:
+        """Render a stored agent timeline through Media Studio."""
+        if self.media is None:
+            self._safe_answer(query_id, "Media Studio is not configured.")
+            return
+        record = self.state.get_draft(draft_id)
+        if record is None:
+            self._safe_answer(query_id, "This draft is no longer active.")
+            return
+        timeline = record.get("agent_video_timeline")
+        if not isinstance(timeline, dict):
+            self._safe_answer(query_id, "No video plan found. Generate a plan first.")
+            return
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
+        try:
+            validation = self.media.validate_timeline(timeline, timeout=60)
+        except media_mod.MediaStudioError as error:
+            log.warning("timeline validation failed for draft %s: %s", draft_id, error)
+            if ask_id is not None and chat_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"Timeline validation failed: {error}",
+                    telegram_mod.ai_video_plan_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, f"Validation error: {error}")
+            return
+        if not validation.get("ok"):
+            detail = str(validation.get("error") or "unknown validation error")
+            if ask_id is not None and chat_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"Timeline invalid: {detail}",
+                    telegram_mod.ai_video_plan_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, f"Timeline invalid: {detail}")
+            return
+        title = str(record.get("title") or "AI video").strip()
+        try:
+            job_id = self.media.submit(
+                "timeline-video",
+                title,
+                params={"timeline": timeline},
+            )
+        except media_mod.MediaStudioError as error:
+            log.warning("agent video render submit failed for draft %s: %s", draft_id, error)
+            if ask_id is not None and chat_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"Render could not start: {error}",
+                    telegram_mod.ai_video_plan_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, f"Render failed: {error}")
+            return
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_running",
+                "media_duration_asked": False,
+                "media": {
+                    "kind": "video",
+                    "driver": "timeline-video",
+                    "job_id": job_id,
+                    "status": "running",
+                    "artifact": "",
+                    "local_path": "",
+                    "duration": "",
+                    "created_at": self.now_fn().isoformat(),
+                },
+            },
+        )
+        self._record_event(draft_id, "agent_video_render_started", job_id)
+        if ask_id is not None and chat_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "🎬 Rendering video… I'll send it when it's ready.",
+            )
+        self._safe_answer(query_id, "Rendering started.")
 
     def maybe_poll_media_jobs(self) -> None:
         """Advance drafts whose media job finished while the bot polled."""

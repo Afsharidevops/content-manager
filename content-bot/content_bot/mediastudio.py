@@ -188,6 +188,28 @@ class MediaStudio:
             raise MediaStudioError(f"branding failed with HTTP {status}")
         return body or content
 
+    def validate_timeline(self, timeline: dict, timeout: int = 60) -> dict:
+        """Send a timeline document to the Media Studio normalizer."""
+        try:
+            status, body = self.request_bytes(
+                self._url("timeline/validate"),
+                method="POST",
+                payload={"timeline": timeline},
+                headers=self._headers(),
+                timeout=timeout,
+            )
+        except ConnectionError as error:
+            raise MediaStudioError(f"timeline validation network error: {error}") from error
+        if status >= 400:
+            detail = _error_detail(body)
+            suffix = f": {detail}" if detail else ""
+            raise MediaStudioError(f"timeline validation failed with HTTP {status}{suffix}")
+        try:
+            payload = json.loads(body.decode("utf-8", "replace"))
+        except ValueError as error:
+            raise MediaStudioError("timeline validation returned invalid JSON") from error
+        return payload if isinstance(payload, dict) else {"ok": False, "error": "invalid response"}
+
     @staticmethod
     def pick_artifact(job: dict) -> tuple[str, str] | None:
         """Return ``(name, kind)`` for the first usable media artifact."""

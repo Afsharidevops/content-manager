@@ -130,6 +130,8 @@ class FakeMedia:
         self.fail_brand = False
         self.uploads = []
         self.fail_upload = False
+        self.validations = []
+        self.validation = {"ok": True}
 
     def upload_video(self, content, *, filename="clip.mp4", content_type="video/mp4"):
         self.uploads.append({"filename": filename, "content_type": content_type, "size": len(content)})
@@ -149,6 +151,10 @@ class FakeMedia:
         self.job_ids.append(job_id)
         self.status_by_job[job_id] = "running"
         return job_id
+
+    def validate_timeline(self, timeline, timeout=60):
+        self.validations.append({"timeline": timeline, "timeout": timeout})
+        return dict(self.validation)
 
     def job(self, job_id):
         status = self.status_by_job.get(job_id, "running")
@@ -3296,3 +3302,130 @@ class NotebookLMFlowTests(MediaFlowHarness):
         state = bot.state.load()["drafts"][draft_id]
         self.assertIsNone(state.get("media"))
         self.assertIn("NotebookLM worker is not configured", self.answers())
+
+class AgentVideoFlowTests(MediaFlowHarness):
+    """The bot-managed content-agent storyboard and timeline render path."""
+
+    def start(self):
+        bot = self.build_bot(artifact=("timeline.mp4", "video"))
+        draft_id = self.send_link(bot)
+        return bot, draft_id
+
+    def choose(self, bot, draft_id, sub):
+        bot.handle_callback(
+            {
+                "id": f"q-{sub}",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:{sub}:{draft_id}",
+            }
+        )
+
+    def texts(self) -> str:
+        parts = []
+        for method, payload in self.api.calls:
+            if method not in {"editMessageText", "sendMessage"}:
+                continue
+            if isinstance(payload, dict) and payload.get("text"):
+                parts.append(str(payload["text"]))
+        return "\n".join(parts)
+
+    def answers(self) -> str:
+        parts = []
+        for method, payload in self.api.calls:
+            if method != "answerCallbackQuery" or not isinstance(payload, dict):
+                continue
+            text = str(payload.get("text") or "")
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
+
+    @staticmethod
+    def video_plan() -> dict:
+        return {
+            "storyboard": {
+                "title": "Container layers reel",
+                "hook": "Layer reuse makes containers faster.",
+                "total_duration": 12,
+                "scenes": [
+                    {"duration": 4, "narration": "Start with the hidden layer cache."},
+                    {"duration": 4, "narration": "Show shared layers across images."},
+                    {"duration": 4, "narration": "End with smaller repeatable builds."},
+                ],
+            },
+            "timeline": {
+                "version": "1",
+                "aspect_ratio": "9:16",
+                "scenes": [
+                    {"duration": 4, "text": "Layer cache"},
+                    {"duration": 4, "text": "Shared image layers"},
+                    {"duration": 4, "text": "Repeatable builds"},
+                ],
+            },
+        }
+
+    def test_agent_video_button_plans_renders_and_sends_preview(self):
+        bot, draft_id = self.start()
+        plan_calls = []
+
+        def fake_plan(path, payload, timeout=180):
+            plan_calls.append({"path": path, "payload": payload, "timeout": timeout})
+            return self.video_plan()
+
+        bot._router_content_request = fake_plan
+        self.choose(bot, draft_id, "ai_video")
+
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertEqual("/v1/content/video-plan", plan_calls[0]["path"])
+        self.assertEqual("9:16", plan_calls[0]["payload"]["aspect_ratio"])
+        self.assertEqual("fa", plan_calls[0]["payload"]["language"])
+        self.assertIn("Generated title", plan_calls[0]["payload"]["script"])
+        self.assertIn("Generated body text.", plan_calls[0]["payload"]["script"])
+        self.assertIn("Source: https://example.com/layers", plan_calls[0]["payload"]["script"])
+        self.assertEqual(self.video_plan()["storyboard"], state["agent_video_storyboard"])
+        self.assertEqual(self.video_plan()["timeline"], state["agent_video_timeline"])
+        self.assertIn("Video plan ready", self.texts())
+        self.assertIn("Layer reuse makes containers faster", self.texts())
+        self.assertIn(f"media:ai_render:{draft_id}", self.media_keyboard_datas())
+
+        self.choose(bot, draft_id, "ai_render")
+
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertEqual("media_running", state["status"])
+        self.assertEqual("timeline-video", state["media"]["driver"])
+        self.assertEqual("video", state["media"]["kind"])
+        self.assertEqual(1, len(self.media.validations))
+        self.assertEqual(self.video_plan()["timeline"], self.media.validations[0]["timeline"])
+        self.assertEqual(
+            [("timeline-video", "Generated title", {"timeline": self.video_plan()["timeline"]})],
+            self.media.submits,
+        )
+        self.assertIn("Rendering started", self.answers())
+
+        job_id = state["media"]["job_id"]
+        self.media.status_by_job[job_id] = "done"
+        bot.maybe_poll_media_jobs()
+
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertEqual("media_ready", state["status"])
+        self.assertEqual("done", state["media"]["status"])
+        self.assertEqual("timeline.mp4", state["media"]["artifact"])
+        stored = Path(state["media"]["local_path"])
+        self.assertTrue(stored.is_file())
+        self.assertEqual(b"\x00\x00\x00\x18ftypmp42video", stored.read_bytes())
+        preview = [upload for upload in self.api.uploads if upload[0] == "sendVideo"]
+        self.assertEqual(1, len(preview))
+        self.assertEqual([(job_id, "timeline.mp4")], self.media.downloads)
+
+    def test_invalid_agent_timeline_is_reported_before_render(self):
+        bot, draft_id = self.start()
+        bot._router_content_request = lambda path, payload, timeout=180: self.video_plan()
+        self.choose(bot, draft_id, "ai_video")
+        self.media.validation = {"ok": False, "error": "missing scenes"}
+
+        self.choose(bot, draft_id, "ai_render")
+
+        state = bot.state.load()["drafts"][draft_id]
+        self.assertNotEqual("media_running", state["status"])
+        self.assertEqual([], self.media.submits)
+        self.assertIn("Timeline invalid: missing scenes", self.texts())

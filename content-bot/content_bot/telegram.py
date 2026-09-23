@@ -394,6 +394,12 @@ def media_choice_keyboard(draft_id: str, *, notebooklm: bool = False) -> dict:
                 "callback_data": f"media:user_video:{draft_id}",
             },
             {
+                "text": "🎬 AI video",
+                "callback_data": f"media:ai_video:{draft_id}",
+            },
+        ],
+        [
+            {
                 "text": "📝 Get a prompt",
                 "callback_data": f"media:get_prompt:{draft_id}",
             },
@@ -409,6 +415,24 @@ def media_choice_keyboard(draft_id: str, *, notebooklm: bool = False) -> dict:
             ]
         )
     return {"inline_keyboard": rows}
+
+def ai_video_plan_keyboard(draft_id: str) -> dict:
+    """Review controls for one generated storyboard/timeline plan."""
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "✅ Render video",
+                    "callback_data": f"media:ai_render:{draft_id}",
+                },
+                {
+                    "text": "🔁 Regenerate plan",
+                    "callback_data": f"media:ai_video:{draft_id}",
+                },
+            ],
+            [{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}],
+        ]
+    }
 
 
 #: The three video profiles the NotebookLM worker ships.
