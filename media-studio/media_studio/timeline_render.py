@@ -126,13 +126,14 @@ def wrap_text(draw: Any, text: str, font: Any, max_width: float) -> list[str]:
 
 def _draw_bidi(draw: Any, position: tuple[float, float], text: str, font: Any, fill: Any) -> None:
     """Draw one line, shaping RTL scripts when Pillow supports raqm."""
-    if contains_rtl(text) and _raqm_available():
+    clean = strip_zero_width(text)
+    if contains_rtl(clean) and _raqm_available():
         try:
-            draw.text(position, text, font=font, fill=fill, direction="rtl", language="fa")
+            draw.text(position, clean, font=font, fill=fill, direction="rtl", language="fa")
             return
         except (ValueError, TypeError):
             pass
-    draw.text(position, strip_zero_width(text), font=font, fill=fill)
+    draw.text(position, clean, font=font, fill=fill)
 
 
 def _gradient(size: tuple[int, int], stops: tuple[tuple[int, int, int], ...]):
@@ -584,6 +585,9 @@ def render_timeline(
     brand_png = ""
     brand = dict(meta.get("brand") or {})
     label = str(brand_label or "").strip()
+    brand_margin = max(12, round(min(size) * 0.035))
+    if bool(meta.get("subtitle", True)):
+        brand_margin += max(round(height * 0.22), 200)
     if label:
         brand_path = os.path.join(work_root, "brand.png")
         if branding_mod.render_chip_file(
@@ -608,7 +612,7 @@ def render_timeline(
             audio_volume=audio_volume,
             brand_png=brand_png,
             brand_position=str(brand.get("position") or "bottom-right"),
-            brand_margin=max(12, round(min(size) * 0.035)),
+            brand_margin=brand_margin,
         ),
         step="assemble",
         timeout_seconds=timeout_seconds,

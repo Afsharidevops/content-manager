@@ -14,7 +14,7 @@ class StubWriter(Writer):
         super().__init__("http://writer.test/v1")
         self.replies = list(replies)
 
-    def _chat(self, messages):
+    def _chat(self, messages, *, max_tokens=None, reasoning_effort=None):
         if not self.replies:
             raise WriterError("no stub replies left")
         return self.replies.pop(0)
@@ -197,6 +197,33 @@ class WriterTest(unittest.TestCase):
                 source_url="",
             )
 
+    def test_generate_retries_until_parseable_json(self):
+        writer = StubWriter(
+            [
+                'not json',
+                '{"title": "Broken", "body": "unfinished',
+                json.dumps({"title": "Clean title", "body": "Clean body."}),
+            ]
+        )
+        post = writer.generate_post(
+            {"title": "Source title", "url": "https://example.com/x", "text": "src"}
+        )
+        self.assertEqual(post["title"], "Clean title")
+        self.assertTrue(post["body"].startswith("Clean body."))
+
+    def test_generate_rejects_unparseable_text_instead_of_drafting_it(self):
+        writer = StubWriter(
+            [
+                'not json',
+                '{"title": "Broken", "body": "unfinished',
+                'JSON format? Yes. Title max 120 chars? Yes.',
+            ]
+        )
+        with self.assertRaisesRegex(WriterError, "no usable JSON"):
+            writer.generate_post(
+                {"title": "Source title", "url": "https://example.com/x", "text": "src"}
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -331,7 +358,10 @@ class WriterEncodingTest(unittest.TestCase):
         garbled = "Ø§Ú¯Ø± Ø¨Ø§ \ufffd \u00d8\u00a7\u00da\u00af\u00d8\u00b1"
         payload = json.dumps({"title": garbled[:20], "body": garbled}, ensure_ascii=False)
         with self.assertRaisesRegex(WriterError, "garbled"):
-            self._generate(payload)
+            writer = StubWriter([payload, payload, payload])
+            writer.generate_post(
+                {"title": "Source title", "url": "https://example.com/x", "text": "src"}
+            )
 
     def test_parse_post_repairs_garbled_body_directly(self):
         clean = "ابزار Argo Workflows برای Kubernetes طراحی شده است."

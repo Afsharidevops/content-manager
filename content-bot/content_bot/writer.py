@@ -295,20 +295,28 @@ class Writer:
             system_content = (
                 f"{SYSTEM_PROMPT}\n\nChannel owner notes to honor when writing:\n{guidance}"
             )
-        content = self._chat(
-            [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_message},
-            ]
-        )
-        post = self._parse_post(content)
-        if post is None:
+        msgs = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_message},
+        ]
+        last_error: WriterError | None = None
+        for _attempt in range(3):
+            try:
+                content = self._chat(msgs)
+            except WriterError as error:
+                last_error = error
+                continue
+            post = self._parse_post(content)
+            if post is not None:
+                return self._with_source_url(post, str(source["url"] or ""))
             repaired = Writer._repair_mojibake(content)
             if Writer._still_mojibake(repaired):
-                raise WriterError("writer returned garbled text; try the request again")
-            title = str(item.get("title") or "").strip()[:120] or "Untitled"
-            post = {"title": title, "body": Writer._clean_body(repaired)}
-        return self._with_source_url(post, str(source["url"] or ""))
+                last_error = WriterError("writer returned garbled text; try the request again")
+                continue
+            last_error = WriterError("writer returned no usable JSON output")
+        if last_error is not None:
+            raise last_error
+        raise WriterError("writer returned no usable JSON output")
 
     def revise_post(
         self,
