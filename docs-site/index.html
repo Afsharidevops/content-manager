@@ -1,1 +1,2116 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hermes Linux Stack v0.5.6</title><style>body{font:16px/1.55 system-ui;margin:0;background:#0b1020;color:#edf3ff}main{max-width:1100px;margin:auto;padding:56px 22px}.hero{padding:40px;border:1px solid #283654;border-radius:20px;background:#111a2e}h1{font-size:46px;margin:.1em 0}h2{margin-top:42px}.muted{color:#9db0cf}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}.card{border:1px solid #283654;border-radius:14px;padding:18px;background:#10182a}img{width:100%;border-radius:14px;border:1px solid #283654;margin:10px 0 24px}code{background:#17233b;padding:2px 6px;border-radius:6px}</style></head><body><main><div class="hero"><div class="muted">Self-hosted AI infrastructure</div><h1>Hermes Linux Stack v0.5.6</h1><p>Smart routing, hybrid RAG, request traces, guardrails, agents/teams, workflows, prompts, evaluations, access governance and controlled Linux operations in one stack.</p></div><h2>Platform additions</h2><div class="grid"><div class="card"><b>Hybrid RAG</b><p class="muted">Lexical + vector retrieval, reranking and pgvector acceleration.</p></div><div class="card"><b>Flight Deck traces</b><p class="muted">Inspect routing, RAG, guardrails, retry/fallback and results.</p></div><div class="card"><b>Workflow & prompt control</b><p class="muted">Agent/Team graph registry, prompt versions and A/B datasets.</p></div><div class="card"><b>Production foundations</b><p class="muted">PostgreSQL, Redis, multiple router replicas, load test and HA smoke checks.</p></div></div><h2>UI screenshots</h2><p class="muted">Generated from the v0.5.6 UI shipped in this package.</p><img src="assets/operations-center-v0.5.6.png" alt="Hermes Operations Center v0.5.6"><img src="assets/flight-deck-v0.5.6.png" alt="Hermes Flight Deck v0.5.6"><h2>Demo deployment</h2><p>Use <code>deploy/demo/docker-compose.v0.5.6.yml</code> for a minimal authenticated demo, or <code>smart-router/compose-ha-v0.5.6.example.yml</code> for PostgreSQL/pgvector + Redis + two router replicas.</p><p class="muted">OIDC is the completed interactive login path in v0.5.6. LDAP/SAML/SCIM are connector foundations that need IdP-specific integration testing.</p></main></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Content Manager — Self-hosted AI Content Operations</title>
+<meta name="description" content="Content Manager is a self-hosted AI content operations platform. RSS discovery, editorial policy and scoring, AI drafting, storyboard-to-video production, multi-agent orchestration, knowledge-aware agents and multi-platform publishing — with operator approval before anything goes out.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://afsharidevops.github.io/content-manager/">
+<meta name="theme-color" content="#05070f">
+
+<meta property="og:title" content="Content Manager — Self-hosted AI Content Operations">
+<meta property="og:description" content="The full content lifecycle on your own infrastructure: discovery, editorial scoring, AI drafting, storyboard-to-video production, agent orchestration and multi-platform publishing — with humans in control.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Content Manager">
+<meta property="og:url" content="https://afsharidevops.github.io/content-manager/">
+<meta property="og:image" content="https://afsharidevops.github.io/content-manager/assets/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Content Manager — Self-hosted AI Content Operations">
+<meta name="twitter:description" content="Self-hosted AI content operations, with humans in control.">
+<meta name="twitter:image" content="https://afsharidevops.github.io/content-manager/assets/social-preview.png">
+
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+
+<script>document.documentElement.classList.add('js');</script>
+
+<!--
+Design system derived from the Content Manager Panel.
+Keep landing-page tokens synchronized with the Panel theme.
+Source of truth: panel/static/style.css
+-->
+<style>
+/* ============================================================
+   1. DESIGN TOKENS — synced with panel/static/style.css
+   ============================================================ */
+:root{
+  --bg:#05070f;
+
+  --bg-glow-1:rgba(53,230,255,.16);
+  --bg-glow-2:rgba(123,92,255,.18);
+  --bg-glow-3:rgba(217,77,255,.12);
+
+  --surface:rgba(16,24,39,.82);
+  --surface-solid:#101827;
+  --surface2:rgba(24,34,54,.9);
+
+  --line:rgba(120,150,220,.16);
+  --line-strong:rgba(140,175,255,.32);
+  --line-hover:rgba(140,175,255,.5);
+
+  --text:#e6edfb;
+  --muted:#8ea0c4;
+  --strong:#ffffff;
+
+  --cyan:#35e6ff;
+  --blue:#4f8bff;
+  --violet:#7b5cff;
+  --magenta:#d94dff;
+
+  --accent:#4fd8ff;
+  --accent-soft:rgba(79,216,255,.12);
+  --blue-soft:rgba(79,139,255,.14);
+  --violet-soft:rgba(123,92,255,.14);
+
+  --ok:#3ddc97;   --ok-soft:rgba(61,220,151,.12);
+  --warn:#f0b64a; --warn-soft:rgba(240,182,74,.12);
+  --bad:#ff6b8a;  --bad-soft:rgba(255,107,138,.12);
+
+  --radius:16px;
+  --radius-btn:10px;
+  --radius-sm:8px;
+
+  --shadow-sm:0 8px 22px rgba(2,6,18,.35);
+  --shadow-lg:0 18px 40px rgba(2,6,18,.45);
+  --glow:rgba(90,120,255,.28);
+
+  --gradient:linear-gradient(120deg,var(--cyan),var(--blue) 38%,var(--violet) 72%,var(--magenta));
+
+  --font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --nav-h:64px;
+  --container:1180px;
+}
+
+/* ============================================================
+   2. BASE
+   ============================================================ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font-sans);
+  font-size:16px;line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+/* Panel-style ambient glows: cyan top-left, violet top-right, magenta bottom */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.75;
+  background:
+    radial-gradient(52rem 34rem at 12% -6%,var(--bg-glow-1),transparent 62%),
+    radial-gradient(48rem 30rem at 88% -4%,var(--bg-glow-2),transparent 62%),
+    radial-gradient(52rem 32rem at 50% 110%,var(--bg-glow-3),transparent 62%);
+}
+img{max-width:100%;display:block}
+a{color:inherit;text-decoration:none}
+ul,ol{list-style:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+::selection{background:rgba(79,216,255,.28);color:var(--strong)}
+
+.mono{font-family:var(--font-mono)}
+.container{max-width:var(--container);margin-inline:auto;padding-inline:24px}
+section{padding:96px 0;scroll-margin-top:calc(var(--nav-h) + 16px)}
+section + section{border-top:1px solid var(--line)}
+
+/* Gradient text (with non-clip fallback) */
+.grad-text{color:var(--cyan)}
+@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  .grad-text{
+    background:var(--gradient);
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;color:transparent;
+  }
+}
+
+.skip-link{
+  position:absolute;left:-9999px;top:0;z-index:200;
+  background:var(--accent);color:#05070f;font-weight:600;
+  padding:10px 16px;border-radius:0 0 var(--radius-sm) 0;
+}
+.skip-link:focus{left:0}
+
+/* Section headers */
+.eyebrow{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--muted);
+  display:flex;align-items:center;gap:10px;margin-bottom:18px;
+}
+.eyebrow::before{content:"";width:22px;height:2px;border-radius:2px;background:var(--gradient);flex:none}
+h1,h2,h3{line-height:1.15;letter-spacing:-.02em;font-weight:650;color:var(--strong)}
+h2{font-size:clamp(1.7rem,3.2vw,2.35rem);margin-bottom:16px}
+.section-lead{color:var(--muted);max-width:60ch}
+
+/* Panel-style card */
+.card{
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  box-shadow:var(--shadow-sm);
+}
+
+/* ============================================================
+   3. BUTTONS
+   ============================================================ */
+.btn{
+  display:inline-flex;align-items:center;gap:9px;
+  font-family:var(--font-mono);font-size:13.5px;font-weight:600;
+  padding:11px 20px;border-radius:var(--radius-btn);
+  border:1px solid transparent;
+  transition:filter .18s ease,background .18s ease,border-color .18s ease,transform .18s ease;
+}
+.btn svg{width:16px;height:16px;flex:none}
+.btn-primary{background:var(--gradient);color:#05070f;box-shadow:0 2px 18px var(--glow)}
+.btn-primary:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.btn-ghost{border-color:var(--line-strong);color:var(--text)}
+.btn-ghost:hover{background:var(--surface2);border-color:var(--line-hover)}
+.btn-bad{border-color:var(--line-strong);color:var(--bad)}
+.btn-bad:hover{background:var(--bad-soft);border-color:var(--bad)}
+.btn-lg{padding:14px 26px;font-size:14.5px}
+
+/* ============================================================
+   4. NAVBAR
+   ============================================================ */
+.nav{
+  position:fixed;inset:0 0 auto 0;z-index:100;height:var(--nav-h);
+  border-bottom:1px solid transparent;
+  transition:background .25s ease,border-color .25s ease;
+}
+.nav.scrolled{
+  background:rgba(5,7,15,.82);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border-bottom-color:var(--line);
+}
+.nav-inner{height:var(--nav-h);display:flex;align-items:center;gap:28px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.01em;color:var(--strong)}
+.brand-mark{width:22px;height:22px;flex:none}
+.nav-links{display:flex;align-items:center;gap:4px;margin-left:auto}
+.nav-links a{
+  font-family:var(--font-mono);font-size:12.5px;color:var(--muted);
+  padding:8px 12px;border-radius:var(--radius-sm);border:1px solid transparent;
+  transition:color .15s ease,background .15s ease,border-color .15s ease;
+}
+.nav-links a:hover{color:var(--text);background:var(--surface2);border-color:var(--line)}
+.nav-gh{
+  display:inline-flex;align-items:center;gap:8px;
+  font-family:var(--font-mono);font-size:12.5px;color:var(--text);
+  border:1px solid var(--line-strong);border-radius:var(--radius-sm);
+  padding:8px 14px;transition:background .15s ease,border-color .15s ease;
+}
+.nav-gh:hover{background:var(--surface2);border-color:var(--line-hover)}
+.nav-gh svg{width:15px;height:15px}
+.nav-toggle{display:none;margin-left:auto;padding:8px;color:var(--text)}
+.nav-toggle svg{width:22px;height:22px}
+
+/* ============================================================
+   5. HERO
+   ============================================================ */
+.hero{position:relative;padding:calc(var(--nav-h) + 84px) 0 88px;border-top:0 !important}
+.hero .container{position:relative}
+.hero-eyebrow{
+  font-family:var(--font-mono);font-size:11.5px;letter-spacing:.2em;
+  text-transform:uppercase;margin-bottom:22px;
+}
+.hero h1{font-size:clamp(2.4rem,5.4vw,3.9rem);max-width:16ch;margin-bottom:20px}
+.hero-control{
+  font-family:var(--font-mono);font-size:clamp(1rem,2vw,1.2rem);
+  color:var(--accent);margin-bottom:18px;
+}
+.hero-control::before{content:"› ";color:var(--muted)}
+.hero-lede{color:var(--muted);max-width:64ch;font-size:1.06rem;margin-bottom:32px}
+.hero-ctas{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:56px}
+
+/* ---- core flow: Discover → Score → Draft → Approve → Publish ---- */
+.flow{display:flex;align-items:center;flex-wrap:wrap;gap:12px 0;margin-bottom:64px}
+.flow-chip{
+  position:relative;
+  font-family:var(--font-mono);font-size:12.5px;letter-spacing:.08em;
+  border:1px solid var(--line-strong);border-radius:var(--radius-btn);
+  background:var(--surface-solid);padding:10px 16px;white-space:nowrap;color:var(--text);
+}
+.flow-chip.is-gate{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
+.flow-chip .gate-tag{
+  position:absolute;top:-22px;left:50%;transform:translateX(-50%);
+  font-size:9.5px;letter-spacing:.16em;color:var(--ok);white-space:nowrap;
+  display:inline-flex;align-items:center;gap:5px;
+}
+.flow-chip .gate-tag svg{width:10px;height:10px}
+.flow-link{position:relative;width:44px;height:1px;background:var(--line-strong);flex:none}
+.flow-link::after{
+  content:"";position:absolute;right:-1px;top:-3.5px;
+  border-left:6px solid var(--line-strong);
+  border-top:4px solid transparent;border-bottom:4px solid transparent;
+}
+.flow-link i{position:absolute;left:0;top:-1.5px;width:4px;height:4px;border-radius:50%;background:var(--accent);opacity:0}
+@media (prefers-reduced-motion:no-preference){
+  .flow-link i{animation:flowpulse 5s infinite}
+  .flow .flow-link:nth-of-type(1) i{animation-delay:0s}
+  .flow .flow-link:nth-of-type(2) i{animation-delay:1s}
+  .flow .flow-link:nth-of-type(3) i{animation-delay:2s}
+  .flow .flow-link:nth-of-type(4) i{animation-delay:3s;background:var(--ok)}
+}
+@keyframes flowpulse{
+  0%{left:0;opacity:0} 8%{opacity:1} 88%{opacity:1} 100%{left:calc(100% - 4px);opacity:0}
+}
+.flow--static .flow-link i{display:none}
+
+/* ---- screenshot frame (panel card language) ---- */
+.frame{
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  box-shadow:var(--shadow-lg);
+  overflow:hidden;
+}
+.frame-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:12px 18px;border-bottom:1px solid var(--line);
+}
+.frame-bar .t{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;
+  color:var(--strong);text-transform:uppercase;
+}
+.frame-bar .p{font-family:var(--font-mono);font-size:10.5px;color:var(--muted);letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frame-body{position:relative}
+.frame-body img{width:100%;height:auto}
+
+/* clean placeholder when the screenshot file is missing — no fake UI */
+.frame-empty{
+  display:none;aspect-ratio:16/8.5;min-height:220px;
+  margin:14px;border:1px dashed var(--line-strong);border-radius:var(--radius-btn);
+  flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  color:var(--muted);text-align:center;padding:24px;
+}
+.frame-empty svg{width:30px;height:30px;opacity:.7}
+.frame-empty b{font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;color:var(--muted);font-weight:500}
+.frame-empty span{font-family:var(--font-mono);font-size:10px;opacity:.75;word-break:break-all}
+.frame.failed .frame-empty{display:flex}
+.frame.failed .frame-shot{display:none}
+
+/* ============================================================
+   6. PRINCIPLES STRIP
+   ============================================================ */
+.principles{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 !important}
+.principles ul{display:flex;flex-wrap:wrap}
+.principles li{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  font-family:var(--font-mono);font-size:12px;letter-spacing:.1em;
+  color:var(--muted);text-transform:uppercase;
+  padding:18px 26px;border-left:1px solid var(--line);flex:1 1 auto;white-space:nowrap;
+}
+.principles li:first-child{border-left:0}
+.principles svg{width:14px;height:14px;color:var(--accent);flex:none}
+
+/* ============================================================
+   7. WHY
+   ============================================================ */
+.why-grid{display:grid;grid-template-columns:5fr 7fr;gap:64px;align-items:start}
+.why-list{border-top:1px solid var(--line)}
+.why-list li{
+  display:grid;grid-template-columns:52px 170px 1fr;gap:16px;align-items:baseline;
+  padding:14px 4px;border-bottom:1px solid var(--line);
+}
+.why-list .idx{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.why-list .k{font-family:var(--font-mono);font-size:13px;color:var(--text)}
+.why-list .d{font-size:14px;color:var(--muted)}
+
+/* ============================================================
+   8. WORKFLOW (vertical steps)
+   ============================================================ */
+.flow-steps{max-width:780px;margin-top:48px}
+.fstep{position:relative;display:grid;grid-template-columns:56px 1fr;gap:22px;padding-bottom:40px}
+.fstep:not(:last-child)::before{
+  content:"";position:absolute;left:27px;top:52px;bottom:6px;width:1px;
+  background-image:linear-gradient(var(--line-strong) 55%,transparent 0);
+  background-size:1px 7px;
+}
+.fstep-node{
+  width:44px;height:44px;border:1px solid var(--line-strong);
+  border-radius:12px;background:var(--surface-solid);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-mono);font-size:12.5px;color:var(--muted);
+}
+.fstep.is-gate .fstep-node{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
+.fstep-meta{display:flex;align-items:center;gap:10px;margin-bottom:7px;flex-wrap:wrap}
+.ftype{
+  font-family:var(--font-mono);font-size:9.5px;letter-spacing:.14em;
+  padding:3px 8px;border-radius:5px;border:1px solid var(--line-strong);color:var(--muted);
+}
+.ftype.t-ai{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.ftype.t-human{color:var(--ok);border-color:var(--ok);background:var(--ok-soft)}
+.fstep-k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.fstep h3{font-size:1.1rem;margin-bottom:6px}
+.fstep p{font-size:14.5px;color:var(--muted);max-width:58ch}
+
+/* ============================================================
+   9. HUMAN-IN-THE-LOOP — interactive schematic
+   ============================================================ */
+.hitl-grid{display:grid;grid-template-columns:6fr 6fr;gap:56px;align-items:start;margin-top:48px}
+.hitl-actions{border-top:1px solid var(--line);margin-top:28px}
+.hitl-actions li{
+  display:grid;grid-template-columns:150px 1fr;gap:16px;
+  padding:14px 4px;border-bottom:1px solid var(--line);font-size:14px;
+}
+.hitl-actions .k{font-family:var(--font-mono);font-size:12.5px}
+.hitl-actions .k.a-ok{color:var(--ok)}
+.hitl-actions .k.a-rev{color:var(--warn)}
+.hitl-actions .k.a-bad{color:var(--bad)}
+.hitl-actions .d{color:var(--muted)}
+
+.demo{overflow:hidden}
+.demo-head{
+  display:flex;align-items:center;gap:12px;
+  padding:14px 20px;border-bottom:1px solid var(--line);
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;
+  color:var(--muted);text-transform:uppercase;
+}
+.pill{
+  margin-left:auto;font-family:var(--font-mono);font-size:10px;
+  letter-spacing:.12em;padding:4px 10px;border-radius:99px;
+  border:1px solid var(--line-strong);color:var(--muted);white-space:nowrap;
+}
+.pill.p-ok{color:var(--ok);border-color:var(--ok);background:var(--ok-soft)}
+.pill.p-warn{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
+.pill.p-bad{color:var(--bad);border-color:var(--bad);background:var(--bad-soft)}
+.demo-body{padding:20px;border-bottom:1px solid var(--line)}
+.demo-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.16em;color:var(--muted);margin-bottom:12px}
+.demo-lines i{display:block;height:9px;background:var(--surface2);border-radius:3px;margin-bottom:9px}
+.demo-lines i:nth-child(1){width:88%}
+.demo-lines i:nth-child(2){width:62%}
+.demo-meta{font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:14px}
+.demo-track{display:flex;align-items:center;padding:20px 20px 8px}
+.trk-node{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--muted);
+  border:1px solid var(--line-strong);border-radius:var(--radius-sm);
+  padding:7px 11px;transition:all .25s ease;white-space:nowrap;
+}
+.trk-node--gate{color:var(--warn);border-color:var(--warn)}
+.trk-link{flex:1;height:1px;background:var(--line-strong);margin:0 8px;transition:background .25s ease}
+.demo-actions{display:flex;gap:10px;flex-wrap:wrap;padding:14px 20px 6px}
+.demo-actions .btn{padding:9px 16px;font-size:12.5px}
+.demo-msg{
+  padding:12px 20px 18px;font-family:var(--font-mono);font-size:12px;
+  color:var(--muted);display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+}
+.demo-msg #demoReset{
+  margin-left:auto;font-family:var(--font-mono);font-size:11px;
+  color:var(--accent);border-bottom:1px dashed var(--accent);padding-bottom:1px;
+}
+.demo[data-state="approve"] .trk-node--gate{color:var(--ok);border-color:var(--ok)}
+.demo[data-state="approve"] .trk-l1{background:var(--ok)}
+.demo[data-state="approve"] .trk-node--media,
+.demo[data-state="approve"] .trk-node--publish{color:var(--text)}
+.demo[data-state="revise"] .trk-node--draft{color:var(--warn);border-color:var(--warn)}
+.demo[data-state="revise"] .trk-l0{background:var(--warn)}
+.demo[data-state="reject"] .trk-node--publish{opacity:.35;text-decoration:line-through}
+
+/* ============================================================
+   10. OPERATIONS CENTER + PLATFORM MAP
+   ============================================================ */
+.pmap{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:28px}
+.pcol{padding:22px 22px 14px}
+.pcol h3{display:flex;align-items:center;gap:9px;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.18em;margin-bottom:8px;font-weight:600}
+.pcol h3 i{width:9px;height:9px;border-radius:2px;flex:none}
+.pcol.b h3{color:var(--accent)} .pcol.b h3 i{background:var(--accent)}
+.pcol.r h3{color:var(--blue)}   .pcol.r h3 i{background:var(--blue)}
+.pcol.o h3{color:var(--violet)} .pcol.o h3 i{background:var(--violet)}
+.pcol li{display:flex;gap:9px;align-items:flex-start;padding:8px 0;font-size:13.5px;color:var(--text)}
+.pcol li + li{border-top:1px solid var(--line)}
+.pcol li svg{width:13px;height:13px;color:var(--muted);flex:none;margin-top:4px}
+
+.tour-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:44px}
+.tour-grid .frame{height:100%}
+.tour-item h3{font-size:1rem;margin:18px 4px 6px}
+.tour-item p{font-size:13.5px;color:var(--muted);margin:0 4px}
+.ops-main{margin-top:44px}
+.ops-main figcaption{
+  padding:12px 18px;border-top:1px solid var(--line);
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;
+  color:var(--muted);text-transform:uppercase;
+}
+
+/* ============================================================
+   11. CORE CAPABILITIES
+   ============================================================ */
+.caps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:48px}
+.cap{padding:26px 24px;transition:border-color .18s ease,transform .18s ease,background .18s ease}
+.cap:hover{border-color:var(--line-strong);background:var(--surface2);transform:translateY(-2px)}
+.cap-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}
+.cap-icon{width:23px;height:23px;color:var(--accent)}
+.cap-idx{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;color:var(--muted)}
+.cap h3{font-size:1rem;margin-bottom:9px}
+.cap p{font-size:13.5px;color:var(--muted)}
+
+/* ============================================================
+   12. GENERIC NODE CHAIN (Studio / Knowledge / Orchestration)
+   ============================================================ */
+.chain{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.chain-item{display:flex;align-items:center;gap:10px;min-width:0}
+.chain-item::after{content:"→";font-family:var(--font-mono);font-size:12px;color:var(--muted);opacity:.55}
+.chain-item:last-child::after{content:none}
+.cn{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;
+  color:var(--text);border:1px solid var(--line-strong);border-radius:10px;
+  background:var(--surface-solid);padding:10px 13px;text-align:center;white-space:nowrap;
+}
+.cn small{display:block;font-size:9px;letter-spacing:.1em;color:var(--muted);margin-top:3px;text-transform:uppercase}
+.cn--ai{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.cn--blue{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
+.cn--violet{border-color:var(--violet);background:var(--violet-soft);color:var(--violet)}
+.cn--ok{border-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
+.cn--gate{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+.cn--gate .mini{display:flex;gap:6px;justify-content:center;margin-top:8px}
+.cn--gate .mini span{font-size:8.5px;letter-spacing:.14em;border:1px solid;border-radius:4px;padding:2px 7px}
+.cn--gate .mini .m-ok{color:var(--ok);border-color:var(--ok)}
+.cn--gate .mini .m-bad{color:var(--bad);border-color:var(--bad)}
+
+/* ============================================================
+   13. AI CONTENT PRODUCTION STUDIO
+   ============================================================ */
+.studio-grid{display:grid;grid-template-columns:7fr 5fr;gap:44px;align-items:start;margin-top:40px}
+.studio-tag{font-family:var(--font-mono);font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.studio-checks{display:grid;grid-template-columns:1fr 1fr;gap:0 18px;margin-top:22px;border-top:1px solid var(--line);padding-top:10px}
+.studio-checks li{display:flex;gap:9px;align-items:flex-start;padding:6px 0;font-size:13px;color:var(--muted)}
+.studio-checks svg{width:14px;height:14px;color:var(--accent);flex:none;margin-top:3px}
+
+/* storyboard schematic */
+.sb-head{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:13px 18px;border-bottom:1px solid var(--line);
+}
+.sb-title{font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;color:var(--strong);text-transform:uppercase}
+.sb-head .pill{margin-left:auto}
+.sb-scenes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:18px}
+.scene{border:1px solid var(--line);border-radius:12px;background:var(--surface-solid);overflow:hidden;min-width:0}
+.scene-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line)}
+.scene-num{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;color:var(--muted)}
+.scene-role{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--text)}
+.scene-dur{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--accent)}
+.scene-vis{
+  aspect-ratio:16/9;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;color:var(--muted);position:relative;
+}
+.scene-vis svg{width:22px;height:22px;opacity:.55}
+.scene-vis .vt{
+  position:absolute;left:9px;top:7px;
+  font-family:var(--font-mono);font-size:8.5px;letter-spacing:.16em;color:var(--muted);
+}
+.scene-meta{padding:10px 12px;display:grid;gap:5px}
+.scene-meta .row{display:flex;justify-content:space-between;gap:8px;font-family:var(--font-mono);font-size:9.5px}
+.scene-meta .k{color:var(--muted);letter-spacing:.12em}
+.scene-meta .v{color:var(--text);letter-spacing:.06em;text-align:right}
+
+/* production timeline */
+.tl{padding:2px 18px 18px}
+.tl-row{display:grid;grid-template-columns:84px 1fr;gap:12px;align-items:center;margin-top:10px}
+.tl-lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase}
+.tl-track{display:flex;gap:3px;height:30px}
+.tl-seg{
+  border-radius:6px;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;
+  min-width:0;overflow:hidden;white-space:nowrap;
+}
+.tl-seg.s1{flex:4;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent)}
+.tl-seg.s2{flex:6;border:1px solid var(--blue);background:var(--blue-soft);color:var(--blue)}
+.tl-seg.s3{flex:3;border:1px solid var(--violet);background:var(--violet-soft);color:var(--violet)}
+.tl-track.thin{height:13px}
+.tl-seg.seg-n{border:1px dashed var(--line-strong);background:transparent}
+.tl-seg.seg-c{border:1px solid var(--line);background:rgba(120,150,220,.08)}
+.sb-foot{
+  display:flex;flex-wrap:wrap;gap:6px 26px;
+  padding:12px 18px;border-top:1px solid var(--line);
+  font-family:var(--font-mono);font-size:10.5px;color:var(--muted);
+}
+.sb-foot .k{letter-spacing:.14em;color:var(--muted);margin-right:6px}
+.sb-foot b{color:var(--text);font-weight:500}
+.sb-caption{
+  margin-top:12px;text-align:center;
+  font-family:var(--font-mono);font-size:9.5px;letter-spacing:.16em;
+  color:var(--muted);text-transform:uppercase;
+}
+
+/* production agents */
+.agents{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:32px}
+.agent{padding:20px}
+.agent h3{font-family:var(--font-mono);font-size:13px;letter-spacing:.04em;margin:13px 0 6px;font-weight:600}
+.agent p{font-size:12.5px;color:var(--muted);line-height:1.6}
+.ctag{
+  display:inline-block;font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;
+  color:var(--accent);border:1px solid var(--accent);border-radius:5px;
+  padding:2px 8px;background:var(--accent-soft);
+}
+
+/* ============================================================
+   14. VIDEO STUDIO SPOTLIGHT
+   ============================================================ */
+.vs-sub{color:var(--text);font-weight:600;font-size:1.05rem;margin-bottom:12px}
+.chiprow{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.chiprow span{
+  font-family:var(--font-mono);font-size:11.5px;color:var(--text);
+  border:1px solid var(--line-strong);border-radius:8px;
+  background:var(--surface-solid);padding:7px 13px;
+}
+
+/* ============================================================
+   15. MULTI-AGENT ORCHESTRATION
+   ============================================================ */
+.orch-tag{font-family:var(--font-mono);font-size:13px;letter-spacing:.22em;color:var(--accent);text-transform:uppercase;margin-bottom:24px}
+.orch-note{
+  margin-top:20px;font-family:var(--font-mono);font-size:11px;color:var(--muted);
+  display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+}
+.orch-note b{color:var(--warn);font-weight:600}
+.orch-note .yes{color:var(--ok)}
+.orch-note .no{color:var(--text)}
+.feats{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:var(--radius);
+  overflow:hidden;margin-top:32px;
+}
+.feats li{background:var(--surface-solid);padding:16px 18px}
+.feats b{display:block;font-family:var(--font-mono);font-size:12px;color:var(--text);margin-bottom:4px;font-weight:600}
+.feats span{font-size:12px;color:var(--muted);line-height:1.55;display:block}
+
+/* ============================================================
+   16. KNOWLEDGE & AGENT STUDIO
+   ============================================================ */
+.know-grid{display:grid;grid-template-columns:5fr 7fr;gap:48px;align-items:start;margin-top:40px}
+.kc{padding:20px 22px}
+.kc + .kc{margin-top:16px}
+.kc-head{
+  display:flex;align-items:center;gap:9px;
+  font-family:var(--font-mono);font-size:10.5px;letter-spacing:.16em;
+  color:var(--muted);margin-bottom:16px;text-transform:uppercase;
+}
+.kc-head i{width:8px;height:8px;border-radius:2px;background:var(--accent);flex:none}
+.kc--b .kc-head i{background:var(--violet)}
+.kc .chain{row-gap:10px}
+
+/* ============================================================
+   17. PUBLISHING
+   ============================================================ */
+.pub-grid{display:grid;grid-template-columns:6fr 6fr;gap:56px;align-items:start}
+.pub-modes{border-top:1px solid var(--line);margin-top:28px}
+.pub-modes li{
+  display:grid;grid-template-columns:120px 1fr;gap:16px;
+  padding:14px 4px;border-bottom:1px solid var(--line);font-size:14px;
+}
+.pub-modes .k{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.1em;color:var(--accent)}
+.pub-modes .d{color:var(--muted)}
+.pub-card{padding:28px}
+.pub-src{
+  font-family:var(--font-mono);font-size:11.5px;letter-spacing:.14em;
+  border:1px solid var(--line-strong);border-radius:var(--radius-btn);
+  padding:11px 18px;background:var(--surface-solid);display:inline-block;color:var(--text);
+}
+.pub-line{width:1px;height:24px;background:var(--line-strong);margin:0 auto}
+.pub-chips{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+.pub-chips div{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-family:var(--font-mono);font-size:12px;color:var(--text);
+  border:1px solid var(--line);border-radius:var(--radius-sm);
+  background:var(--surface-solid);padding:10px 14px;
+}
+.pub-chips .tag{font-size:9px;letter-spacing:.12em;color:var(--ok)}
+.pub-chips .tag.t-pkg{color:var(--warn)}
+.pub-chips .tag.t-mix{color:var(--accent)}
+.pub-notes{margin-top:22px;border-top:1px solid var(--line);padding-top:16px;display:grid;gap:8px}
+.pub-notes p{font-family:var(--font-mono);font-size:11px;color:var(--muted);line-height:1.7}
+.pub-notes b{color:var(--text);font-weight:600}
+
+/* ============================================================
+   18. AI ROUTING
+   ============================================================ */
+.route-grid{display:grid;grid-template-columns:6fr 6fr;gap:56px;align-items:center}
+.route-list{border-top:1px solid var(--line);margin-top:28px}
+.route-list li{
+  display:grid;grid-template-columns:130px 1fr;gap:16px;
+  padding:14px 4px;border-bottom:1px solid var(--line);font-size:14px;
+}
+.route-list .k{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.1em;color:var(--accent)}
+.route-list .d{color:var(--muted)}
+.route-card{padding:26px;display:flex;flex-direction:column;align-items:center}
+.route-node{
+  width:100%;font-family:var(--font-mono);font-size:12px;letter-spacing:.1em;
+  color:var(--text);text-align:center;
+  border:1px solid var(--line-strong);border-radius:var(--radius-btn);
+  background:var(--surface-solid);padding:12px 16px;
+}
+.route-node small{display:block;font-size:10px;color:var(--muted);letter-spacing:.08em;margin-top:3px}
+.route-node--hl{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.route-link{
+  width:1px;height:22px;background-image:linear-gradient(var(--line-strong) 55%,transparent 0);
+  background-size:1px 7px;
+}
+.route-link.grad{background:var(--gradient);opacity:.8}
+.route-split{display:flex;gap:12px;width:100%}
+.route-split .route-node{flex:1}
+
+/* ============================================================
+   19. INFRASTRUCTURE STACK
+   ============================================================ */
+.stack-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:48px}
+.stack-card{padding:20px;transition:border-color .18s ease,background .18s ease}
+.stack-card:hover{border-color:var(--line-strong);background:var(--surface2)}
+.stack-card .tag{
+  display:inline-block;font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;
+  color:var(--muted);border:1px solid var(--line-strong);border-radius:5px;
+  padding:2px 8px;margin-bottom:14px;
+}
+.stack-card h3{font-family:var(--font-mono);font-size:13.5px;letter-spacing:.04em;margin-bottom:7px;font-weight:600}
+.stack-card p{font-size:12.5px;color:var(--muted);line-height:1.6}
+
+/* ============================================================
+   20. ARCHITECTURE
+   ============================================================ */
+.arch-plane{
+  border:1px dashed var(--line-strong);border-radius:var(--radius);
+  padding:16px 24px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  margin-top:52px;position:relative;
+}
+.arch-plane::before{
+  content:"";position:absolute;inset:0 auto auto 0;width:100%;height:2px;
+  border-radius:2px 2px 0 0;background:var(--gradient);opacity:.75;
+}
+.arch-plane .k{font-family:var(--font-mono);font-size:12.5px;letter-spacing:.14em;color:var(--accent)}
+.arch-plane .d{font-family:var(--font-mono);font-size:11.5px;color:var(--muted)}
+.arch-connect{
+  width:1px;height:22px;margin:0 auto;
+  background-image:linear-gradient(var(--line-strong) 55%,transparent 0);
+  background-size:1px 7px;
+}
+.arch-row{
+  display:grid;grid-template-columns:1fr 22px 1fr 22px 1fr 22px 1fr 22px 1fr 22px 1fr;
+  gap:0;align-items:stretch;
+}
+.arch-node{
+  border:1px solid var(--line);border-left-width:3px;border-radius:var(--radius-sm);
+  background:var(--surface-solid);padding:15px 14px;
+  display:flex;flex-direction:column;gap:6px;min-height:100px;
+}
+.arch-node .k{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.1em;color:var(--text)}
+.arch-node .s{font-family:var(--font-mono);font-size:10.5px;line-height:1.55;color:var(--muted)}
+.n-system{border-left-color:var(--line-strong)}
+.n-ai{border-left-color:var(--accent)}
+.n-ai .k{color:var(--accent)}
+.n-human{border-left-color:var(--ok)}
+.n-human .k{color:var(--ok)}
+.arch-arrow{display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.arch-arrow svg{width:14px;height:14px}
+.arch-arrow--ok{color:var(--ok)}
+.arch-under{
+  margin-top:0;border:1px dashed var(--line-strong);border-radius:var(--radius);
+  padding:14px 24px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+}
+.arch-under .k{font-family:var(--font-mono);font-size:12px;letter-spacing:.14em;color:var(--violet)}
+.arch-under .d{font-family:var(--font-mono);font-size:11.5px;color:var(--muted)}
+.arch-support{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px;align-items:center}
+.arch-support .lbl{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;color:var(--muted);margin-right:6px}
+.arch-support span.chip{
+  font-family:var(--font-mono);font-size:11.5px;color:var(--text);
+  border:1px solid var(--line);border-radius:99px;background:var(--surface-solid);
+  padding:7px 15px;
+}
+.arch-legend{
+  display:flex;flex-wrap:wrap;gap:26px;margin-top:28px;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;color:var(--muted);
+}
+.arch-legend span{display:inline-flex;align-items:center;gap:8px}
+.arch-legend i{width:9px;height:9px;border-radius:50%;flex:none}
+.arch-legend .l-sys i{background:var(--line-strong)}
+.arch-legend .l-ai i{background:var(--accent)}
+.arch-legend .l-hum i{background:var(--ok)}
+
+/* ============================================================
+   21. DEPLOY
+   ============================================================ */
+.deploy-grid{display:grid;grid-template-columns:5fr 7fr;gap:56px;align-items:start}
+.deploy-list{border-top:1px solid var(--line);margin-top:28px}
+.deploy-list li{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:12px 4px;border-bottom:1px solid var(--line);
+  font-size:14.5px;color:var(--text);
+}
+.deploy-list li b{font-family:var(--font-mono);font-weight:600;font-size:13px;color:var(--accent)}
+.deploy-list li span{color:var(--muted);font-size:13px}
+.deploy-list svg{width:17px;height:17px;color:var(--ok);flex:none;margin-top:3px}
+.req{margin-top:22px}
+.req h3{font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;font-weight:500}
+.req-chips{display:flex;flex-wrap:wrap;gap:8px}
+.req-chips span{
+  font-family:var(--font-mono);font-size:11.5px;color:var(--text);
+  border:1px solid var(--line);border-radius:var(--radius-sm);
+  background:var(--surface-solid);padding:6px 12px;
+}
+.code-card{overflow:hidden}
+.code-head{
+  display:flex;align-items:center;gap:8px;
+  padding:11px 16px;border-bottom:1px solid var(--line);
+}
+.code-head i{width:9px;height:9px;border-radius:50%;background:var(--line-strong)}
+.code-head span{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.08em}
+.copy-btn{
+  font-family:var(--font-mono);font-size:11px;color:var(--muted);
+  border:1px solid var(--line-strong);border-radius:5px;padding:4px 10px;
+  transition:color .15s ease,border-color .15s ease;
+}
+.copy-btn:hover,.copy-btn.copied{color:var(--accent);border-color:var(--accent)}
+.code-card pre{
+  padding:20px;overflow-x:auto;
+  font-family:var(--font-mono);font-size:13px;line-height:1.9;
+}
+.code-card .c{color:var(--muted)}
+.code-card .p{color:var(--accent)}
+.code-note{
+  padding:12px 20px;border-top:1px solid var(--line);
+  font-family:var(--font-mono);font-size:11px;color:var(--muted);
+}
+
+/* ============================================================
+   22. OPEN SOURCE / FINAL CTA / FOOTER
+   ============================================================ */
+.oss{display:flex;align-items:center;gap:40px;flex-wrap:wrap}
+.oss-mark{width:52px;height:52px;color:var(--text);flex:none}
+.oss-body{flex:1;min-width:280px}
+.oss h2{margin-bottom:8px}
+.oss p{color:var(--muted);max-width:54ch}
+.oss-license{font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:16px;display:flex;align-items:center;gap:10px}
+.oss-license .lic{
+  color:var(--ok);border:1px solid var(--ok);border-radius:5px;
+  font-size:10.5px;letter-spacing:.12em;padding:2px 9px;background:var(--ok-soft);
+}
+
+.cta{text-align:center;padding:110px 0 !important}
+.cta h2{font-size:clamp(1.9rem,4vw,2.7rem);max-width:24ch;margin-inline:auto}
+.cta p{color:var(--muted);max-width:54ch;margin:18px auto 36px}
+.cta .hero-ctas{justify-content:center;margin-bottom:52px}
+
+footer{border-top:1px solid var(--line);background:var(--surface-solid)}
+.foot-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:48px;padding:64px 0 48px}
+.foot-brand p{color:var(--muted);font-size:14px;max-width:34ch;margin-top:14px}
+.foot-col h3{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:16px;font-weight:500;
+}
+.foot-col a{display:block;font-size:14px;color:var(--muted);padding:5px 0;transition:color .15s ease}
+.foot-col a:hover{color:var(--accent)}
+.foot-bottom{
+  border-top:1px solid var(--line);padding:22px 0;
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  font-family:var(--font-mono);font-size:11.5px;color:var(--muted);
+}
+.foot-bottom .sep{margin-left:auto}
+
+/* ============================================================
+   23. MOTION — gentle reveal (JS-gated)
+   ============================================================ */
+.js .reveal{opacity:0;transform:translateY(14px);transition:opacity .55s ease,transform .55s ease}
+.js .reveal.in{opacity:1;transform:none}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  .js .reveal{opacity:1;transform:none}
+}
+
+/* ============================================================
+   24. RESPONSIVE
+   ============================================================ */
+@media (max-width:1020px){
+  .why-grid,.hitl-grid,.pub-grid,.route-grid,.deploy-grid,
+  .studio-grid,.know-grid{grid-template-columns:1fr;gap:44px}
+  .caps{grid-template-columns:repeat(2,1fr)}
+  .stack-grid{grid-template-columns:repeat(2,1fr)}
+  .tour-grid{grid-template-columns:1fr}
+  .agents{grid-template-columns:repeat(2,1fr)}
+  .feats{grid-template-columns:repeat(2,1fr)}
+  .route-card{max-width:560px}
+}
+@media (max-width:920px){
+  .nav-links,.nav .nav-gh{display:none}
+  .nav-toggle{display:block}
+  .nav-links.open{
+    display:flex;flex-direction:column;align-items:stretch;gap:2px;
+    position:absolute;top:var(--nav-h);left:0;right:0;
+    background:var(--surface-solid);border-bottom:1px solid var(--line);
+    padding:12px 20px 18px;box-shadow:var(--shadow-lg);
+  }
+  .nav-links.open a{padding:12px 10px;font-size:14px}
+  .pmap{grid-template-columns:1fr}
+  /* architecture goes vertical */
+  .arch-row{display:flex;flex-direction:column;gap:0}
+  .arch-arrow{height:28px}
+  .arch-arrow svg{transform:rotate(90deg)}
+}
+@media (max-width:760px){
+  .sb-scenes{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  section{padding:68px 0}
+  .hero{padding:calc(var(--nav-h) + 56px) 0 64px}
+  .flow{gap:10px 0}
+  .flow-chip{padding:8px 12px;font-size:11.5px}
+  .flow-link{width:26px}
+  .flow-chip .gate-tag{top:-19px;font-size:8.5px}
+  .caps{grid-template-columns:1fr}
+  .stack-grid{grid-template-columns:1fr}
+  .agents{grid-template-columns:1fr}
+  .feats{grid-template-columns:1fr}
+  .studio-checks{grid-template-columns:1fr}
+  .pub-chips{grid-template-columns:1fr}
+  .tl-row{grid-template-columns:64px 1fr}
+  .why-list li{grid-template-columns:40px 1fr;grid-template-rows:auto auto}
+  .why-list .d{grid-column:2}
+  .hitl-actions li,.pub-modes li,.route-list li{grid-template-columns:1fr;gap:4px}
+  .route-split{flex-direction:column}
+  .principles li{padding:14px 16px;justify-content:flex-start}
+  .foot-grid{grid-template-columns:1fr;gap:36px;padding:52px 0 40px}
+  .arch-node{min-height:0}
+  .cn{white-space:normal}
+}
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<!-- ============================================================ NAVBAR -->
+<header class="nav" id="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="#top" aria-label="Content Manager — home">
+      <svg class="brand-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9.4" width="5.2" height="5.2" rx="1.2" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M7.2 12h8.6" stroke="currentColor" stroke-width="1.6"/>
+        <rect x="16.2" y="9.4" width="5.2" height="5.2" rx="1.2" fill="url(#bmGrad)"/>
+        <defs>
+          <linearGradient id="bmGrad" x1="16" y1="9" x2="22" y2="15">
+            <stop stop-color="#35e6ff"/><stop offset="1" stop-color="#d94dff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      Content Manager
+    </a>
+
+    <nav class="nav-links" id="navMenu" aria-label="Main navigation">
+      <a href="#workflow">Workflow</a>
+      <a href="#studio">Studio</a>
+      <a href="#orchestration">Orchestration</a>
+      <a href="#knowledge">Knowledge</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#deploy">Deploy</a>
+    </nav>
+
+    <a class="nav-gh" href="https://github.com/Afsharidevops/content-manager" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="navMenu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ============================================================ HERO -->
+<section class="hero" id="top" aria-labelledby="hero-title">
+  <div class="container">
+    <p class="hero-eyebrow grad-text">CONTENT MANAGER — SELF-HOSTED · HUMAN-IN-THE-LOOP · MIT</p>
+
+    <h1 id="hero-title">Self-hosted AI<br><span class="grad-text">Content Operations</span></h1>
+
+    <p class="hero-control">With humans in control.</p>
+
+    <p class="hero-lede">
+      Content Manager runs the full content lifecycle on your own infrastructure —
+      discovery, editorial scoring, AI drafting, storyboard-to-video production,
+      agent orchestration and multi-platform publishing — behind one operations panel.
+      Nothing is published without operator approval.
+    </p>
+
+    <div class="hero-ctas">
+      <a class="btn btn-primary btn-lg" href="#deploy">Get Started</a>
+      <a class="btn btn-ghost btn-lg" href="https://github.com/Afsharidevops/content-manager" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+
+    <!-- Core flow -->
+    <div class="flow" role="img" aria-label="Core workflow: Discover, Score, Draft, Approve, Publish. Approve is the human approval gate.">
+      <span class="flow-chip">DISCOVER</span>
+      <span class="flow-link" aria-hidden="true"><i></i></span>
+      <span class="flow-chip">SCORE</span>
+      <span class="flow-link" aria-hidden="true"><i></i></span>
+      <span class="flow-chip">DRAFT</span>
+      <span class="flow-link" aria-hidden="true"><i></i></span>
+      <span class="flow-chip is-gate">
+        <span class="gate-tag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>
+          HUMAN APPROVAL
+        </span>
+        APPROVE
+      </span>
+      <span class="flow-link" aria-hidden="true"><i></i></span>
+      <span class="flow-chip">PUBLISH</span>
+    </div>
+
+    <!-- Hero product visual -->
+        <figure class="frame">
+      <div class="frame-bar" aria-hidden="true">
+        <span class="t">Operations Center</span>
+        <span class="p">assets/screenshots/operations-center.png</span>
+      </div>
+      <div class="frame-body">
+        <img class="frame-shot" src="assets/screenshots/operations-center.png" data-fallback
+             alt="Operations Center panel of Content Manager: the control surface used to run the full content operations pipeline"
+             loading="eager" decoding="async">
+        <div class="frame-empty" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M3.5 16.5 8 12.5l3.5 3 3-2.5 5.5 4"/></svg>
+          <b>SCREENSHOT UNAVAILABLE</b>
+          <span>assets/screenshots/operations-center.png</span>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================================================ PRINCIPLES STRIP -->
+<div class="principles" role="list" aria-label="Product principles">
+  <div class="container" style="padding-inline:0">
+    <ul>
+      <li role="listitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Self-hosted</li>
+      <li role="listitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Human-in-the-loop</li>
+      <li role="listitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Storyboard → Timeline</li>
+      <li role="listitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Multi-platform</li>
+      <li role="listitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Docker-first</li>
+      <li role="listitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>MIT Licensed</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================ WHY -->
+<section id="why" aria-labelledby="why-title">
+  <div class="container why-grid">
+    <div class="reveal">
+      <p class="eyebrow">Why Content Manager</p>
+      <h2 id="why-title">Not RSS → LLM → Telegram.<br>A full operations stack.</h2>
+      <p class="section-lead">
+        Text generation is the easy part. Content Manager is built around the whole
+        operational loop — structured video production, multi-agent orchestration and
+        knowledge-aware agents included — as a self-hosted stack you own.
+      </p>
+    </div>
+    <ol class="why-list reveal">
+      <li><span class="idx">01</span><span class="k">Discovery</span><span class="d">RSS / Atom feeds, shared links and operator topics feed the candidate pool.</span></li>
+      <li><span class="idx">02</span><span class="k">Editorial policy</span><span class="d">An editable policy gate decides what fits — before anything gets written.</span></li>
+      <li><span class="idx">03</span><span class="k">Scoring</span><span class="d">Weighted scoring and deduplication rank the strongest candidates.</span></li>
+      <li><span class="idx">04</span><span class="k">Drafting</span><span class="d">An OpenAI-compatible writer backend produces drafts — it assists, it doesn't decide.</span></li>
+      <li><span class="idx">05</span><span class="k">Production</span><span class="d">Storyboard, video direction and deterministic rendering — inside the pipeline.</span></li>
+      <li><span class="idx">06</span><span class="k">Approval</span><span class="d">Approve / Reject. Publishing happens only after operator approval.</span></li>
+      <li><span class="idx">07</span><span class="k">Publishing</span><span class="d">Telegram, Instagram, Bale, Eitaa, LinkedIn, Aparat — or copy-ready packages.</span></li>
+      <li><span class="idx">08</span><span class="k">Operations</span><span class="d">Run the loop, the studios and the agents from the Operations Center.</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============================================================ CORE WORKFLOW -->
+<section id="workflow" aria-labelledby="wf-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">Core workflow</p>
+      <h2 id="wf-title">From signal to published content</h2>
+      <p class="section-lead">One pipeline, eight stages. Seven run on their own — one belongs to you.</p>
+    </div>
+
+    <ol class="flow-steps">
+      <li class="fstep reveal">
+        <div class="fstep-node"><span>01</span></div>
+        <div>
+          <div class="fstep-meta"><span class="ftype">SOURCES</span></div>
+          <h3>Inbound signals</h3>
+          <p>RSS / Atom feeds, shared links and operator topics enter the pipeline.</p>
+        </div>
+      </li>
+      <li class="fstep reveal">
+        <div class="fstep-node"><span>02</span></div>
+        <div>
+          <div class="fstep-meta"><span class="ftype">AUTOMATED</span><span class="fstep-k">Discovery</span></div>
+          <h3>Discovery</h3>
+          <p>New candidates are collected and registered in the content pipeline.</p>
+        </div>
+      </li>
+      <li class="fstep reveal">
+        <div class="fstep-node"><span>03</span></div>
+        <div>
+          <div class="fstep-meta"><span class="ftype">AUTOMATED</span><span class="fstep-k">Policy gate</span></div>
+          <h3>Editorial policy</h3>
+          <p>An editable editorial policy decides what qualifies — before any compute is spent on drafting.</p>
+        </div>
+      </li>
+      <li class="fstep reveal">
+        <div class="fstep-node"><span>04</span></div>
+        <div>
+          <div class="fstep-meta"><span class="ftype">AUTOMATED</span><span class="fstep-k">Scoring</span></div>
+          <h3>Scoring &amp; deduplication</h3>
+          <p>Weighted scoring ranks candidates, duplicates are removed, and the best candidates are selected.</p>
+        </div>
+      </li>
+      <li class="fstep reveal">
+        <div class="fstep-node"><span>05</span></div>
+        <div>
+          <div class="fstep-meta"><span class="ftype t-ai">AI</span><span class="fstep-k">Drafting</span></div>
+          <h3>AI drafting</h3>
+          <p>The OpenAI-compatible writer backend turns selected candidates into drafts. A draft is a proposal — not a decision.</p>
+        </div>
+      </li>
+      <li class="fstep is-gate reveal">
+        <div class="fstep-node"><span>06</span></div>
+        <div>
+          <div class="fstep-meta"><span class="ftype t-human">HUMAN APPROVAL</span><span class="fstep-k">Gate</span></div>
+          <h3>Operator approval</h3>
+          <p>Approve or reject. Revisions are comment-driven, and publishing happens only after operator approval. This stage cannot be skipped.</p>
+        </div>
+      </li>
+      <li class="fstep reveal">
+        <div class="fstep-node"><span>07</span></div>
+        <div>
+          <div class="fstep-meta"><span class="ftype t-ai">AI</span><span class="fstep-k">Production</span></div>
+          <h3>Video production</h3>
+          <p>Approved drafts move into production — the Storyboard Agent plans scenes, the Video Director builds the render timeline, and Video Studio produces the final MP4.</p>
+        </div>
+      </li>
+      <li class="fstep reveal">
+        <div class="fstep-node"><span>08</span></div>
+        <div>
+          <div class="fstep-meta"><span class="ftype">AUTOMATED</span><span class="fstep-k">Publishing</span></div>
+          <h3>Publishing</h3>
+          <p>Approved content goes out through the configured channels — or as copy-ready upload packages where direct publishing isn't available.</p>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============================================================ HUMAN-IN-THE-LOOP -->
+<section id="hitl" aria-labelledby="hitl-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">Human-in-the-loop</p>
+      <h2 id="hitl-title">AI-assisted. Human-approved.</h2>
+      <p class="section-lead">
+        Every draft lands in the review queue, and the pipeline stays blocked until the operator
+        makes the call. Try it — this schematic behaves like the real gate:
+      </p>
+    </div>
+
+    <div class="hitl-grid">
+      <div class="reveal">
+        <ul class="hitl-actions">
+          <li><span class="k a-ok">Approve</span><span class="d">The draft is released to production, then to publishing.</span></li>
+          <li><span class="k a-rev">Revise</span><span class="d">Comment-driven revision — the draft goes back to the writer with operator notes.</span></li>
+          <li><span class="k a-bad">Reject</span><span class="d">The draft is rejected and nothing is published.</span></li>
+        </ul>
+      </div>
+
+      <div class="reveal">
+        <div class="demo card" id="approvalDemo" data-state="pending">
+          <div class="demo-head">
+            Approval queue — schematic
+            <span class="pill" id="demoPill">PENDING REVIEW</span>
+          </div>
+          <div class="demo-body">
+            <p class="demo-label">DRAFT — scored candidate · AI-generated</p>
+            <div class="demo-lines" aria-hidden="true"><i></i><i></i></div>
+            <p class="demo-meta">status: awaiting operator approval · publishing blocked</p>
+          </div>
+          <div class="demo-track" aria-hidden="true">
+            <span class="trk-node trk-node--draft">DRAFT</span>
+            <span class="trk-link trk-l0"></span>
+            <span class="trk-node trk-node--gate">GATE</span>
+            <span class="trk-link trk-l1"></span>
+            <span class="trk-node trk-node--media">MEDIA</span>
+            <span class="trk-link trk-l2"></span>
+            <span class="trk-node trk-node--publish">PUBLISH</span>
+          </div>
+          <div class="demo-actions">
+            <button class="btn btn-primary" data-action="approve">Approve</button>
+            <button class="btn btn-ghost" data-action="revise">Request revision</button>
+            <button class="btn btn-bad" data-action="reject">Reject</button>
+          </div>
+          <p class="demo-msg" role="status" aria-live="polite">
+            <span id="demoMsg">Waiting on operator approval. Publishing stays blocked.</span>
+            <button id="demoReset" hidden>Reset demo</button>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ OPERATIONS CENTER + PLATFORM MAP -->
+<section id="platform" aria-labelledby="ops-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">Operations Center</p>
+      <h2 id="ops-title">More than a dashboard</h2>
+      <p class="section-lead">
+        The Operations Center is the control plane of the stack — and a set of visual studios.
+        Build workflows, agents, knowledge pipelines and videos. Route through policies.
+        Operate with approvals, audit and observability.
+      </p>
+    </div>
+
+    <figure class="frame ops-main reveal">
+            <div class="frame-bar" aria-hidden="true">
+        <span class="t">Operations Center</span>
+        <span class="p">assets/screenshots/operations-center.png</span>
+      </div>
+      <div class="frame-body">
+        <img class="frame-shot" src="assets/screenshots/operations-center.png" data-fallback
+             alt="Operations Center panel: pipeline, drafts, approvals, studios and publishing in one control surface"
+             loading="lazy" decoding="async">
+        <div class="frame-empty" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M3.5 16.5 8 12.5l3.5 3 3-2.5 5.5 4"/></svg>
+          <b>SCREENSHOT UNAVAILABLE</b>
+          <span>assets/screenshots/operations-center.png</span>
+        </div>
+      </div>
+      <figcaption>Operations Center — control plane for the whole stack</figcaption>
+    </figure>
+
+    <!-- Platform map -->
+    <div class="pmap reveal">
+      <div class="pcol b card">
+        <h3><i aria-hidden="true"></i>BUILD</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Workflows</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Agents</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Knowledge</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Knowledge Pipelines</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Orchestration</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Video Studio</li>
+        </ul>
+      </div>
+      <div class="pcol r card">
+        <h3><i aria-hidden="true"></i>ROUTING</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Router Pipelines</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Providers</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Policies</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Guardrails</li>
+        </ul>
+      </div>
+      <div class="pcol o card">
+        <h3><i aria-hidden="true"></i>OPERATE</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Approvals</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Audit</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Observability</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l-5 6 5 6M15 6l5 6-5 6"/></svg>Execution</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Additional real screenshot slots -->
+    <div class="tour-grid">
+      <div class="tour-item reveal">
+        <figure class="frame">
+                    <div class="frame-bar" aria-hidden="true">
+            <span class="t">Content Pipeline</span>
+            <span class="p">assets/screenshots/content-pipeline.png</span>
+          </div>
+          <div class="frame-body">
+            <img class="frame-shot" src="assets/screenshots/content-pipeline.png" data-fallback
+                 alt="Content Pipeline view: editorial policy gate, weighted scoring and deduplication of discovered candidates"
+                 loading="lazy" decoding="async">
+            <div class="frame-empty" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+              <b>SCREENSHOT UNAVAILABLE</b>
+              <span>assets/screenshots/content-pipeline.png</span>
+            </div>
+          </div>
+        </figure>
+        <h3>Content Pipeline</h3>
+        <p>Editorial policy gate, weighted scoring and deduplication across discovered candidates.</p>
+      </div>
+
+      <div class="tour-item reveal">
+        <figure class="frame">
+          <div class="frame-bar" aria-hidden="true">
+            <span class="t">Orchestration</span>
+            <span class="p">assets/screenshots/orchestration.png</span>
+          </div>
+          <div class="frame-body">
+            <img class="frame-shot" src="assets/screenshots/orchestration.png" data-fallback
+                 alt="Orchestration view: planner, agent tasks, human approval, reviewer findings and completed run history"
+                 loading="lazy" decoding="async">
+            <div class="frame-empty" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.8 7.8 10.5 16M16.2 7.8 13.5 16M8.5 6h7"/></svg>
+              <b>SCREENSHOT UNAVAILABLE</b>
+              <span>assets/screenshots/orchestration.png</span>
+            </div>
+          </div>
+        </figure>
+        <h3>Orchestration</h3>
+        <p>Planner, agent tasks, human approval, reviewer findings and completed run history in one view.</p>
+      </div>
+
+      <div class="tour-item reveal">
+        <figure class="frame">
+                    <div class="frame-bar" aria-hidden="true">
+            <span class="t">Smart Router</span>
+            <span class="p">assets/screenshots/smart-router.png</span>
+          </div>
+          <div class="frame-body">
+            <img class="frame-shot" src="assets/screenshots/smart-router.png" data-fallback
+                 alt="Smart Router view: the provider and model routing layer in front of OpenAI-compatible backends"
+                 loading="lazy" decoding="async">
+            <div class="frame-empty" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+              <b>SCREENSHOT UNAVAILABLE</b>
+              <span>assets/screenshots/smart-router.png</span>
+            </div>
+          </div>
+        </figure>
+        <h3>Smart Router</h3>
+        <p>The provider / model routing layer in front of OpenAI-compatible backends.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ CORE CAPABILITIES -->
+<section id="features" aria-labelledby="caps-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">Core capabilities</p>
+      <h2 id="caps-title">Every stage, one system</h2>
+      <p class="section-lead">Not a writing assistant — an operations platform with clear seams between automation and human judgment.</p>
+    </div>
+
+    <div class="caps reveal">
+      <article class="cap card">
+        <div class="cap-top">
+          <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 20 20"/></svg>
+          <span class="cap-idx">01</span>
+        </div>
+        <h3>Content Discovery</h3>
+        <p>RSS / Atom feeds, shared links and operator topics are collected continuously into a single candidate pool.</p>
+      </article>
+
+      <article class="cap card">
+        <div class="cap-top">
+          <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h3M11 17h9"/><circle cx="16" cy="7" r="2.2"/><circle cx="8" cy="17" r="2.2"/></svg>
+          <span class="cap-idx">02</span>
+        </div>
+        <h3>Editorial Policy &amp; Scoring</h3>
+        <p>An editable editorial policy gates every candidate. Weighted scoring and deduplication handle ranking and candidate selection.</p>
+      </article>
+
+      <article class="cap card">
+        <div class="cap-top">
+          <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          <span class="cap-idx">03</span>
+        </div>
+        <h3>AI Drafting</h3>
+        <p>Drafts are produced by an OpenAI-compatible writer backend, so you can point the stack at the model backend you run.</p>
+      </article>
+
+      <article class="cap card">
+        <div class="cap-top">
+          <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3.5 20c.6-3.3 2.9-5 5.5-5s4.9 1.7 5.5 5"/><path d="M15.5 12.5l2 2 3.5-3.5"/></svg>
+          <span class="cap-idx">04</span>
+        </div>
+        <h3>Human Approval</h3>
+        <p>Every draft stops at the operator gate: approve or reject. Publishing happens only after approval — and revisions are comment-driven.</p>
+      </article>
+
+      <article class="cap card">
+        <div class="cap-top">
+          <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M3.5 16.5 8 12.5l3.5 3 3-2.5 5.5 4"/></svg>
+          <span class="cap-idx">05</span>
+        </div>
+        <h3>Storyboard → Video Production</h3>
+        <p>Planning agents turn topics into structured scenes and prepare a deterministic render timeline.</p>
+      </article>
+
+      <article class="cap card">
+        <div class="cap-top">
+          <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.8 7.8 10.5 16M16.2 7.8 13.5 16M8.5 6h7"/></svg>
+          <span class="cap-idx">06</span>
+        </div>
+        <h3>Multi-Agent Orchestration</h3>
+        <p>A planner decomposes goals into machine-readable plans, agents execute per-step, and sensitive steps stop for approval.</p>
+      </article>
+
+      <article class="cap card">
+        <div class="cap-top">
+          <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5V6a2 2 0 0 1 2-2h14v14H6a2 2 0 0 0-2 2 2 2 0 0 0 2 2h14"/><path d="M9 8h7M9 12h5"/></svg>
+          <span class="cap-idx">07</span>
+        </div>
+        <h3>Knowledge-aware Agents</h3>
+        <p>Agents bind to knowledge bases built by reusable pipelines — memory and context, not stateless prompts.</p>
+      </article>
+
+      <article class="cap card">
+        <div class="cap-top">
+          <svg class="cap-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10.5 13.5"/><path d="M21 3l-7 18-3.5-7.5L3 10l18-7z"/></svg>
+          <span class="cap-idx">08</span>
+        </div>
+        <h3>Multi-platform Publishing</h3>
+        <p>Approved content goes to Telegram, Instagram, Bale, Eitaa, LinkedIn and Aparat — or ships as copy-ready upload packages.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ AI CONTENT PRODUCTION STUDIO -->
+<section id="studio" aria-labelledby="studio-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">AI Content Production Studio</p>
+      <h2 id="studio-title">From idea to storyboard to a render-ready timeline</h2>
+      <p class="section-lead">
+        Content Manager is not an image/video API wrapper. Production runs as a pipeline:
+        a topic becomes a storyboard, the storyboard becomes a validated timeline, and
+        Media Studio can render that plan when you choose to produce an MP4.
+      </p>
+    </div>
+
+    <!-- Production chain -->
+    <div class="chain reveal" style="margin-top:36px" role="img"
+         aria-label="Production flow: Topic, Script or Research feeds the Storyboard Agent which produces scenes; the Video Director Agent turns them into a render timeline; the Media Planning Agent decides assets; Video Studio renders the timeline into an MP4.">
+      <span class="chain-item"><span class="cn">TOPIC / SCRIPT / RESEARCH<small>input</small></span></span>
+      <span class="chain-item"><span class="cn cn--ai">STORYBOARD AGENT<small>scenes</small></span></span>
+      <span class="chain-item"><span class="cn">SCENES<small>hooks · pacing · direction</small></span></span>
+      <span class="chain-item"><span class="cn cn--ai">VIDEO DIRECTOR<small>timeline</small></span></span>
+      <span class="chain-item"><span class="cn">RENDER TIMELINE<small>validated</small></span></span>
+      <span class="chain-item"><span class="cn cn--ai">MEDIA PLANNING<small>assets</small></span></span>
+      <span class="chain-item"><span class="cn cn--violet">VIDEO STUDIO<small>render</small></span></span>
+      <span class="chain-item"><span class="cn cn--ok">MP4<small>output</small></span></span>
+    </div>
+
+    <div class="studio-grid">
+      <!-- Storyboard + timeline schematic -->
+      <div class="reveal">
+        <div class="card" style="overflow:hidden">
+          <div class="sb-head">
+            <span class="sb-title">Storyboard</span>
+            <span class="pill">SCHEMATIC</span>
+          </div>
+
+          <div class="sb-scenes" aria-hidden="true">
+            <div class="scene">
+              <div class="scene-head"><span class="scene-num">SCENE 01</span><span class="scene-role">Hook</span><span class="scene-dur">4.0s</span></div>
+              <div class="scene-vis"><span class="vt">IMAGE</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M3.5 16.5 8 12.5l3.5 3 3-2.5 5.5 4"/></svg>
+              </div>
+              <div class="scene-meta">
+                <div class="row"><span class="k">MOTION</span><span class="v">ZOOM-IN</span></div>
+                <div class="row"><span class="k">TRANSITION</span><span class="v">FADE</span></div>
+                <div class="row"><span class="k">NARRATION</span><span class="v">ON</span></div>
+              </div>
+            </div>
+            <div class="scene">
+              <div class="scene-head"><span class="scene-num">SCENE 02</span><span class="scene-role">Explanation</span><span class="scene-dur">6.0s</span></div>
+              <div class="scene-vis"><span class="vt">VIDEO</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 10.5 21 7v10l-6-3.5"/></svg>
+              </div>
+              <div class="scene-meta">
+                <div class="row"><span class="k">MOTION</span><span class="v">PAN-LEFT</span></div>
+                <div class="row"><span class="k">TRANSITION</span><span class="v">DISSOLVE</span></div>
+                <div class="row"><span class="k">NARRATION</span><span class="v">ON</span></div>
+              </div>
+            </div>
+            <div class="scene">
+              <div class="scene-head"><span class="scene-num">SCENE 03</span><span class="scene-role">CTA</span><span class="scene-dur">3.0s</span></div>
+              <div class="scene-vis"><span class="vt">TEXT</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M5 12h9M5 17h12"/></svg>
+              </div>
+              <div class="scene-meta">
+                <div class="row"><span class="k">MOTION</span><span class="v">—</span></div>
+                <div class="row"><span class="k">TRANSITION</span><span class="v">CUT</span></div>
+                <div class="row"><span class="k">NARRATION</span><span class="v">ON</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tl" aria-hidden="true">
+            <div class="tl-row"><span class="tl-lbl">Sequence</span>
+              <div class="tl-track"><span class="tl-seg s1">4.0s</span><span class="tl-seg s2">6.0s</span><span class="tl-seg s3">3.0s</span></div>
+            </div>
+            <div class="tl-row"><span class="tl-lbl">Narration</span>
+              <div class="tl-track thin"><span class="tl-seg seg-n" style="flex:4"></span><span class="tl-seg seg-n" style="flex:6"></span><span class="tl-seg seg-n" style="flex:3"></span></div>
+            </div>
+            <div class="tl-row"><span class="tl-lbl">Captions</span>
+              <div class="tl-track thin"><span class="tl-seg seg-c" style="flex:4"></span><span class="tl-seg seg-c" style="flex:6"></span><span class="tl-seg seg-c" style="flex:3"></span></div>
+            </div>
+          </div>
+
+          <div class="sb-foot">
+            <span><span class="k">TOTAL</span><b>13.0s</b></span>
+            <span><span class="k">TRANSITIONS</span><b>cut · fade · dissolve</b></span>
+            <span><span class="k">ASPECT</span><b>16:9 / 9:16</b></span>
+            <span><span class="k">OVERLAY</span><b>brand</b></span>
+          </div>
+        </div>
+        <p class="sb-caption">Schematic — storyboard &amp; timeline structure, not a product screenshot</p>
+      </div>
+
+      <!-- Studio text + capability checks -->
+      <div class="reveal">
+        <p class="studio-tag">Plan before you render.</p>
+        <p style="color:var(--muted);font-size:14.5px">
+          Turn a topic, script, or research notes into structured scenes before media
+          generation begins. Each scene carries its own duration, visual direction,
+          asset type, motion and transition — so the render is planned, validated and
+          reproducible, not improvised.
+        </p>
+        <ul class="studio-checks">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Storyboard generation</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Scene planning</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Hooks &amp; pacing</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Visual direction</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Timeline planning</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Per-scene media planning</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Image / video asset decisions</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Timeline validation</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Deterministic timeline rendering</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Transitions &amp; scene animations</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Narration &amp; subtitles</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Aspect ratio control &amp; brand overlays</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Production agents -->
+    <div class="agents">
+      <article class="agent card reveal">
+        <span class="ctag">AGENT</span>
+        <h3>Storyboard Agent</h3>
+        <p>Topic / script / research notes → scenes with hooks, pacing and visual direction.</p>
+      </article>
+      <article class="agent card reveal">
+        <span class="ctag">AGENT</span>
+        <h3>Video Director Agent</h3>
+        <p>Script / storyboard → render timeline.</p>
+      </article>
+      <article class="agent card reveal">
+        <span class="ctag">AGENT</span>
+        <h3>Media Planning Agent</h3>
+        <p>Scenes → per-scene asset decisions (image or video).</p>
+      </article>
+      <article class="agent card reveal">
+        <span class="ctag">AGENT</span>
+        <h3>NotebookLM Recovery Agent</h3>
+        <p>Browser state → recovery decision.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ VIDEO STUDIO SPOTLIGHT -->
+<section id="video-studio" aria-labelledby="vs-title">
+  <div class="container studio-grid">
+    <div class="reveal">
+      <p class="eyebrow">Video Studio</p>
+      <h2 id="vs-title">Structured video production,<br>not one-shot generation.</h2>
+      <p class="vs-sub" style="color:var(--accent);font-family:var(--font-mono);font-size:.95rem">Plan → validate → render.</p>
+      <p class="section-lead">
+        Planning agents create a structured timeline. Video Studio validates that timeline
+        before rendering. Media Studio can render it through a deterministic timeline workflow
+        when the inputs, assets and settings are fixed.
+      </p>
+      <div class="chiprow">
+        <span>Storyboard</span><span>Timeline</span><span>Assets</span><span>Transitions</span><span>Captions</span><span>Audio</span><span>Render</span>
+      </div>
+    </div>
+
+    <div class="reveal">
+      <figure class="frame">
+                <div class="frame-bar" aria-hidden="true">
+          <span class="t">Video Studio</span>
+          <span class="p">assets/screenshots/video-studio.png</span>
+        </div>
+        <div class="frame-body">
+          <img class="frame-shot" src="assets/screenshots/video-studio.png" data-fallback
+               alt="Video Studio view: structured timeline production with scene planning, validation and deterministic rendering"
+               loading="lazy" decoding="async">
+          <div class="frame-empty" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 10.5 21 7v10l-6-3.5"/></svg>
+            <b>SCREENSHOT UNAVAILABLE</b>
+            <span>assets/screenshots/video-studio.png</span>
+          </div>
+        </div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ MULTI-AGENT ORCHESTRATION -->
+<section id="orchestration" aria-labelledby="orch-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">Multi-agent orchestration</p>
+      <h2 id="orch-title">Plan. Execute. Approve. Review.</h2>
+      <p class="section-lead">
+        Orchestration here is not just parallel agents. A planner turns an operator goal
+        into a machine-readable plan, agents execute it step by step, and the reviewer
+        closes the loop — with run history and auditability throughout.
+      </p>
+    </div>
+
+    <!-- Orchestration flow -->
+    <div class="chain reveal" style="margin-top:36px" role="img"
+         aria-label="Orchestration flow: Operator Goal feeds the Planner which produces a machine-readable plan; the Executor runs agents per step; sensitive steps stop at a human approval gate with approve or reject; approved steps continue to the Reviewer, which returns the result with findings.">
+      <span class="chain-item"><span class="cn cn--ok">OPERATOR GOAL<small>input</small></span></span>
+      <span class="chain-item"><span class="cn cn--ai">PLANNER<small>decompose</small></span></span>
+      <span class="chain-item"><span class="cn">MACHINE-READABLE PLAN<small>steps</small></span></span>
+      <span class="chain-item"><span class="cn cn--blue">EXECUTOR / AGENTS<small>per-step</small></span></span>
+      <span class="chain-item">
+        <span class="cn cn--gate">SENSITIVE STEP?<small>human gate</small>
+          <span class="mini" aria-hidden="true"><span class="m-ok">APPROVE</span><span class="m-bad">REJECT</span></span>
+        </span>
+      </span>
+      <span class="chain-item"><span class="cn">CONTINUE<small>next step</small></span></span>
+      <span class="chain-item"><span class="cn cn--ai">REVIEWER<small>verify</small></span></span>
+      <span class="chain-item"><span class="cn cn--ok">RESULT + FINDINGS<small>output</small></span></span>
+    </div>
+
+    <p class="orch-note reveal">
+      <b>HUMAN APPROVAL GATE</b>
+      <span>sensitive operations stop and wait for an operator decision —</span>
+      <span class="yes">APPROVE</span><span>continues the plan,</span>
+      <span class="no">REJECT</span><span>halts it. Everything is recorded.</span>
+    </p>
+
+    <ul class="feats reveal">
+      <li><b>Planner</b><span>Operator goals become structured, machine-readable plans.</span></li>
+      <li><b>Agent assignment</b><span>Each step is routed to the right agent.</span></li>
+      <li><b>Per-step execution</b><span>Steps run and report individually.</span></li>
+      <li><b>Retry</b><span>Failed steps can be retried without restarting the run.</span></li>
+      <li><b>Human approval</b><span>Sensitive operations pause for operator approval.</span></li>
+      <li><b>Reviewer</b><span>Results are reviewed before they are accepted.</span></li>
+      <li><b>Run history</b><span>Every run is recorded and inspectable.</span></li>
+      <li><b>Auditability</b><span>Plans, decisions and findings stay auditable.</span></li>
+    </ul>
+
+    <figure class="frame reveal" style="margin-top:32px">
+      <div class="frame-bar" aria-hidden="true">
+        <span class="t">Orchestration</span>
+        <span class="p">assets/screenshots/orchestration.png</span>
+      </div>
+      <div class="frame-body">
+        <img class="frame-shot" src="assets/screenshots/orchestration.png" data-fallback
+             alt="Orchestration center with a goal, planner output, agent tasks, approval gate, reviewer and completed status"
+             loading="lazy" decoding="async">
+        <div class="frame-empty" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.8 7.8 10.5 16M16.2 7.8 13.5 16M8.5 6h7"/></svg>
+          <b>SCREENSHOT UNAVAILABLE</b>
+          <span>assets/screenshots/orchestration.png</span>
+        </div>
+      </div>
+      <figcaption>Orchestration center — goal, planner, agents, approval gate, reviewer and completed run state</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================================================ KNOWLEDGE & AGENT STUDIO -->
+<section id="knowledge" aria-labelledby="know-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">Knowledge &amp; Agents</p>
+      <h2 id="know-title">Knowledge-aware agents</h2>
+      <p class="section-lead">
+        Agents in Content Manager are not stateless prompts. The Operations Center provides
+        knowledge, memory, knowledge pipelines and agent + knowledge binding — so answers
+        and actions are grounded in the knowledge you build.
+      </p>
+    </div>
+
+    <div class="know-grid">
+      <div class="reveal">
+        <ul>
+          <li style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" style="flex:none;margin-top:3px" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Knowledge bases</li>
+          <li style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" style="flex:none;margin-top:3px" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Memory</li>
+          <li style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" style="flex:none;margin-top:3px" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Reusable knowledge pipelines</li>
+          <li style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;font-size:14px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" style="flex:none;margin-top:3px" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>Agent + knowledge binding</li>
+        </ul>
+      </div>
+
+      <div class="reveal">
+        <div class="kc card">
+          <p class="kc-head"><i aria-hidden="true"></i>Knowledge pipeline</p>
+          <div class="chain" role="img" aria-label="Knowledge pipeline: Data Source, Extract, Transform, Chunk, Embedding, Index, Knowledge Base, Agent and Q&A.">
+            <span class="chain-item"><span class="cn">DATA SOURCE</span></span>
+            <span class="chain-item"><span class="cn">EXTRACT</span></span>
+            <span class="chain-item"><span class="cn">TRANSFORM</span></span>
+            <span class="chain-item"><span class="cn">CHUNK</span></span>
+            <span class="chain-item"><span class="cn cn--ai">EMBEDDING</span></span>
+            <span class="chain-item"><span class="cn">INDEX</span></span>
+            <span class="chain-item"><span class="cn cn--violet">KNOWLEDGE BASE</span></span>
+            <span class="chain-item"><span class="cn cn--ok">AGENT / Q&amp;A</span></span>
+          </div>
+        </div>
+
+        <div class="kc card kc--b">
+          <p class="kc-head"><i aria-hidden="true"></i>Agents</p>
+          <div class="chain" role="img" aria-label="Agents flow: Input, Knowledge, Agent, Tools, Answer.">
+            <span class="chain-item"><span class="cn">INPUT</span></span>
+            <span class="chain-item"><span class="cn cn--violet">KNOWLEDGE</span></span>
+            <span class="chain-item"><span class="cn cn--ai">AGENT</span></span>
+            <span class="chain-item"><span class="cn cn--blue">TOOLS</span></span>
+            <span class="chain-item"><span class="cn cn--ok">ANSWER</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+    <figure class="frame reveal" style="margin-top:32px">
+      <div class="frame-bar" aria-hidden="true">
+        <span class="t">Knowledge</span>
+        <span class="p">assets/screenshots/knowledge-studio.png</span>
+      </div>
+      <div class="frame-body">
+        <img class="frame-shot" src="assets/screenshots/knowledge-studio.png" data-fallback
+             alt="Knowledge center with knowledge bases, source state, document counts and agent retrieval testing"
+             loading="lazy" decoding="async">
+        <div class="frame-empty" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V6a2 2 0 0 1 2-2h14v14H6a2 2 0 0 0-2 2 2 2 0 0 0 2 2h14"/><path d="M9 8h7M9 12h5"/></svg>
+          <b>SCREENSHOT UNAVAILABLE</b>
+          <span>assets/screenshots/knowledge-studio.png</span>
+        </div>
+      </div>
+      <figcaption>Knowledge center — knowledge bases, document state and retrieval testing for agents</figcaption>
+    </figure>
+</section>
+
+<!-- ============================================================ PUBLISHING -->
+<section id="publishing" aria-labelledby="pub-title">
+  <div class="container pub-grid">
+    <div class="reveal">
+      <p class="eyebrow">Publishing</p>
+      <h2 id="pub-title">Publish where your audience is</h2>
+      <p class="section-lead">
+        Approved content leaves the system the way you configure it — automatic publishing
+        where the integration supports it, and copy-ready packages everywhere else.
+        Either way, the approval gate always comes first.
+      </p>
+      <ul class="pub-modes">
+        <li><span class="k">DIRECT</span><span class="d">Automatic publishing through the configured channel integration.</span></li>
+        <li><span class="k">COPY-READY</span><span class="d">A complete upload / post package for platforms without direct automation.</span></li>
+        <li><span class="k">GATED</span><span class="d">No channel bypasses operator approval. Ever.</span></li>
+      </ul>
+    </div>
+
+    <div class="pub-card card reveal" role="img" aria-label="Diagram: approved content flows to Telegram, Instagram, Bale, Eitaa, LinkedIn, Aparat and YouTube as a copy-ready package.">
+      <div style="text-align:center"><span class="pub-src">APPROVED CONTENT</span></div>
+      <div class="pub-line" aria-hidden="true"></div>
+      <div class="pub-chips">
+        <div>Telegram <span class="tag">DIRECT</span></div>
+        <div>Instagram <span class="tag">DIRECT</span></div>
+        <div>Bale <span class="tag">DIRECT</span></div>
+        <div>Eitaa <span class="tag">DIRECT</span></div>
+        <div>LinkedIn <span class="tag t-mix">DIRECT / PACKAGE</span></div>
+        <div>Aparat <span class="tag t-mix">AUTO / PACKAGE</span></div>
+        <div>YouTube <span class="tag t-pkg">COPY-READY</span></div>
+      </div>
+      <div class="pub-notes">
+        <p><b>LinkedIn</b> — direct publishing once the account is configured; the generic entry produces a copy-ready post.</p>
+        <p><b>Aparat</b> — automatic video upload with an active browser session; otherwise a copy-ready package.</p>
+        <p><b>YouTube</b> — a copy-ready upload package, not direct automatic publishing.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ AI ROUTING -->
+<section id="routing" aria-labelledby="route-title">
+  <div class="container route-grid">
+    <div class="reveal">
+      <p class="eyebrow">AI routing</p>
+      <h2 id="route-title">A routing layer, not a lock-in</h2>
+      <p class="section-lead">
+        Model calls run through a provider / model routing layer. The writer backend can run on
+        9router or OmniRoute, and Smart Router can sit in front of either — so providers stay
+        swappable and the stack stays OpenAI-compatible end to end.
+      </p>
+      <ul class="route-list">
+        <li><span class="k">SMART ROUTER</span><span class="d">An optional routing layer in front of the model backends.</span></li>
+        <li><span class="k">9router</span><span class="d">OpenAI-compatible routing backend for the writer.</span></li>
+        <li><span class="k">OmniRoute</span><span class="d">OpenAI-compatible routing backend — an alternative to 9router.</span></li>
+        <li><span class="k">PROVIDERS</span><span class="d">Any OpenAI-compatible provider you point the stack at.</span></li>
+      </ul>
+    </div>
+
+    <div class="route-card card reveal" role="img" aria-label="Routing chain: writer backend, Smart Router, 9router or OmniRoute, OpenAI-compatible providers">
+      <div class="route-node">WRITER BACKEND<small>drafts &amp; text generation</small></div>
+      <div class="route-link grad" aria-hidden="true"></div>
+      <div class="route-node route-node--hl">SMART ROUTER<small>optional front layer</small></div>
+      <div class="route-link" aria-hidden="true"></div>
+      <div class="route-split">
+        <div class="route-node">9router</div>
+        <div class="route-node">OmniRoute</div>
+      </div>
+      <div class="route-link" aria-hidden="true"></div>
+      <div class="route-node">OPENAI-COMPATIBLE PROVIDERS<small>bring your own models</small></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ INFRASTRUCTURE STACK -->
+<section id="stack" aria-labelledby="stack-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">Infrastructure stack</p>
+      <h2 id="stack-title">Built as an operational stack</h2>
+      <p class="section-lead">Content Manager is not a single script — it is a set of cooperating services you deploy and operate.</p>
+    </div>
+
+    <div class="stack-grid reveal">
+      <article class="stack-card card"><span class="tag">CONTROL PLANE</span><h3>Operations Center / Panel</h3><p>Operate and observe the entire stack — and its studios — from one surface.</p></article>
+      <article class="stack-card card"><span class="tag">PIPELINE</span><h3>Content Pipeline</h3><p>Discovery, editorial policy gate, weighted scoring, candidate selection.</p></article>
+      <article class="stack-card card"><span class="tag">SERVICE</span><h3>Content Bot</h3><p>Conversational component wired into day-to-day content operations.</p></article>
+      <article class="stack-card card"><span class="tag">AGENT</span><h3>Hermes Agent</h3><p>Agent component of the stack.</p></article>
+      <article class="stack-card card"><span class="tag">ORCHESTRATION</span><h3>Orchestrator</h3><p>Planner, executor, human gates and reviewer for multi-step runs.</p></article>
+      <article class="stack-card card"><span class="tag">AI ROUTING</span><h3>Smart Router</h3><p>Routing layer that sits in front of the model backends.</p></article>
+      <article class="stack-card card"><span class="tag">AI ROUTING</span><h3>9router</h3><p>OpenAI-compatible model routing backend.</p></article>
+      <article class="stack-card card"><span class="tag">AI ROUTING</span><h3>OmniRoute</h3><p>OpenAI-compatible model routing backend.</p></article>
+      <article class="stack-card card"><span class="tag">MEDIA</span><h3>Media Studio</h3><p>Image &amp; video generation, timeline rendering, previews.</p></article>
+      <article class="stack-card card"><span class="tag">MEDIA</span><h3>Video Studio</h3><p>Structured timeline production with validation before render.</p></article>
+      <article class="stack-card card"><span class="tag">MEDIA</span><h3>NotebookLM Worker</h3><p>Narrated Video Overviews for drafts, with recovery agent support.</p></article>
+      <article class="stack-card card"><span class="tag">KNOWLEDGE</span><h3>Knowledge Pipelines</h3><p>Reusable extract → transform → index pipelines feeding agents.</p></article>
+      <article class="stack-card card"><span class="tag">UI</span><h3>Open WebUI</h3><p>Self-hosted chat UI for OpenAI-compatible models.</p></article>
+      <article class="stack-card card"><span class="tag">WORKFLOW</span><h3>n8n</h3><p>Workflow automation engine.</p></article>
+      <article class="stack-card card"><span class="tag">STUDIOS</span><h3>Workflow · Agent · Router Studios</h3><p>Visual editors for workflows, agents and router pipelines.</p></article>
+      <article class="stack-card card"><span class="tag">DEPLOY</span><h3>Docker Compose · Helm · Kubernetes</h3><p>Deploy on a single host or on a cluster — your infrastructure, your rules.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ ARCHITECTURE -->
+<section id="architecture" aria-labelledby="arch-title">
+  <div class="container">
+    <div class="reveal">
+      <p class="eyebrow">Architecture</p>
+      <h2 id="arch-title">One stack, clear seams</h2>
+      <p class="section-lead">A content pipeline with a dedicated control plane, a production layer and a swappable AI routing layer — automation and human judgment separated on purpose.</p>
+    </div>
+
+    <div class="arch-plane reveal">
+      <span class="k">OPERATIONS CENTER / PANEL</span>
+      <span class="d">control plane — operates &amp; observes every stage below</span>
+    </div>
+    <div class="arch-connect" aria-hidden="true"></div>
+
+    <div class="arch-row reveal" role="img"
+         aria-label="Architecture: sources feed the content pipeline (policy gate, weighted scoring, deduplication), AI drafting, the human approval gate, video production, and publishers. A model routing layer with Smart Router, 9router and OmniRoute serves the AI stages, and the orchestrator coordinates multi-step agent runs.">
+      <div class="arch-node n-system">
+        <span class="k">SOURCES</span>
+        <span class="s">RSS / Atom · shared links · operator topics</span>
+      </div>
+      <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      <div class="arch-node n-system">
+        <span class="k">CONTENT PIPELINE</span>
+        <span class="s">policy gate · weighted scoring · dedup</span>
+      </div>
+      <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      <div class="arch-node n-ai">
+        <span class="k">AI DRAFTING</span>
+        <span class="s">OpenAI-compatible writer</span>
+      </div>
+      <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      <div class="arch-node n-human">
+        <span class="k">APPROVAL</span>
+        <span class="s">operator approve / reject</span>
+      </div>
+      <div class="arch-arrow arch-arrow--ok" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      <div class="arch-node n-ai">
+        <span class="k">VIDEO PRODUCTION</span>
+        <span class="s">storyboard · timeline · render</span>
+      </div>
+      <div class="arch-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></div>
+      <div class="arch-node n-system">
+        <span class="k">PUBLISHERS</span>
+        <span class="s">Telegram · Instagram · Bale · Eitaa · LinkedIn · Aparat</span>
+      </div>
+    </div>
+    <div class="arch-connect" aria-hidden="true"></div>
+
+    <div class="arch-under reveal">
+      <span class="k">MODEL ROUTING LAYER</span>
+      <span class="d">Smart Router → 9router / OmniRoute → OpenAI-compatible providers</span>
+    </div>
+
+    <div class="arch-support reveal">
+      <span class="lbl">CROSS-CUTTING</span>
+      <span class="chip">Orchestrator</span>
+      <span class="chip">Knowledge Pipelines</span>
+      <span class="chip">Content Bot</span>
+      <span class="chip">Hermes Agent</span>
+      <span class="chip">NotebookLM Worker</span>
+      <span class="chip">Open WebUI</span>
+      <span class="chip">n8n</span>
+    </div>
+
+    <div class="arch-legend reveal">
+      <span class="l-sys"><i aria-hidden="true"></i>SYSTEM</span>
+      <span class="l-ai"><i aria-hidden="true"></i>AI STAGE</span>
+      <span class="l-hum"><i aria-hidden="true"></i>HUMAN GATE</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ DEPLOY -->
+<section id="deploy" aria-labelledby="deploy-title">
+  <div class="container deploy-grid">
+    <div class="reveal">
+      <p class="eyebrow">Deployment</p>
+      <h2 id="deploy-title">Self-hosted by design</h2>
+      <p class="section-lead">
+        Content Manager runs on infrastructure you control — from a single host to a cluster.
+      </p>
+      <ul class="deploy-list">
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><div><b>Docker Compose</b><br><span>Single-host deployment with the installer.</span></div></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><div><b>Helm</b><br><span>Package-based deployment for Kubernetes.</span></div></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg><div><b>Kubernetes</b><br><span>Kubernetes deployment via Helm.</span></div></li>
+      </ul>
+      <div class="req">
+        <h3>Requirements</h3>
+        <div class="req-chips">
+          <span>Linux</span><span>Bash</span><span>Docker Engine</span><span>Docker Compose plugin</span><span>Git</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="reveal">
+      <div class="code-card card">
+        <div class="code-head" aria-hidden="true">
+          <i></i><i></i><i></i>
+          <span>quick-start</span>
+          <button class="copy-btn" id="copyBtn" aria-label="Copy quick-start commands">Copy</button>
+        </div>
+        <pre><code><span class="p">$</span> git clone https://github.com/Afsharidevops/content-manager.git
+<span class="p">$</span> cd content-manager
+<span class="p">$</span> chmod +x install.sh manage.sh
+<span class="p">$</span> ./install.sh</code></pre>
+        <p class="code-note">// full deployment &amp; configuration guide: README.md in the repository</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ OPEN SOURCE -->
+<section id="opensource" aria-labelledby="oss-title">
+  <div class="container oss reveal">
+    <svg class="oss-mark" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    <div class="oss-body">
+      <h2 id="oss-title">Open source, end to end</h2>
+      <p>Read it, run it, fork it, improve it. The entire stack — pipeline, studios, agents and deployment — lives in a public repository.</p>
+      <p class="oss-license"><span class="lic">MIT</span> Released under the MIT License.</p>
+    </div>
+    <a class="btn btn-primary btn-lg" href="https://github.com/Afsharidevops/content-manager" target="_blank" rel="noopener">Explore the source</a>
+  </div>
+</section>
+
+<!-- ============================================================ FINAL CTA -->
+<section class="cta" aria-labelledby="cta-title">
+  <div class="container">
+    <div class="flow flow--static" style="justify-content:center;margin-bottom:44px" aria-hidden="true">
+      <span class="flow-chip">DISCOVER</span>
+      <span class="flow-link"></span>
+      <span class="flow-chip">SCORE</span>
+      <span class="flow-link"></span>
+      <span class="flow-chip">DRAFT</span>
+      <span class="flow-link"></span>
+      <span class="flow-chip is-gate">APPROVE</span>
+      <span class="flow-link"></span>
+      <span class="flow-chip">PUBLISH</span>
+    </div>
+    <h2 id="cta-title">Run your content operations on your own infrastructure.</h2>
+    <p>Set it up once — discovery to publishing, with the operator approval gate right in the middle.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary btn-lg" href="#deploy">Get Started</a>
+      <a class="btn btn-ghost btn-lg" href="https://github.com/Afsharidevops/content-manager" target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============================================================ FOOTER -->
+<footer>
+  <div class="container">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="#top">
+          <svg class="brand-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="2" y="9.4" width="5.2" height="5.2" rx="1.2" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M7.2 12h8.6" stroke="currentColor" stroke-width="1.6"/>
+            <rect x="16.2" y="9.4" width="5.2" height="5.2" rx="1.2" fill="url(#bmGrad2)"/>
+            <defs>
+              <linearGradient id="bmGrad2" x1="16" y1="9" x2="22" y2="15">
+                <stop stop-color="#35e6ff"/><stop offset="1" stop-color="#d94dff"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          Content Manager
+        </a>
+        <p>Self-hosted AI content operations, with humans in control.</p>
+      </div>
+      <nav class="foot-col" aria-label="Project">
+        <h3>Project</h3>
+        <a href="#workflow">Workflow</a>
+        <a href="#studio">Production Studio</a>
+        <a href="#orchestration">Orchestration</a>
+        <a href="#knowledge">Knowledge</a>
+        <a href="#architecture">Architecture</a>
+      </nav>
+      <nav class="foot-col" aria-label="Repository">
+        <h3>Repository</h3>
+        <a href="https://github.com/Afsharidevops/content-manager" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/Afsharidevops/content-manager#readme" target="_blank" rel="noopener">Documentation</a>
+        <a href="https://github.com/Afsharidevops/content-manager/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://github.com/Afsharidevops/content-manager/security" target="_blank" rel="noopener">Security</a>
+        <a href="https://github.com/Afsharidevops/content-manager/blob/HEAD/LICENSE" target="_blank" rel="noopener">License (MIT)</a>
+      </nav>
+    </div>
+    <div class="foot-bottom">
+      <span>© <span id="year">2025</span> Content Manager</span>
+      <span>MIT Licensed</span>
+      <span class="sep">DISCOVER → SCORE → DRAFT → APPROVE → PUBLISH</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var d = document;
+
+  /* ---- Navbar: mobile toggle + scrolled state ---- */
+  var nav = d.getElementById('nav');
+  var toggle = d.getElementById('navToggle');
+  var menu = d.getElementById('navMenu');
+  if (toggle && menu) {
+    toggle.addEventListener('click', function () {
+      var open = menu.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    menu.querySelectorAll('a').forEach(function (a) {
+      a.addEventListener('click', function () {
+        menu.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+      });
+    });
+  }
+  var onScroll = function () {
+    if (nav) nav.classList.toggle('scrolled', (window.scrollY || 0) > 8);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  /* ---- Gentle section reveal (skipped for reduced motion) ---- */
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var items = d.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    items.forEach(function (el) { el.classList.add('in'); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    items.forEach(function (el) { io.observe(el); });
+  }
+
+  /* ---- Screenshot fallback: clean placeholder when the asset is missing ---- */
+  d.querySelectorAll('img[data-fallback]').forEach(function (img) {
+    img.addEventListener('error', function () {
+      var f = img.closest('.frame');
+      if (f) f.classList.add('failed');
+    });
+  });
+
+  /* ---- Human-in-the-loop demo ---- */
+  var demo = d.getElementById('approvalDemo');
+  if (demo) {
+    var pill = d.getElementById('demoPill');
+    var msg = d.getElementById('demoMsg');
+    var reset = d.getElementById('demoReset');
+    var states = {
+      pending: { pill: 'PENDING REVIEW', cls: 'pill',
+        msg: 'Waiting on operator approval. Publishing stays blocked.' },
+      approve: { pill: 'APPROVED', cls: 'pill p-ok',
+        msg: 'Approved — the draft moves to production, then to publishing.' },
+      revise: { pill: 'REVISION REQUESTED', cls: 'pill p-warn',
+        msg: 'Sent back to the writer with your comments. The gate stays closed until re-approval.' },
+      reject: { pill: 'REJECTED', cls: 'pill p-bad',
+        msg: 'Rejected — nothing was published.' }
+    };
+    function setState(k) {
+      demo.setAttribute('data-state', k);
+      var s = states[k];
+      pill.textContent = s.pill;
+      pill.className = s.cls;
+      msg.textContent = s.msg;
+      reset.hidden = (k === 'pending');
+    }
+    demo.querySelectorAll('[data-action]').forEach(function (b) {
+      b.addEventListener('click', function () { setState(b.getAttribute('data-action')); });
+    });
+    reset.addEventListener('click', function () { setState('pending'); });
+  }
+
+  /* ---- Copy quick-start commands (with file:// fallback) ---- */
+  var copyBtn = d.getElementById('copyBtn');
+  if (copyBtn) {
+    var CMD = 'git clone https://github.com/Afsharidevops/content-manager.git\n'
+            + 'cd content-manager\n'
+            + 'chmod +x install.sh manage.sh\n'
+            + './install.sh';
+    copyBtn.addEventListener('click', function () {
+      function done() {
+        copyBtn.classList.add('copied');
+        copyBtn.textContent = 'Copied';
+        setTimeout(function () {
+          copyBtn.classList.remove('copied');
+          copyBtn.textContent = 'Copy';
+        }, 1600);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(CMD).then(done, done);
+      } else {
+        var t = d.createElement('textarea');
+        t.value = CMD;
+        t.setAttribute('readonly', '');
+        t.style.position = 'absolute';
+        t.style.left = '-9999px';
+        d.body.appendChild(t);
+        t.select();
+        try { d.execCommand('copy'); } catch (e) {}
+        d.body.removeChild(t);
+        done();
+      }
+    });
+  }
+
+  /* ---- Footer year ---- */
+  var y = d.getElementById('year');
+  if (y) y.textContent = new Date().getFullYear();
+})();
+</script>
+
+</body>
+</html>
