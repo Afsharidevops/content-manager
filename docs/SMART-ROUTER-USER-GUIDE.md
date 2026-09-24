@@ -8,7 +8,7 @@ ACLs, injects knowledge/memory context, and records measured telemetry. The
 same process serves the **Operations Center** panel at `/control/` and the
 **Flight Deck** dashboard at `/dashboard`.
 
-This guide documents the complete shipped surface of Smart Router `0.6.1`: every
+This guide documents the complete shipped surface of Smart Router `0.6.4`: every
 Operations Center page, every control-plane API route, the three client wire
 protocols, all environment variables, and the operational tasks an operator is
 expected to perform. Each section is written so a reader can act without
@@ -17,7 +17,7 @@ UI steps, a copy-paste API example, and the failure modes to expect.
 
 | Item | Value |
 | --- | --- |
-| Product version | `0.6.1` (reported by `GET /health`) |
+| Product version | `0.6.4` (reported by `GET /health`) |
 | Operations Center | `/control/` |
 | Flight Deck dashboard | `/dashboard` |
 | Client API | `/v1` |
@@ -2135,14 +2135,14 @@ mounts `/policy` read-only for pricing and learned artifacts.
 
 ```bash
 # Compose (content-manager, hermes-linux-stack)
-sed -i 's/^SMART_ROUTER_IMAGE_TAG=.*/SMART_ROUTER_IMAGE_TAG=0.6.1/' .env
+sed -i 's/^SMART_ROUTER_IMAGE_TAG=.*/SMART_ROUTER_IMAGE_TAG=0.6.4/' .env
 docker compose --env-file .env pull smart-router
 docker compose --env-file .env up -d --no-deps --force-recreate smart-router
 curl -sS "http://$(grep '^SMART_ROUTER_BIND_IP=' .env | cut -d= -f2-):$(grep '^SMART_ROUTER_PORT=' .env | cut -d= -f2-)/health"
 
 # Helm (hermes-linux-stack, hermes-control-plane)
 helm upgrade --install hermes-smart-router deploy/helm/hermes-linux-stack \
-  --set image.tag=0.6.1 -f deploy/helm/hermes-linux-stack/values.yaml
+  --set image.tag=0.6.4 -f deploy/helm/hermes-linux-stack/values.yaml
 kubectl rollout status deploy/hermes-smart-router
 ```
 
@@ -2187,7 +2187,7 @@ workflow instead of file copies.
 ```yaml
 image:
   repository: afsharidevops/hermes-smart-router
-  tag: "0.6.1"
+  tag: "0.6.4"
 imagePullSecrets: []          # only needed for a private registry
 router:
   mode: observe

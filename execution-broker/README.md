@@ -1,6 +1,6 @@
 # Hermes Stack Execution Broker
 
-Security boundary image for the optional execution tools in [Hermes Linux Stack](https://github.com/Afsharidevops/hermes-linux-stack). It is not a general remote shell or Docker API proxy.
+Security boundary image for the optional execution tools in Content Manager's Hermes Linux Stack foundation. It is not a general remote shell or Docker API proxy.
 
 ## Purpose and security model
 

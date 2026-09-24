@@ -1,6 +1,12 @@
-# Hermes Smart Router v0.5.1
+# Hermes Smart Router v0.6.4
 
-Smart Router is an OpenAI-compatible `/v1` proxy for Hermes Linux Stack. Version 0.5.1 keeps the v0.2 deterministic safety path and adds an optional offline-trained, CPU-only three-tier learned proposal (`fast`, `standard`, `strong`). The learned classifier never bypasses tools, vision, context, sticky-session, or output-budget policy.
+Smart Router is an OpenAI-compatible `/v1` proxy and Operations Center for the
+Content Manager stack. Version 0.6.4 keeps the deterministic safety path,
+supports capability-safe model routing across `fast`, `standard`, `strong`,
+`coding`, and `vision` profiles, and includes the content-production agent
+surfaces used by the bot, panel, and orchestration workflows. Learned or
+adaptive routing never bypasses tools, vision, context, sticky-session,
+ACL, budget, execution-approval, or output-budget policy.
 
 ## Safe default
 

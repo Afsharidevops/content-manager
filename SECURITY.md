@@ -17,7 +17,7 @@ Smart Router v0.5.9 keeps deterministic capability floors authoritative. Health 
 
 Mutable application tags (`latest`/`main`) are retained by operator request. For stronger supply-chain reproducibility, pin `*_IMAGE_TAG` values in `.env`, run `./manage.sh lock-images`, commit only the non-secret lock metadata if appropriate, and verify with `./manage.sh verify-images` before an upgrade.
 
-OIDC, ACLs, Redis/PostgreSQL HA, RAG ingestion, plugin endpoints, and execution paths expand the attack surface. Enable only the components you need, terminate public traffic behind authenticated TLS, apply firewall/NetworkPolicy restrictions, and keep the security CI workflow passing. See `docs/HERMES-SMART-ROUTER-v0.5.2-IMPLEMENTATION-STATUS.md` for features that are not yet claimed production-complete.
+OIDC, ACLs, Redis/PostgreSQL HA, RAG ingestion, plugin endpoints, and execution paths expand the attack surface. Enable only the components you need, terminate public traffic behind authenticated TLS, apply firewall/NetworkPolicy restrictions, and keep the security CI workflow passing. See `docs/SMART-ROUTER-USER-GUIDE.md`, `docs/OPERATIONS.md`, and `docs/ORCHESTRATION.md` for the current supported operational surface.
 
 
 ## Execution Admin private ingress

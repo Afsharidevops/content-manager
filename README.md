@@ -2,17 +2,26 @@
 
 ### Self-hosted AI Content Operations Platform
 
+[![Validate](https://github.com/Afsharidevops/content-manager/actions/workflows/validate.yml/badge.svg)](https://github.com/Afsharidevops/content-manager/actions/workflows/validate.yml)
+[![Security](https://github.com/Afsharidevops/content-manager/actions/workflows/security-v0.5.9.yml/badge.svg)](https://github.com/Afsharidevops/content-manager/actions/workflows/security-v0.5.9.yml)
+[![Helm](https://github.com/Afsharidevops/content-manager/actions/workflows/publish-helm-chart.yml/badge.svg)](https://github.com/Afsharidevops/content-manager/actions/workflows/publish-helm-chart.yml)
+[![Content Bot image](https://img.shields.io/docker/v/afsharidevops/content-bot?label=content-bot&logo=docker)](https://hub.docker.com/r/afsharidevops/content-bot)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](content/pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 **Discover → Score → Draft → Approve → Publish**
 
-Content Manager is a self-hosted, human-in-the-loop content production platform
-for automated editorial workflows.
+**Self-hosted AI Content Operations, with humans in control.**
 
-It discovers stories from RSS feeds and shared links, evaluates them against an
-editable editorial policy, drafts content through OpenAI-compatible AI models,
-and publishes only after human approval.
+Content Manager is a self-hosted, human-in-the-loop platform for automating the
+full content operations loop. It discovers stories from RSS feeds, shared links,
+and operator topics; evaluates them against an editable editorial policy;
+generates AI-assisted drafts and media; waits for human approval; and then
+publishes to the configured platforms.
 
-Built on the Hermes Linux Stack with Smart Router, multi-agent orchestration,
-Media Studio, NotebookLM workflows, and multi-platform publishing.
+It is built on the Hermes Linux Stack with Smart Router, multi-agent
+orchestration, Media Studio, NotebookLM workflows, and reproducible deployment
+paths for Docker Compose and Helm.
 
 **Publishing:** Telegram · Instagram · Bale · Eitaa · LinkedIn · Aparat  
 **AI:** OpenAI-compatible providers · Smart Router · 9router · OmniRoute  
@@ -23,9 +32,24 @@ Media Studio, NotebookLM workflows, and multi-platform publishing.
 Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.4   Content Bot: 0.4.3   Media Studio: 0.5.1   NotebookLM Worker: 0.1.0   Panel: 0.6.0
 ```
 
+Platform and component versions move independently. The platform release
+identifies the base stack; service images and Helm chart versions can advance
+without changing every component at once.
+
+## Why Content Manager?
+
+Most AI content tools stop at generation. Content Manager covers the operational
+loop around generation: discovery, editorial policy, scoring, AI drafting, media
+production, approval, multi-platform publishing, status visibility, and recovery
+from failed media jobs.
+
+It is designed to be self-hosted, provider-agnostic, approval-gated, and
+operationally reproducible: the same repository contains the bot, content policy,
+router, media worker, operator console, Docker Compose stack, and Helm chart.
+
 ## Screenshots
 
-Every screenshot below comes from the optional operator console
+Every screenshot below comes from the optional Content Operations Center
 (`./manage.sh panel-enable`, documented in `docs/PANEL.md`) running against a
 stack: the same views the operator uses to watch the pipeline, decide on drafts,
 check object storage, and take backups. The captures use demonstration data.
@@ -55,10 +79,11 @@ check object storage, and take backups. The captures use demonstration data.
 - **Daily proposals** - the bot reads `sources.yaml`, proposes the best scored
   candidates on a schedule, and sends them to the operator with the same
   approval buttons.
-- **Approval-gated publishing** - only approved drafts are published to the
-  Telegram channel. The scheduled-proposal daily cap, duplicate protection,
-  and same-category streak limits are enforced by policy; operator-sent links
-  are never blocked by the daily cap.
+- **Approval-gated publishing** - only approved drafts are published. Telegram
+  is the operator surface and primary channel, and enabled adapters can also
+  publish to Instagram, Bale, Eitaa, LinkedIn, and Aparat. The scheduled-proposal
+  daily cap, duplicate protection, and same-category streak limits are enforced
+  by policy; operator-sent links are never blocked by the daily cap.
 - **Comment-driven revision** - reply to a proposal with edit notes and press
   Reject; the bot revises the draft in place and lets you iterate until it is
   right. Reject without notes discards the draft.
@@ -118,7 +143,7 @@ Operator (Telegram)               Scheduler (once per local day)
         Draft preview + [Approve] [Reject]   ──►  operator's Telegram
                           │ approve                    │ reject
                           ▼                            ▼
-              Telegram channel publish            draft discarded
+             Telegram + platform adapters        draft discarded
 ```
 
 The pipeline has four cooperating parts:
@@ -133,8 +158,9 @@ The pipeline has four cooperating parts:
    seed it once; operator edits survive reinstalls.
 3. **Content Bot** (`content-bot/`) - a small unprivileged Telegram
    long-polling service that fetches links/feeds, runs the content layer,
-   requests draft copy from the writer, and publishes approved posts. Runtime
-   state (pending drafts, published hashes, daily counters) lives in
+   requests draft copy from the writer, asks for optional media, and publishes
+   approved posts through the configured adapters. Runtime state (pending
+   drafts, published hashes, daily counters, publication rows) lives in
    `data/content-bot/state.json`.
 4. **Writer backend** - the OpenAI-compatible endpoint of the selected router
    backend (9router or OmniRoute, optionally behind the Smart Router),
@@ -347,7 +373,6 @@ PYTHONPATH=$PWD/content:$PWD/content-bot ./.venv/bin/pytest -q content/tests
 PYTHONPATH=$PWD/content:$PWD/content-bot ./.venv/bin/python -m unittest discover -s content-bot/tests
 bash tests/test-manage-ux.sh
 ./.venv/bin/python -m unittest discover -s panel/tests -t .
-bash tests/test-manage-ux.sh
 ```
 
 ## Documentation
@@ -358,7 +383,7 @@ bash tests/test-manage-ux.sh
 - [Bale and Eitaa setup](docs/BALE-EITAA-SETUP.md) - bot tokens, channel ids, and automatic publishing
 - [LinkedIn setup](docs/LINKEDIN-SETUP.md) - app, OAuth, author id, accounts, tones, and the publish flow
 - [Aparat setup](docs/APARAT-SETUP.md) - browser session, on-demand video publishing, categories, and troubleshooting
-- [Operator panel](docs/PANEL.md) - optional web console for status, platform credentials, config, logs, actions
+- [Content Operations Center](docs/PANEL.md) - optional web console for status, platform credentials, config, logs, actions
 - [Object storage](docs/S3-STORAGE.md) - bundled RustFS or an external S3 endpoint for stack services
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing
 - [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
