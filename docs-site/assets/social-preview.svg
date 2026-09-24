@@ -1,44 +1,174 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-label="Content Manager social preview">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="100%" height="100%">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="55%" stop-color="#101826"/>
-      <stop offset="100%" stop-color="#183153"/>
+    <!-- گرادیان پس‌زمینه اصلی -->
+    <radialGradient id="bgGlow" cx="25%" cy="35%" r="90%">
+      <stop offset="0%" stop-color="#141926" />
+      <stop offset="100%" stop-color="#0a0d14" />
+    </radialGradient>
+
+    <!-- گرادیان پنجره‌ها -->
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#181c28" />
+      <stop offset="100%" stop-color="#0e111a" />
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#000" flood-opacity="0.42"/>
+
+    <!-- کادر آبی درخشان -->
+    <linearGradient id="glowBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#1e293b" stop-opacity="0.1" />
+    </linearGradient>
+
+    <!-- فیلتر سایه عمیق پنجره‌ها -->
+    <filter id="windowShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="-12" dy="20" stdDeviation="22" flood-color="#000000" flood-opacity="0.65" />
+    </filter>
+
+    <filter id="badgeShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000000" flood-opacity="0.3" />
     </filter>
   </defs>
-  <rect width="1280" height="640" fill="url(#bg)"/>
-  <text x="72" y="130" font-family="DejaVu Sans, system-ui, -apple-system, sans-serif" font-size="66" font-weight="800" fill="#f0f6fc">CONTENT</text>
-  <text x="72" y="196" font-family="DejaVu Sans, system-ui, -apple-system, sans-serif" font-size="66" font-weight="800" fill="#f0f6fc">MANAGER</text>
-  <rect x="72" y="232" rx="14" width="442" height="48" fill="#161b22" stroke="#30363d" stroke-width="2"/>
-  <text x="94" y="262" font-family="DejaVu Sans, system-ui, -apple-system, sans-serif" font-size="20" fill="#58a6ff">Discover → Score → Draft → Approve → Publish</text>
-  <text x="72" y="350" font-family="DejaVu Sans, system-ui, -apple-system, sans-serif" font-size="31" fill="#c9d1d9">Self-hosted AI Content Operations</text>
-  <text x="72" y="392" font-family="DejaVu Sans, system-ui, -apple-system, sans-serif" font-size="31" fill="#8b949e">with humans in control.</text>
-  <g font-family="DejaVu Sans, system-ui, -apple-system, sans-serif" font-size="20" fill="#c9d1d9">
-    <rect x="72" y="462" rx="10" width="150" height="44" fill="#21262d" stroke="#30363d"/>
-    <text x="89" y="491">Smart Router</text>
-    <rect x="236" y="462" rx="10" width="140" height="44" fill="#21262d" stroke="#30363d"/>
-    <text x="253" y="491">Multi-agent</text>
-    <rect x="390" y="462" rx="10" width="140" height="44" fill="#21262d" stroke="#30363d"/>
-    <text x="407" y="491">Media Studio</text>
-    <rect x="72" y="520" rx="10" width="150" height="44" fill="#21262d" stroke="#30363d"/>
-    <text x="89" y="549">Docker / Helm</text>
+
+  <style>
+    .font-sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .title { font-size: 64px; font-weight: 900; fill: #ffffff; letter-spacing: -1.5px; }
+    .pipeline { font-size: 14.5px; font-weight: 600; fill: #38bdf8; font-family: monospace; }
+    .subtitle { font-size: 26px; fill: #94a3b8; font-weight: 400; }
+    .badge { font-size: 15.5px; font-weight: 600; fill: #e2e8f0; }
+    .footer { font-size: 15px; font-weight: 500; fill: #475569; font-family: monospace; }
+    .win-head { font-size: 13px; font-weight: 600; fill: #e2e8f0; }
+    .win-sub { font-size: 10px; fill: #64748b; }
+    .table-head { font-size: 8.5px; fill: #475569; font-weight: 600; }
+  </style>
+
+  <!-- Background -->
+  <rect width="1200" height="600" fill="url(#bgGlow)" />
+
+  <!-- سمت چپ: محتوای متنی و برچسب‌ها -->
+  <g transform="translate(75, 80)" class="font-sans">
+    <!-- عنوان -->
+    <text x="0" y="55" class="title">CONTENT</text>
+    <text x="0" y="122" class="title">MANAGER</text>
+
+    <!-- کپسول فرآیند بدون Score -->
+    <g transform="translate(0, 160)">
+      <rect width="415" height="42" rx="21" fill="#0f172a" stroke="#1e293b" stroke-width="1.5" />
+      <text x="20" y="26" class="pipeline">Discover ➔ Draft ➔ Approve ➔ Publish</text>
+    </g>
+
+    <!-- متن توضیحات با Operations کامل -->
+    <text x="0" y="265" class="subtitle">Self-hosted AI Content Operations</text>
+    <text x="0" y="302" class="subtitle">with humans in control.</text>
+
+    <!-- برچسب‌ها (Badges) -->
+    <g transform="translate(0, 365)">
+      <!-- سطر اول -->
+      <g filter="url(#badgeShadow)">
+        <rect width="145" height="42" rx="8" fill="#1e293b" fill-opacity="0.6" stroke="#334155" stroke-width="1" />
+        <text x="20" y="26" class="badge">Smart Router</text>
+      </g>
+      <g transform="translate(160, 0)" filter="url(#badgeShadow)">
+        <rect width="135" height="42" rx="8" fill="#1e293b" fill-opacity="0.6" stroke="#334155" stroke-width="1" />
+        <text x="22" y="26" class="badge">Multi-agent</text>
+      </g>
+
+      <!-- سطر دوم -->
+      <g transform="translate(0, 56)" filter="url(#badgeShadow)">
+        <rect width="145" height="42" rx="8" fill="#1e293b" fill-opacity="0.6" stroke="#334155" stroke-width="1" />
+        <text x="22" y="26" class="badge">Media Studio</text>
+      </g>
+      <g transform="translate(160, 56)" filter="url(#badgeShadow)">
+        <rect width="155" height="42" rx="8" fill="#1e293b" fill-opacity="0.6" stroke="#334155" stroke-width="1" />
+        <text x="20" y="26" class="badge">Docker / Helm</text>
+      </g>
+    </g>
+
+    <!-- آدرس گیت‌هاب پروژه -->
+    <text x="0" y="490" class="footer">github.com/Afsharidevops/content-manager</text>
   </g>
-  <text x="72" y="604" font-family="DejaVu Sans, system-ui, -apple-system, sans-serif" font-size="20" fill="#6e7681">github.com/Afsharidevops/content-manager</text>
-  <g filter="url(#shadow)">
-    <rect x="585" y="90" width="610" height="392" rx="18" fill="#161b22" stroke="#30363d" stroke-width="2"/>
-    <circle cx="615" cy="115" r="5" fill="#ff5f56"/>
-    <circle cx="633" cy="115" r="5" fill="#ffbd2e"/>
-    <circle cx="651" cy="115" r="5" fill="#27c93f"/>
-    <rect x="607" y="140" width="566" height="315" rx="8" fill="#0d1117" stroke="#30363d"/>
-    <rect x="634" y="172" width="228" height="26" rx="6" fill="#58a6ff" opacity="0.75"/>
-    <rect x="634" y="222" width="490" height="18" rx="5" fill="#30363d"/>
-    <rect x="634" y="262" width="410" height="18" rx="5" fill="#30363d"/>
-    <rect x="634" y="302" width="456" height="18" rx="5" fill="#30363d"/>
-    <rect x="634" y="356" width="156" height="56" rx="12" fill="#238636"/>
-    <rect x="816" y="356" width="156" height="56" rx="12" fill="#1f6feb"/>
-    <rect x="998" y="356" width="126" height="56" rx="12" fill="#8957e5"/>
+
+  <!-- سمت راست: پنجره‌های داشبورد لایه‌بندی‌شده -->
+  <g class="font-sans">
+    <!-- پنجره ۱ (عقب): Pipeline state -->
+    <g transform="translate(530, 75)" filter="url(#windowShadow)">
+      <rect width="610" height="420" rx="12" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.5" />
+      <circle cx="22" cy="22" r="5" fill="#ef4444" />
+      <circle cx="36" cy="22" r="5" fill="#f59e0b" />
+      <circle cx="50" cy="22" r="5" fill="#10b981" />
+      <text x="160" y="65" class="win-head">Pipeline state</text>
+      <text x="160" y="82" class="win-sub">Central overview, scheduled routines, and latest tasks</text>
+      <line x1="140" y1="36" x2="140" y2="410" stroke="#1e293b" stroke-width="1" />
+    </g>
+
+    <!-- پنجره ۲ (وسط): Stack status -->
+    <g transform="translate(590, 145)" filter="url(#windowShadow)">
+      <rect width="540" height="385" rx="12" fill="url(#cardGrad)" stroke="#273248" stroke-width="1.5" />
+      <circle cx="22" cy="22" r="5" fill="#ef4444" />
+      <circle cx="36" cy="22" r="5" fill="#f59e0b" />
+      <circle cx="50" cy="22" r="5" fill="#10b981" />
+      <text x="140" y="60" class="win-head">Stack status</text>
+      <text x="140" y="75" class="win-sub">Containers, disks, published peers and stack health</text>
+      <line x1="120" y1="36" x2="120" y2="375" stroke="#1e293b" stroke-width="1" />
+    </g>
+
+    <!-- پنجره ۳ (جلو): Orchestration center -->
+    <g transform="translate(650, 215)" filter="url(#windowShadow)">
+      <rect width="490" height="345" rx="12" fill="#0d111a" stroke="url(#glowBorder)" stroke-width="1.5" />
+      <circle cx="20" cy="20" r="4.5" fill="#ef4444" />
+      <circle cx="33" cy="20" r="4.5" fill="#f59e0b" />
+      <circle cx="46" cy="20" r="4.5" fill="#10b981" />
+
+      <!-- سایدبار پنجره جلو -->
+      <line x1="95" y1="35" x2="95" y2="335" stroke="#1e293b" stroke-width="1" />
+      <rect x="8" y="165" width="80" height="18" rx="4" fill="#3b82f6" fill-opacity="0.15" />
+      <text x="14" y="178" font-size="8.5" fill="#60a5fa" font-weight="600">Orchestrator</text>
+
+      <!-- تیتر داشبورد -->
+      <text x="110" y="52" font-size="12" font-weight="700" fill="#f8fafc">Orchestration center</text>
+
+      <!-- کارت‌های آماری -->
+      <rect x="110" y="68" width="76" height="34" rx="5" fill="#131926" stroke="#1e293b" />
+      <text x="118" y="80" class="win-sub" font-size="7">RUNS (TOTAL)</text>
+      <text x="118" y="95" font-size="12" font-weight="700" fill="#f8fafc">5</text>
+
+      <rect x="194" y="68" width="88" height="34" rx="5" fill="#131926" stroke="#1e293b" />
+      <text x="202" y="80" class="win-sub" font-size="7">WAITING APPROVAL</text>
+      <text x="202" y="95" font-size="12" font-weight="700" fill="#38bdf8">1</text>
+
+      <rect x="290" y="68" width="60" height="34" rx="5" fill="#131926" stroke="#1e293b" />
+      <text x="298" y="80" class="win-sub" font-size="7">FAILED</text>
+      <text x="298" y="95" font-size="12" font-weight="700" fill="#f87171">1</text>
+
+      <!-- جدول کارها (Tasks) -->
+      <text x="110" y="122" class="table-head">TASK NAME</text>
+      <text x="280" y="122" class="table-head">STATUS</text>
+      <text x="360" y="122" class="table-head">ROUTING</text>
+      <line x1="110" y1="128" x2="470" y2="128" stroke="#1e293b" stroke-width="0.8" />
+
+      <!-- ردیف‌های جدول -->
+      <text x="110" y="148" font-size="8.5" fill="#94a3b8">Write architectural docs for Kubernetes</text>
+      <rect x="280" y="139" width="48" height="12" rx="3" fill="#10b981" fill-opacity="0.1" />
+      <text x="286" y="148" font-size="7.5" fill="#34d399">completed</text>
+      <text x="360" y="148" font-size="8" fill="#64748b">Direct</text>
+
+      <text x="110" y="172" font-size="8.5" fill="#94a3b8">Draft release video script for v1.2</text>
+      <rect x="280" y="163" width="68" height="12" rx="3" fill="#f59e0b" fill-opacity="0.1" />
+      <text x="284" y="172" font-size="7.5" fill="#fbbf24">waiting_approval</text>
+      <text x="360" y="172" font-size="8" fill="#64748b">Human-loop</text>
+
+      <text x="110" y="196" font-size="8.5" fill="#94a3b8">Research tech market positioning</text>
+      <rect x="280" y="187" width="48" height="12" rx="3" fill="#10b981" fill-opacity="0.1" />
+      <text x="286" y="196" font-size="7.5" fill="#34d399">completed</text>
+      <text x="360" y="196" font-size="8" fill="#64748b">LLM Pool</text>
+
+      <text x="110" y="220" font-size="8.5" fill="#94a3b8">Generate internal blog post</text>
+      <rect x="280" y="211" width="48" height="12" rx="3" fill="#38bdf8" fill-opacity="0.1" />
+      <text x="290" y="220" font-size="7.5" fill="#38bdf8">running</text>
+      <text x="360" y="220" font-size="8" fill="#64748b">Agentic</text>
+
+      <text x="110" y="244" font-size="8.5" fill="#94a3b8">Security review and scans</text>
+      <rect x="280" y="235" width="34" height="12" rx="3" fill="#ef4444" fill-opacity="0.1" />
+      <text x="287" y="244" font-size="7.5" fill="#f87171">failed</text>
+      <text x="360" y="244" font-size="8" fill="#64748b">Static</text>
+    </g>
   </g>
 </svg>
