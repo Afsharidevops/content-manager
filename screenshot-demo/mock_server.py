@@ -6,7 +6,7 @@ for every API endpoint.  No Docker, no production data, no real secrets.
 """
 
 from __future__ import annotations
-import argparse, http.server, json, logging, mimetypes, os, pathlib, time
+import argparse, http.server, json, logging, mimetypes, os, pathlib, re, time
 from http import HTTPStatus
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -316,20 +316,53 @@ MOCK_MEDIA_JOBS = {
     ],
 }
 
+VIDEO_TIMELINE = {
+    "version": 1,
+    "meta": {
+        "title": "Multi-provider failover with Smart Router",
+        "aspect_ratio": "9:16",
+        "resolution": "1080x1920",
+        "fps": 30,
+        "subtitle": True,
+        "audio": {"voiceover": "planned", "language": "en"},
+        "brand": {"label": "locallab", "position": "bottom-right", "style": "aurora"},
+    },
+    "scenes": [
+        {"id": 1, "duration": 6, "narration": "Smart Router keeps AI drafting available even when a provider fails.", "visual": "Router diagram with three provider lanes", "emotion": "curious", "asset_type": "image", "transition": "fade", "animation": "zoom-in"},
+        {"id": 2, "duration": 8, "narration": "Health probes mark unhealthy providers before requests are routed.", "visual": "Health-check cards with green and red states", "emotion": "explanatory", "asset_type": "image", "transition": "slideleft", "animation": "none"},
+        {"id": 3, "duration": 7, "narration": "Weighted routing keeps fast, reliable backends in front while preserving failover paths.", "visual": "Weighted routing timeline", "emotion": "explanatory", "asset_type": "text", "transition": "dissolve", "animation": "pan-left"},
+        {"id": 4, "duration": 6, "narration": "Operators approve sensitive publishing steps before the content leaves the stack.", "visual": "Human approval checkpoint between draft and publish", "emotion": "action", "asset_type": "image", "transition": "fade", "animation": "none"},
+    ],
+}
+
+VIDEO_STORYBOARD = {
+    "hook": "What happens when your AI content pipeline loses its primary model provider?",
+    "total_duration": 27,
+    "scenes": VIDEO_TIMELINE["scenes"],
+}
+
+MOCK_STORYBOARD_DRAFTS = [
+    {"id": "sb-001", "title": "Multi-provider failover with Smart Router", "status": "approved", "scenes": 4, "job_status": "planned", "created_at": "2026-09-25T08:30:00"},
+    {"id": "sb-002", "title": "Kubernetes scheduling internals", "status": "rendered", "scenes": 5, "job_status": "completed", "created_at": "2026-09-25T07:45:00"},
+    {"id": "sb-003", "title": "Platform engineering observability", "status": "draft", "scenes": 3, "job_status": "", "created_at": "2026-09-24T20:00:00"},
+]
+
+MOCK_VIDEO_JOBS = [
+    {"id": "vj-001", "driver": "timeline-video", "status": "done", "created_at": "2026-09-25T08:45:00", "artifacts": [{"name": "timeline.json", "kind": "document"}], "error": ""},
+    {"id": "vj-002", "driver": "timeline-video", "status": "queued", "created_at": "2026-09-25T09:00:00", "artifacts": [], "error": ""},
+    {"id": "vj-003", "driver": "api-image", "status": "done", "created_at": "2026-09-25T07:30:00", "artifacts": [{"name": "scene-2.png", "kind": "image"}], "error": ""},
+]
+
 MOCK_VIDEO_STUDIO = {
-    "drivers": ["api-image", "flow-video", "video-edit"],
-    "drivers_source": "env",
-    "timelines": [
-        {"id": "tl-001", "title": "Kubernetes scheduling update", "status": "rendered", "scenes": 6, "created_at": "2026-09-24T08:00:00", "thumbnail": ""},
-        {"id": "tl-002", "title": "AI router multi-provider failover", "status": "approved", "scenes": 8, "created_at": "2026-09-24T06:30:00", "thumbnail": ""},
-        {"id": "tl-003", "title": "Platform engineering workflows", "status": "draft", "scenes": 4, "created_at": "2026-09-23T20:00:00", "thumbnail": ""},
-    ],
-    "stories": [
-        {"id": "sb-001", "title": "Kubernetes scheduling update", "status": "rendered", "created_at": "2026-09-24T07:45:00"},
-        {"id": "sb-002", "title": "AI router failover", "status": "approved", "created_at": "2026-09-24T06:00:00"},
-    ],
+    "drivers": ["timeline-video", "api-image", "video-edit"],
+    "drivers_source": "worker",
+    "timeline_driver": True,
+    "router_ready": True,
+    "jobs": MOCK_VIDEO_JOBS,
+    "stories": MOCK_STORYBOARD_DRAFTS,
     "media_base_url": "http://127.0.0.1:8850",
     "ok": True,
+    "error": "",
 }
 
 MOCK_ORCHESTRATION = {
@@ -484,20 +517,25 @@ class MockHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/video/studio":
             return self._json(MOCK_VIDEO_STUDIO)
         if path == "/api/video/storyboards":
-            return self._json({"storyboards": MOCK_VIDEO_STUDIO["stories"]})
+            return self._json({"drafts": MOCK_STORYBOARD_DRAFTS})
         if path.startswith("/api/video/storyboards/"):
             sb_id = path.split("/")[4]
-            return self._json({"id": sb_id, "title": "Sample storyboard", "status": "approved", "scenes": [
-                {"id": "sc-1", "type": "title", "text": "Introduction", "duration": 5},
-                {"id": "sc-2", "type": "explain", "text": "Key concepts explained", "duration": 15},
-                {"id": "sc-3", "type": "visual", "text": "Architecture diagram", "duration": 10},
-                {"id": "sc-4", "type": "callout", "text": "Main takeaway", "duration": 8},
-            ], "created_at": "2026-09-24T06:00:00"})
+            draft_row = next((row for row in MOCK_STORYBOARD_DRAFTS if row["id"] == sb_id), MOCK_STORYBOARD_DRAFTS[0])
+            return self._json({"draft": {
+                "id": sb_id,
+                "title": draft_row["title"],
+                "status": draft_row["status"],
+                "job": {"id": f"vj-{sb_id}", "status": draft_row.get("job_status") or "planned", "driver": "timeline-video"},
+                "storyboard": VIDEO_STORYBOARD,
+                "timeline": VIDEO_TIMELINE,
+                "created_at": draft_row["created_at"],
+            }})
         if path == "/api/video/jobs":
-            return self._json({"jobs": [
-                {"id": "vj-001", "storyboard": "sb-001", "status": "completed", "progress": 100, "created_at": "2026-09-24T08:00:00"},
-                {"id": "vj-002", "storyboard": "sb-002", "status": "rendering", "progress": 65, "created_at": "2026-09-24T07:00:00"},
-            ]})
+            return self._json({"jobs": MOCK_VIDEO_JOBS})
+        if re.search(r"^/api/video/jobs/[^/]+$", path):
+            job_id = path.split("/")[4]
+            job = next((row for row in MOCK_VIDEO_JOBS if row["id"] == job_id), MOCK_VIDEO_JOBS[0])
+            return self._json({"job": {**job, "log_tail": "mock render state only; no media file was generated"}})
         if path == "/api/orchestration/runs":
             return self._json(MOCK_ORCHESTRATION)
         if path.startswith("/api/orchestration/runs/"):
@@ -545,16 +583,57 @@ class MockHandler(http.server.BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if path == "/api/instagram/refresh":
             return self._json({"ok": True})
+        if path == "/api/video/plan":
+            return self._json({"storyboard": VIDEO_STORYBOARD, "timeline": VIDEO_TIMELINE})
+        if path == "/api/video/timeline/validate":
+            timeline = data.get("timeline") or VIDEO_TIMELINE
+            scenes = timeline.get("scenes") or []
+            return self._json({"ok": True, "timeline": timeline, "totals": {
+                "scenes": len(scenes),
+                "duration_seconds": sum(float(scene.get("duration") or 0) for scene in scenes),
+                "resolution": timeline.get("meta", {}).get("resolution", "1080x1920"),
+                "fps": timeline.get("meta", {}).get("fps", 30),
+            }})
+        if path == "/api/video/render":
+            return self._json({"ok": True, "job": {"id": "vj-demo-queued", "driver": "timeline-video", "status": "queued"}})
+        if path == "/api/video/storyboards":
+            return self._json({"draft": {
+                "id": "sb-new",
+                "title": data.get("topic") or "New storyboard draft",
+                "status": "draft",
+                "storyboard": VIDEO_STORYBOARD,
+                "timeline": VIDEO_TIMELINE,
+            }})
+        if re.search(r"^/api/video/storyboards/[^/]+/scenes/\d+/regenerate$", path):
+            return self._json({"ok": True, "scene": VIDEO_TIMELINE["scenes"][0]})
+        if re.search(r"^/api/video/storyboards/[^/]+/(approve|reject|render)$", path):
+            return self._json({"ok": True, "job": {"id": "vj-storyboard", "driver": "timeline-video", "status": "queued"}})
+        if re.search(r"^/api/video/jobs/[^/]+/retry$", path):
+            return self._json({"ok": True, "job": {"id": "vj-retry", "driver": "timeline-video", "status": "queued"}})
+        if path == "/api/knowledge/documents":
+            return self._json({"ok": True, "chunks": 12})
+        if path == "/api/knowledge/search":
+            return self._json({"ok": True, "results": [
+                {"score": 0.9214, "source": "product-docs", "content": "Content Manager routes drafting through Smart Router and keeps human approval before publishing."},
+                {"score": 0.8842, "source": "video-studio", "content": "Video Studio plans storyboard scenes, narration, visual asset type, transitions and timeline metadata before rendering."},
+                {"score": 0.7621, "source": "orchestration", "content": "The orchestrator breaks a goal into agent tasks, pauses at approval gates, then returns reviewer findings."},
+            ]})
         log.warning("Unhandled POST %s", path)
         return self._json({"ok": True})
 
     def do_PUT(self):
         path = self.path.split("?", 1)[0]
+        if re.search(r"^/api/video/storyboards/[^/]+$", path):
+            return self._json({"ok": True, "draft": {"id": path.split("/")[4], "status": "draft"}})
         log.warning("Unhandled PUT %s", path)
         return self._json({"ok": True, "changed": []})
 
     def do_DELETE(self):
         path = self.path.split("?", 1)[0]
+        if re.search(r"^/api/video/storyboards/[^/]+$", path):
+            return self._json({"ok": True})
+        if re.search(r"^/api/video/jobs/[^/]+$", path):
+            return self._json({"ok": True})
         log.warning("Unhandled DELETE %s", path)
         return self._json({"ok": True})
 
