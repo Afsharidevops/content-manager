@@ -17,22 +17,18 @@ and operator topics; evaluates them against an editable editorial policy;
 generates AI-assisted drafts and media; waits for human approval; and then
 publishes to the configured platforms.
 
-It is built on the Hermes Linux Stack with Smart Router, multi-agent
-orchestration, Media Studio, NotebookLM workflows, and reproducible deployment
-paths for Docker Compose and Helm.
+It extends the Hermes Linux Stack with Content Bot, Smart Router, multi-agent
+orchestration, Media Studio, NotebookLM workflows, object storage, and
+reproducible deployment paths for Docker Compose and Helm.
 
 **Publishing:** Telegram · Instagram · Bale · Eitaa · LinkedIn · Aparat  
 **AI:** OpenAI-compatible providers · Smart Router · 9router · OmniRoute  
 **Media:** Image generation · Video generation · Timeline rendering · NotebookLM  
 **Deploy:** Docker Compose · Helm · Kubernetes
 
-```text
-Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.4   Content Bot: 0.4.3   Media Studio: 0.5.1   NotebookLM Worker: 0.1.0   Panel: 0.6.0
-```
-
-Platform and component versions move independently. The platform release
-identifies the base stack; service images and Helm chart versions can advance
-without changing every component at once.
+Default image tags are defined in `.env.example` and can be pinned per service.
+The Content Manager release, Smart Router image, Content Bot, Media Studio,
+NotebookLM Worker, and Content Operations Center versions move independently.
 
 ## Why Content Manager?
 
@@ -193,7 +189,7 @@ The pipeline has four cooperating parts:
 
 ```text
 Hermes Agent / Open WebUI / n8n ─┐
-Content Bot (writer calls) ──────┼──► Smart Router v0.6.4 ──► 9router/OmniRoute ──► Providers
+Content Bot (writer calls) ──────┼──► Smart Router ──► 9router/OmniRoute ──► Providers
 Telegram polling (Hermes + bot) ─┘
 ```
 
@@ -280,23 +276,144 @@ daily proposal runs once per local day at `daily_proposal_time`;
 
 ## Management
 
-```bash
-./manage.sh menu                    # interactive manager
-./manage.sh status                  # container status
-./manage.sh logs content            # follow Content Bot logs
-./manage.sh content-status          # Content Bot summary (no secrets)
-./manage.sh pipeline-status         # Content Bot + Media Studio + API link summary
-./manage.sh notebooklm-status      # NotebookLM worker and session summary
-./manage.sh notebooklm-login       # open NotebookLM and verify the sign-in
-./manage.sh content-connect-instagram
-./manage.sh content-configure       # reconfigure Content Bot only (writer API, model, Telegram)
-./manage.sh configure               # re-run the installer wizard
-./manage.sh start | stop | restart | update
-./manage.sh doctor                  # diagnostics and hardening checks
-./manage.sh uninstall [--purge]     # remove stack; --purge also removes data
+`./manage.sh` is the daily operator interface. Run it without arguments for an
+interactive menu, or call a subcommand directly:
+
+**Core commands:**
+
+```text
+menu                         # Interactive manager
+status                       # Container status
+health [--json]              # Per-service health
+logs [SERVICE]               # Tail logs (hermes/9router/omniroute/smart-router/...)
+start | stop | restart       # Service lifecycle
+update                       # Safe update flow from scripts/stack-ops.sh
+doctor                       # Diagnostics and hardening checks
+configure                    # Re-run the installer wizard
+migrate-hermes-permissions   # Repair Hermes log ownership/mode
+uninstall [--purge]          # Remove stack; --purge also removes local runtime data
 ```
 
-Interactive groups cover services, router, Hermes, n8n, Content Bot, execution,
+**Content Bot & publishing:**
+
+```text
+content-status              Config summary (no secrets)
+content-configure           Reconfigure bot settings
+content-connect-instagram   Instagram/Meta setup checklist
+content-connect-bale        Store and verify the Bale bot token and channel
+content-connect-eitaa       Store and verify the Eitaa bot token and channel
+content-connect-linkedin    Store and verify the LinkedIn token and author
+content-aparat-check        Probe the stored Aparat browser session
+content-channels            Show all auto-channel state
+pipeline-status             Combined Content Bot + Media Studio + API link summary
+```
+
+**Media Studio:**
+
+```text
+media-status       Media Studio config summary
+media-configure    Reconfigure Media Studio settings
+media-guide        Print the media user guide
+```
+
+**NotebookLM Worker:**
+
+```text
+notebooklm-status         Worker, session mode, bot link (no secrets)
+notebooklm-login [SECS]   Open NotebookLM and verify the sign-in
+notebooklm-login-google   Automated sign-in with .env Google credentials
+notebooklm-enable         Enable the notebooklm profile
+notebooklm-disable        Disable the profile
+notebooklm-import-session Import a serialised session
+```
+
+**Panel:**
+
+```text
+panel-enable          Enable the panel profile and start the console
+panel-disable         Stop the console and remove the profile
+panel-status          URL, profile and token state
+panel-token           Print the operator token
+panel-rotate-token    Replace the token and restart the panel
+panel-build           Build the image locally
+```
+
+**Object storage (S3/RustFS):**
+
+```text
+s3-status                         Backend, endpoints, bucket and per-service state
+s3-enable [--rustfs|--external]    Configure RustFS or external S3
+s3-disable                        Stop the bundled server and switch back to local storage
+s3-verify [--create-bucket]       Prove the endpoint and credentials
+s3-keys [--show-secrets|--rotate] Show or rotate RustFS credentials
+s3-guide                          Public-domain and external-provider checklist
+domains                           Print public route suggestions
+```
+
+**Instagram media host:**
+
+```text
+instagram-media-status      Show the public media URL and profile state
+instagram-media-enable      Serve data/content-bot/media publicly
+instagram-media-disable     Stop the public media host and disable its profile
+instagram-media-tunnel-off  Stop only the public tunnel
+instagram-media-verify      Check that Meta can download the media URL
+```
+
+**Smart Router & Hermes:**
+
+```text
+router-menu                 Interactive router management menu
+router-status               Mode, policy, features and URLs
+router-access [--show-secrets]  Dashboard/control URLs and local credentials
+router-summary [HOURS]      Authenticated telemetry summary
+router-routes               Route profiles
+router-provider-health      Provider/model health and circuit state
+router-system               Operations Center system/feature state
+router-info                 Runtime router information
+router-policy POLICY        heuristic | calibrated | learned
+router-calibrate FILE       Calibrate from labeled JSONL
+router-report FILE          Evaluate policy against labeled JSONL
+router-replay FILE [OUT]    Replay requests offline
+set-router-mode MODE        observe | route
+restart-hermes              Restart the Hermes Agent container
+dashboard-access [--show-password]  Hermes dashboard URL and credentials
+```
+
+**Execution features (optional):**
+
+```text
+execution-menu                   Interactive execution menu
+enable-execution / disable-execution  Turn execution on/off
+set-execution-approval-bot-token Set the Telegram approval bot token
+enable-execution-admin           Enable the execution admin API
+add-ssh-profile / remove-ssh-profile / set-ssh-profile-password
+```
+
+**n8n workflow automation:**
+
+```text
+n8n-status                  Provisioning/MCP status without secrets
+set-n8n-api-key             Store owner API key
+set-n8n-instance-mcp-token  Store/validate Instance MCP token
+set-n8n-mcp-mode MODE       instance | trigger | off
+bootstrap-n8n / reconcile-n8n  Reconcile managed n8n objects
+verify-n8n                  Verify hosted chat and MCP integration
+rotate-n8n-trigger-token    Rotate Trigger-mode bearer token
+```
+
+**Backup and maintenance:**
+
+```text
+backup / backup-sections      Create full or partial backups
+backup-list                   List available backups
+restore / rollback            Restore from a backup
+lock-images / verify-images   Pin and verify image digests
+health                        Run platform health checks
+version                       Print stack version
+```
+
+Interactive menus cover services, router, Hermes, n8n, Content Bot, execution,
 maintenance, and security. Content Bot data is preserved when the bot is
 disabled or the stack is uninstalled without `--purge`.
 
@@ -305,51 +422,56 @@ The full operator guide for the Content Bot is
 
 ## Image publishing
 
-The component images are built on GitHub Actions and published to Docker Hub
-whenever their source is pushed to `main`:
+Published image defaults come from `.env.example` and can be overridden in the
+real `.env` before running `docker compose pull` or `./manage.sh start`.
+Release workflows publish the Content Manager application images and the Smart
+Router image; the execution broker is consumed as a pinned published image.
 
-```text
-afsharidevops/content-bot:0.4.3
-afsharidevops/media-studio:0.5.1
-afsharidevops/content-panel:0.6.0
-afsharidevops/notebooklm-worker:0.1.0
-afsharidevops/content-bot:latest
-```
+| Service | Default image |
+| --- | --- |
+| Content Bot | `afsharidevops/content-bot:0.4.3` |
+| Media Studio | `afsharidevops/media-studio:0.5.1` |
+| Content Operations Center | `afsharidevops/content-panel:0.6.0` |
+| NotebookLM Worker | `afsharidevops/notebooklm-worker:0.1.0` |
+| Smart Router | `afsharidevops/hermes-smart-router:0.6.4` |
+| Execution Broker | `afsharidevops/hermes-execution-broker:0.1.3` |
 
-Servers pull it; they never build it. To move a server to the newest build, set
-`CONTENT_BOT_IMAGE_TAG=latest` in `.env` and run `./manage.sh start`. See
+Mutable upstream images remain mutable by design (`decolua/9router:latest`,
+`diegosouzapw/omniroute:latest`, `nousresearch/hermes-agent:latest`,
+`ghcr.io/open-webui/open-webui:main`, `n8nio/n8n:latest`,
+`rustfs/rustfs:latest`). Pin them in `.env` after testing. `./manage.sh
+lock-images` and `./manage.sh verify-images` can pin and verify digests. See
 [docs/publishing/CONTENT-BOT-DOCKERHUB.md](docs/publishing/CONTENT-BOT-DOCKERHUB.md).
 
-## Platform components (inherited, summarized)
+## Compose components
 
-| Component | Role | Default bind |
-| --- | --- | --- |
-| 9router | Provider/model gateway with API keys (profile `9router`) | `127.0.0.1:20128` |
-| OmniRoute | Dashboard + OpenAI-compatible API (profile `omniroute`) | `127.0.0.1:20128` / `20129` |
-| Hermes Smart Router | Capability routing, aliases, dashboard, multi-agent Orchestrator | `127.0.0.1:8787` |
-| Hermes Agent | Telegram/agent runtime, dashboard/API | `127.0.0.1:9119` / `8642` |
-| Open WebUI | Chat UI | `127.0.0.1:3000` |
-| n8n (optional) | Workflow automation + MCP | `127.0.0.1:5678` |
-| Caddy (optional) | Public HTTPS domains | 80/443 |
-| Content Bot | Telegram editorial bot (polling, no ingress) | none |
+| Component | Compose profile | Role | Default bind |
+| --- | --- | --- | --- |
+| 9router | `9router` | Provider/model gateway with API keys | `127.0.0.1:20128` |
+| OmniRoute | `omniroute` | Alternative router backend with dashboard and OpenAI-compatible API | `127.0.0.1:20128` / `127.0.0.1:20129` |
+| Smart Router | `smart-router` | Capability routing, aliases, dashboard, multi-agent orchestration, knowledge, and control-plane APIs | `127.0.0.1:8787` |
+| Hermes Agent | `hermes` | Agent runtime, API, and optional dashboard | `127.0.0.1:8642` / `127.0.0.1:9119` |
+| Open WebUI | `open-webui` | Optional chat UI connected to the selected router backend | `127.0.0.1:3000` |
+| n8n | `n8n` | Optional workflow automation and MCP integration | `127.0.0.1:5678` |
+| Content Bot | `content` | Telegram editorial bot, drafting, approval flow, media handoff, and platform publishing | none; long-polls Telegram |
+| Media Studio | `media` | Optional image/video generation and timeline rendering worker | `127.0.0.1:8850` |
+| NotebookLM Worker | `notebooklm` | Optional NotebookLM Video Overview worker | `127.0.0.1:8860` |
+| Content Operations Center | `panel` | Optional operator console for status, configuration, platform credentials, logs, backups, actions, storyboard, Video Studio, and orchestration | `127.0.0.1:8899` |
+| RustFS | `rustfs` | Optional bundled S3-compatible object storage | `127.0.0.1:9000` / `127.0.0.1:9001` |
+| Instagram media host | `ig-media` | Optional local nginx media host for Meta Graph API uploads | `127.0.0.1:8099` |
+| Caddy | `caddy` | Optional public HTTPS reverse proxy | `0.0.0.0:80` / `0.0.0.0:443` |
+| Execution broker | `execution-docker`, `execution-ssh`, `execution-approval`, `execution-admin` | Optional execution features with separate broker, approval, and admin boundaries | admin API on `127.0.0.1:8752` when enabled |
 
-Hermes polls the Telegram Bot API; it does not expose an inbound Telegram port.
-Runtime data lives under `data/` (`data/9router`, `data/omniroute`,
-`data/hermes`, `data/smart-router`, `data/open-webui`, `data/n8n`,
-`data/content-bot`, `data/content-manager`, `data/stack-secrets`). Secrets
-stay in `.env` and
-`data/stack-secrets/`; never commit runtime secrets or databases.
+Runtime data lives under `data/` (`data/content-bot`, `data/content-manager`,
+`data/media-studio`, `data/notebooklm-worker`, `data/panel`,
+`data/smart-router`, `data/stack-secrets`, and enabled platform/service state
+directories). Secrets stay in `.env` and `data/stack-secrets/`; never commit
+runtime secrets or databases.
 
-Application images intentionally default to mutable tags so `docker compose
-pull` tracks upstream releases; pin any service with its `*_IMAGE_TAG` in
-`.env` after testing. `./manage.sh lock-images` and `./manage.sh verify-images`
-pin and verify digests.
-
-Smart Router published image: `afsharidevops/hermes-smart-router:latest`
-(platform `linux/amd64`, `linux/arm64`). Upstream platform behavior - routing
-modes, Operations Center, execution approvals, n8n provisioning, RAG storage -
-is documented in [docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
-and [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Smart Router behavior - routing modes, Operations Center, execution approvals,
+n8n provisioning, knowledge/RAG storage, and deployment examples - is documented
+in [docs/SMART-ROUTER-USER-GUIDE.md](docs/SMART-ROUTER-USER-GUIDE.md) and
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Router backend policy
 
@@ -389,7 +511,6 @@ bash tests/test-manage-ux.sh
 - [Content Operations Center](docs/PANEL.md) - optional web console for status, platform credentials, config, logs, actions
 - [Object storage](docs/S3-STORAGE.md) - bundled RustFS or an external S3 endpoint for stack services
 - [Content Bot Docker Hub](docs/publishing/CONTENT-BOT-DOCKERHUB.md) - image publishing
-- [Operations Center user guide](docs/HERMES-OPERATIONS-CENTER-USER-GUIDE-v0.5.9.md)
 - [Smart Router complete user guide](docs/SMART-ROUTER-USER-GUIDE.md) - every panel page, client API, recipes, configuration, and troubleshooting
 - [Multi-agent orchestration](docs/ORCHESTRATION.md) - plan, approve/reject, review
 - [Operations](docs/OPERATIONS.md) and [release process](docs/RELEASE-PROCESS.md)
