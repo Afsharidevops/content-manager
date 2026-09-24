@@ -2,11 +2,9 @@
 
 ### Self-hosted AI Content Operations Platform
 
-[![Validate](https://github.com/Afsharidevops/content-manager/actions/workflows/validate.yml/badge.svg)](https://github.com/Afsharidevops/content-manager/actions/workflows/validate.yml)
-[![Security](https://github.com/Afsharidevops/content-manager/actions/workflows/security-v0.5.9.yml/badge.svg)](https://github.com/Afsharidevops/content-manager/actions/workflows/security-v0.5.9.yml)
-[![Helm](https://github.com/Afsharidevops/content-manager/actions/workflows/publish-helm-chart.yml/badge.svg)](https://github.com/Afsharidevops/content-manager/actions/workflows/publish-helm-chart.yml)
+[![CI](https://github.com/Afsharidevops/content-manager/actions/workflows/validate.yml/badge.svg)](https://github.com/Afsharidevops/content-manager/actions/workflows/validate.yml)
+[![Latest release](https://img.shields.io/github/v/release/Afsharidevops/content-manager?label=release)](https://github.com/Afsharidevops/content-manager/releases/latest)
 [![Content Bot image](https://img.shields.io/docker/v/afsharidevops/content-bot?label=content-bot&logo=docker)](https://hub.docker.com/r/afsharidevops/content-bot)
-[![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](content/pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **Discover → Score → Draft → Approve → Publish**
@@ -39,13 +37,37 @@ without changing every component at once.
 ## Why Content Manager?
 
 Most AI content tools stop at generation. Content Manager covers the operational
-loop around generation: discovery, editorial policy, scoring, AI drafting, media
-production, approval, multi-platform publishing, status visibility, and recovery
-from failed media jobs.
+loop around generation: discovery from feeds, links, and topics; editorial
+policy and scoring; AI-assisted drafting; media production; human approval; and
+publishing to configured channels.
 
 It is designed to be self-hosted, provider-agnostic, approval-gated, and
-operationally reproducible: the same repository contains the bot, content policy,
-router, media worker, operator console, Docker Compose stack, and Helm chart.
+operationally reproducible: the same repository contains the bot, content
+policy, router integration, media workers, Content Operations Center, Docker
+Compose stack, and Helm chart.
+
+![Content Operations Center pipeline state](docs-site/assets/content-console-pipeline-state-v0.6.0.png)
+
+## Quick start
+
+Requirements:
+
+- Linux, Bash, Docker Engine with the Compose plugin, Git
+- Outbound HTTPS to Docker Hub and the Telegram Bot API
+- A Telegram bot token, your numeric Telegram user ID, and a Telegram channel
+- At least one AI provider configured in 9router or OmniRoute
+
+```bash
+git clone https://github.com/Afsharidevops/content-manager.git
+cd content-manager
+chmod +x install.sh manage.sh
+./install.sh
+```
+
+The installer asks which router backend to use, prompts for Content Bot
+settings, writes secrets to `.env`, seeds the editable content policy, pulls the
+published images, and starts the stack. Use `./install.sh --dry-run` to preview
+configuration without starting services.
 
 ## Screenshots
 
@@ -54,20 +76,20 @@ Every screenshot below comes from the optional Content Operations Center
 stack: the same views the operator uses to watch the pipeline, decide on drafts,
 check object storage, and take backups. The captures use demonstration data.
 
-| Stack status | Pipeline state |
+| Stack status | Publishing platforms |
 | --- | --- |
-| [![Operator console: stack status](docs-site/assets/content-console-overview-v0.3.0.png)](docs-site/assets/content-console-overview-v0.3.0.png) | [![Operator console: pipeline state](docs-site/assets/content-console-pipeline-state-v0.3.0.png)](docs-site/assets/content-console-pipeline-state-v0.3.0.png) |
-| Containers, image tags, published ports, disk usage, Instagram credentials, and Media Studio jobs. | The live draft queue with the same decisions as Telegram, plus the scheduled routines. |
+| [![Content Operations Center: stack status](docs-site/assets/content-console-overview-v0.6.0.png)](docs-site/assets/content-console-overview-v0.6.0.png) | [![Content Operations Center: publishing platforms](docs-site/assets/content-console-platforms-v0.6.0.png)](docs-site/assets/content-console-platforms-v0.6.0.png) |
+| Containers, profiles, disk usage, public endpoints, network exposure, and image tags at a glance. | Platform cards for Telegram, Instagram, Bale, Eitaa, LinkedIn, Aparat, AI writer, and Media Studio. |
 
 | Object storage | Backups |
 | --- | --- |
-| [![Operator console: object storage](docs-site/assets/content-console-storage-v0.3.0.png)](docs-site/assets/content-console-storage-v0.3.0.png) | [![Operator console: backups](docs-site/assets/content-console-backups-v0.3.0.png)](docs-site/assets/content-console-backups-v0.3.0.png) |
-| The shared S3 block, the per-service storage matrix, and the bundled RustFS state. | Full and section backups, each with size, stack version, and what it contains. |
+| [![Content Operations Center: object storage](docs-site/assets/content-console-storage-v0.6.0.png)](docs-site/assets/content-console-storage-v0.6.0.png) | [![Content Operations Center: backups](docs-site/assets/content-console-backups-v0.6.0.png)](docs-site/assets/content-console-backups-v0.6.0.png) |
+| The shared S3 block, per-service storage matrix, and bundled RustFS state. | Full and section backups, each with size, stack version, and included sections. |
 
-| Stack actions |
+| Multi-agent orchestration |
 | --- |
-| [![Operator console: stack actions](docs-site/assets/content-console-actions-v0.3.0.png)](docs-site/assets/content-console-actions-v0.3.0.png) |
-| The fixed action whitelist: compose and `manage.sh` operations, nothing else. Every unconfirmed run is a single button; `Apply changes` and the two backup actions ask first. |
+| [![Content Operations Center: multi-agent orchestration](docs-site/assets/content-console-orchestration-v0.6.0.png)](docs-site/assets/content-console-orchestration-v0.6.0.png) |
+| Runs planned and executed through the Hermes orchestrator, including approval state, failures, and reviewer feedback. |
 
 ## What it does
 
@@ -180,26 +202,7 @@ profiles, and stay on private Docker networks with loopback-only host binds by
 default. The Content Bot needs only outbound HTTPS to the Telegram Bot API and
 to the writer endpoint - no public ingress.
 
-## Quick start
-
-Requirements:
-
-- Linux, Bash, Docker Engine with the Compose plugin, Git
-- Outbound HTTPS to Docker Hub and the Telegram Bot API
-- A Telegram bot token (create one with `@BotFather`) and your numeric Telegram
-  user ID
-- A Telegram channel (the bot must be added as an administrator to publish)
-- At least one AI provider configured in the selected router backend
-  (9router or OmniRoute)
-
-Install:
-
-```bash
-git clone https://github.com/Afsharidevops/content-manager.git
-cd content-manager
-chmod +x install.sh manage.sh
-./install.sh
-```
+## Install details
 
 The installer asks which router backend to use - 9router or OmniRoute - and
 which components to enable, prompts for Content Bot settings (bot token,

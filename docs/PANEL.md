@@ -6,12 +6,13 @@ service logs, and running a fixed whitelist of stack actions. It is an optional
 Compose profile (`panel`) and nothing else in the stack depends on it.
 
 Screens from a running console (demonstration data) are published with the
-README: `docs-site/assets/content-console-overview-v0.3.0.png`,
-`content-console-pipeline-state-v0.3.0.png`,
-`content-console-storage-v0.3.0.png`, `content-console-backups-v0.3.0.png`, and
-`content-console-actions-v0.3.0.png` in the same directory. They are captured
-from the panel Docker image against a seeded demo stack directory, so nothing
-in them comes from a real deployment.
+README: `docs-site/assets/content-console-overview-v0.6.0.png`,
+`content-console-pipeline-state-v0.6.0.png`,
+`content-console-platforms-v0.6.0.png`,
+`content-console-storage-v0.6.0.png`, `content-console-backups-v0.6.0.png`, and
+`content-console-orchestration-v0.6.0.png` in the same directory. They are
+captured from the panel Docker image against a seeded demo stack directory, so
+nothing in them comes from a real deployment.
 
 ## Why a separate container
 
