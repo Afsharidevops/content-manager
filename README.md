@@ -1,17 +1,23 @@
 # Content Manager
 
-Content Manager is a self-hosted daily content-production stack. It discovers
-candidate stories from RSS/Atom feeds and operator-shared links, filters and
-scores them against an owner-editable editorial policy, drafts posts through a
-configurable writer, and publishes them only after a human approves the post in
-Telegram.
+### Self-hosted AI Content Operations Platform
 
-The runtime is built on the [Hermes Linux Stack](https://github.com/Afsharidevops/hermes-linux-stack)
-v0.5.9 platform (9router or OmniRoute backend, Hermes Smart Router, Hermes
-Agent/Telegram, Open WebUI, optional n8n) and extends it with a deterministic content layer under
-`content/` and the `content-bot` Telegram editorial bot. Persian copy is
-produced at runtime by the writer; everything stored in this repository is
-English-only.
+**Discover → Score → Draft → Approve → Publish**
+
+Content Manager is a self-hosted, human-in-the-loop content production platform
+for automated editorial workflows.
+
+It discovers stories from RSS feeds and shared links, evaluates them against an
+editable editorial policy, drafts content through OpenAI-compatible AI models,
+and publishes only after human approval.
+
+Built on the Hermes Linux Stack with Smart Router, multi-agent orchestration,
+Media Studio, NotebookLM workflows, and multi-platform publishing.
+
+**Publishing:** Telegram · Instagram · Bale · Eitaa · LinkedIn · Aparat  
+**AI:** OpenAI-compatible providers · Smart Router · 9router · OmniRoute  
+**Media:** Image generation · Video generation · Timeline rendering · NotebookLM  
+**Deploy:** Docker Compose · Helm · Kubernetes
 
 ```text
 Branch: main   Platform: Hermes Linux Stack v0.5.9   Smart Router: 0.6.4   Content Bot: 0.4.3   Media Studio: 0.5.1   NotebookLM Worker: 0.1.0   Panel: 0.6.0
