@@ -153,8 +153,21 @@ def _studio_root(page):
         if root is not None:
             return root
     for selector in ("[aria-label*='Studio' i]", "[aria-label*='استودیو']", "[class*='studio']"):
-        root = _first_visible(page.locator(selector))
-        if root is not None:
+        nodes = page.locator(selector)
+        for index in range(min(nodes.count(), 50)):
+            root = nodes.nth(index)
+            if not _is_visible(root):
+                continue
+            tag = _attribute(root, "tagName").casefold()
+            role = _attribute(root, "role").casefold()
+            if role == "button":
+                continue
+            try:
+                tag = root.evaluate("node => node.tagName.toLowerCase()")
+            except Exception:
+                tag = ""
+            if tag == "button":
+                continue
             return root
     return page
 
@@ -198,6 +211,11 @@ def _open_video_customization(page, settings, selectors: dict):
         overview = _first_visible(studio.get_by_text(_regex(ui.labels("video_overview"))))
     if overview is None:
         overview = find_first(studio, selectors.get("video_overview", []), timeout=5)
+    if overview is None:
+        # Fallback: search the whole page (Video Overview may be outside studio root)
+        overview = _first_visible(page.get_by_role("button", name=_regex(ui.labels("video_overview"))))
+    if overview is None:
+        overview = find_first(page, selectors.get("video_overview", []), timeout=3)
     if overview is None:
         raise NotebookLMError("open video overview", "Video Overview control was not found in Studio")
     _click_ready(overview, step="open video overview")
