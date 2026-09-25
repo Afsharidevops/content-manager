@@ -1901,6 +1901,7 @@ notebooklm_ensure_token() {
     replace_env_value "$ENV_FILE" NOTEBOOKLM_API_TOKEN "$token"
     printf 'Generated the shared NotebookLM API token.\n'
   fi
+  replace_env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_TOKEN "$token"
   printf '%s' "$token"
 }
 
@@ -1986,8 +1987,16 @@ notebooklm_enable() {
   notebooklm_add_profile >/dev/null
   notebooklm_ensure_token >/dev/null
   notebooklm_ensure_data_dir
+  if [[ -z "$(env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_URL)" ]]; then
+    replace_env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_URL "http://notebooklm-worker:$(notebooklm_port)"
+  fi
+  replace_env_value "$ENV_FILE" CONTENT_NOTEBOOKLM_ENABLED true
   printf 'Starting the NotebookLM worker.\n'
   compose up -d --no-deps notebooklm-worker
+  if [[ -n "$(compose ps -q content-bot 2>/dev/null)" ]]; then
+    printf 'Restarting content-bot so it reads the NotebookLM URL and token.\n'
+    compose up -d --no-deps content-bot
+  fi
   printf 'NotebookLM worker is enabled. Next steps:\n'
   printf '  1) Sign in to https://notebooklm.google.com in the browser the worker uses.\n'
   printf '  2) Verify it with ./manage.sh notebooklm-login 15\n'

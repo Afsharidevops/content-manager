@@ -2296,6 +2296,16 @@ if [[ "$install_content" == true && "$install_media" == true ]]; then
     replace_env_value "$tmp_env" CONTENT_MEDIA_VIDEO_EDIT_DRIVER "video-edit"
   fi
 fi
+if [[ "$install_content" == true && "$profiles" == *notebooklm* ]]; then
+  notebooklm_api_token="$(read_unique_env_value "$tmp_env" NOTEBOOKLM_API_TOKEN)"
+  if [[ -n "$notebooklm_api_token" ]]; then
+    replace_env_value "$tmp_env" CONTENT_NOTEBOOKLM_TOKEN "$(dotenv_quote "$notebooklm_api_token")"
+  fi
+  if [[ -z "$(read_unique_env_value "$tmp_env" CONTENT_NOTEBOOKLM_URL)" ]]; then
+    replace_env_value "$tmp_env" CONTENT_NOTEBOOKLM_URL "http://notebooklm-worker:8860"
+  fi
+  replace_env_value "$tmp_env" CONTENT_NOTEBOOKLM_ENABLED true
+fi
 # When Media Studio is disabled while the Content Bot stays enabled, drop the
 # auto-wired local link so the bot stops offering media jobs. A custom remote
 # Media Studio URL is preserved for split deployments.
