@@ -199,6 +199,14 @@ class EitaaChannelTests(unittest.TestCase):
                 channel.send_text("hello")
         self.assertIn("chat not found", str(caught.exception))
 
+    def test_send_file_rejects_large_uploads_before_gateway_timeout(self):
+        channel = self.build()
+        with mock.patch.object(channels, "request_multipart") as request:
+            with self.assertRaises(channels.ChannelError) as caught:
+                channel.send_video("clip.mp4", b"x" * 6_500_001, "Caption")
+        self.assertIn("exceeds the 6500000-byte upload limit", str(caught.exception))
+        request.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

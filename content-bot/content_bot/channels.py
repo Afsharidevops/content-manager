@@ -147,6 +147,9 @@ class TelegramLikeChannel(ChatChannel):
 class EitaaChannel(ChatChannel):
     """Eitaa through the EitaaYar gateway (sendMessage / sendFile)."""
 
+    # EitaaYar multipart upload becomes unreliable above this size (~7 MiB).
+    _MAX_UPLOAD_BYTES: int = 6_500_000
+
     def _post(self, method: str, payload: dict) -> dict:
         """Post one gateway call, retrying as form data when JSON is refused."""
         url = f"{self.api_base}/{self.token}/{method}"
@@ -189,6 +192,12 @@ class EitaaChannel(ChatChannel):
         )
 
     def _send_file(self, filename: str, data: bytes, caption: str) -> None:
+        if len(data) > self._MAX_UPLOAD_BYTES:
+            raise ChannelError(
+                f"{self.label}: video file is {len(data)} bytes, which exceeds the "
+                f"{self._MAX_UPLOAD_BYTES}-byte upload limit of this gateway. "
+                "Sending a text post instead of the video."
+            )
         url = f"{self.api_base}/{self.token}/sendFile"
         last_error: Exception | None = None
         for attempt in range(3):

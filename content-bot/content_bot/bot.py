@@ -3726,6 +3726,7 @@ class ContentBot:
         the remaining ones.
         """
         draft_id = str(record.get("id") or "")
+        oversized_gateway_error = "exceeds the upload limit of this gateway"
         already = list(record.get("published_targets") or [])
         if profile.key in already:
             if not quiet:
@@ -3792,6 +3793,37 @@ class ContentBot:
             else:
                 channel.send_text(self.channel_text(published_record))
         except (channels_mod.ChannelError, OSError) as error:
+            error_text = str(error)
+            if (
+                kind in {"image", "video"}
+                and oversized_gateway_error in error_text
+                and not platforms_mod.needs_video(profile)
+            ):
+                log.info(
+                    "%s: falling back to text-only publish because the media file "
+                    "exceeds the gateway upload limit",
+                    profile.key,
+                )
+                channel.send_text(self.channel_text(published_record))
+                for continuation in messages[1:]:
+                    channel.send_text(continuation)
+                if draft_id and self.state.get_draft(draft_id) is not None:
+                    self.state.update_draft(
+                        draft_id, {"published_targets": already + [profile.key]}
+                    )
+                row = publications_mod.build_publication(
+                    draft_id,
+                    profile.key,
+                    publications_mod.STATUS_PUBLISHED,
+                ).as_row()
+                self._record_publication(row)
+                if not quiet:
+                    self._safe_answer(
+                        query_id,
+                        f"{profile.label}: published as text; video is too large "
+                        "for this gateway.",
+                    )
+                return row
             log.warning("channel publish failed (%s): %s", profile.key, error)
             row = publications_mod.build_publication(
                 draft_id,
