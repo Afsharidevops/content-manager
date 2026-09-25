@@ -180,6 +180,23 @@ if __name__ == "__main__":
 
 
 class AuditVideoHelperTests(unittest.TestCase):
+    def test_card_label_strips_material_check_prefix_without_space(self):
+        card = mock.Mock()
+        card.get_attribute.return_value = ""
+        card.text_content.return_value = "checkانیمه"
+        self.assertEqual("انیمه", v._card_label(card))
+
+    def test_language_can_be_verified_from_dialog_text(self):
+        page = mock.Mock()
+        dialog = mock.Mock()
+        dialog.get_by_role.return_value.count.return_value = 0
+        dialog.locator.return_value.count.return_value = 0
+        dialog.text_content.return_value = " ".join(
+            (ui.labels("language")[1], ui.labels("persian")[1])
+        )
+        v._select_video_language(page, dialog)
+        self.assertNotIn(mock.call("combobox"), dialog.get_by_role.mock_calls)
+
     def test_style_control_button_is_not_a_style_card(self):
         card = mock.Mock()
         card.get_attribute = mock.Mock(side_effect=lambda attr: {

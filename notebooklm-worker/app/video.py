@@ -321,6 +321,21 @@ def _select_video_language(page, dialog, language: str = "persian") -> None:
         ("[data-testid*='language']", "[class*='language']"),
     )
     if container is None:
+        dialog_text = ui.normalize_label(_text(dialog))
+        if any(ui.normalize_label(label) in dialog_text for label in ui.labels("language")) and any(
+            ui.normalize_label(label) in dialog_text for label in ui.labels("persian")
+        ):
+            LOGGER.info("Language: Persian (already selected)")
+            return
+        dialog_comboboxes = dialog.get_by_role("combobox")
+        for index in range(min(dialog_comboboxes.count(), 20)):
+            candidate = dialog_comboboxes.nth(index)
+            if not _is_visible(candidate):
+                continue
+            candidate_text = ui.normalize_label(_text(candidate))
+            if any(ui.normalize_label(label) in candidate_text for label in ui.labels("persian")):
+                LOGGER.info("Language: Persian (already selected)")
+                return
         raise NotebookLMError("video language", "Language container was not found")
     if any(ui.normalize_label(label) in ui.normalize_label(_text(container)) for label in ui.labels("persian")):
         LOGGER.info("Language: Persian (already selected)")
@@ -352,7 +367,8 @@ def _select_video_language(page, dialog, language: str = "persian") -> None:
 def _option_cards(container):
     return container.locator(
         "[role='radio'], [data-option], [data-value], "
-        "[class*='option-card'], [class*='format-card'], [class*='style-card'], mat-card"
+        "[class*='option-card'], [class*='format-card'], [class*='style-card'], "
+        "mat-card, mat-radio-button, .tile-radio-button, .carousel-radio-button"
     )
 
 
@@ -361,7 +377,15 @@ def _card_label(card) -> str:
     if aria:
         return aria
     lines = [line.strip() for line in _text(card).splitlines() if line.strip()]
-    return lines[0] if lines else ""
+    label = lines[0] if lines else ""
+    normalized = ui.normalize_label(label)
+    if normalized.startswith("check "):
+        return label.split(maxsplit=1)[1] if len(label.split(maxsplit=1)) > 1 else ""
+    if normalized.startswith("check"):
+        remainder = label[len("check"):].strip()
+        if remainder:
+            return remainder
+    return label
 
 
 def _card_selected(card) -> bool | None:
@@ -378,11 +402,19 @@ def _card_selected(card) -> bool | None:
 def _find_option_card(container, labels: tuple[str, ...]):
     cards = _option_cards(container)
     normalized = [ui.normalize_label(label) for label in labels]
+    compact = [label.replace(" ", "") for label in normalized]
     for index in range(min(cards.count(), 100)):
         card = cards.nth(index)
         label = ui.normalize_label(_card_label(card))
         text = ui.normalize_label(_text(card))
-        if label in normalized or any(text == target or text.startswith(f"{target} ") for target in normalized):
+        compact_label = label.replace(" ", "")
+        compact_text = text.replace(" ", "")
+        if label in normalized or any(
+            text == target
+            or text.startswith(f"{target} ")
+            or text.startswith(target)
+            for target in normalized
+        ) or compact_label in compact or any(compact_text.startswith(target) for target in compact):
             return card
     return None
 
@@ -405,22 +437,27 @@ def _is_style_card(card) -> bool:
     data_value = _attribute(card, "data-value") or _attribute(card, "data-option")
     if role == "radio" or data_value:
         return True
-    return any(token in classes for token in ("style-card", "option-card", "visual-style"))
+    return any(token in classes for token in ("style-card", "option-card", "visual-style", "carousel-radio-button"))
 
 
 def _select_video_template(page, dialog, template: str = "explainer") -> str:
     """Select the card-based Format option."""
     del page
     normalized = ui.normalize_label(template)
-    target = ui.labels("explainer") if normalized in {"explainer", "descriptive"} else ("Brief", "کوتاه")
+    target = ui.labels("explainer") if normalized in {"explainer", "descriptive"} else ("Brief", "کوتاه", "قالب کوتاه")
     container = _labeled_container(
         dialog,
         ui.labels("format"),
         ("[data-testid*='format']", "[class*='format']", "[class*='template']"),
     )
     if container is None:
+        if _first_visible(dialog.locator(".tile-radio-button, mat-radio-button")) is not None:
+            container = dialog
+    if container is None:
         raise NotebookLMError("video format", "Format card container was not found")
     card = _find_option_card(container, target)
+    if card is None and container is not dialog:
+        card = _find_option_card(dialog, target)
     if card is None:
         raise NotebookLMError("video format", f"format card was not found: {template}")
     if _card_selected(card) is not True:
@@ -456,7 +493,13 @@ def _style_container(dialog):
     return _labeled_container(
         dialog,
         ui.labels("visual_style"),
-        ("[data-testid*='visual-style']", "[data-testid*='style']", "[class*='visual-style']", "[class*='style-picker']"),
+        (
+            "[data-testid*='visual-style']",
+            "[data-testid*='style']",
+            "[class*='visual-style']",
+            "[class*='style-picker']",
+            ".carousel-group",
+        ),
     )
 
 

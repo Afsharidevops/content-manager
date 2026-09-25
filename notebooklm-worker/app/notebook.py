@@ -455,12 +455,15 @@ def dismiss_blocking_popovers(page) -> int:
         closed = page.evaluate("""
             () => {
                 let count = 0;
-                const roots = Array.from(document.querySelectorAll('.cdk-overlay-popover, .cdk-overlay-pane'));
+                const roots = Array.from(document.querySelectorAll(
+                    '.cdk-overlay-popover, .cdk-overlay-pane, .cdk-overlay-container > *'
+                ));
                 const clicked = new Set();
                 roots.forEach(root => {
                     if (root.querySelector('textarea, input, [contenteditable="true"], [aria-label="ارسال"]')) return;
                     const isPromo = Array.from(root.querySelectorAll('img')).some(img =>
-                        String(img.src || '').includes('/promos/') || String(img.alt || '').includes('Gemini Notebook')
+                        String(img.src || '').includes('/promos/')
+                        || /gemini|صف پخش|play.queue|queue.play/i.test(String(img.alt || ''))
                     );
                     if (!isPromo) return;
                     const close = root.querySelector(
@@ -1336,7 +1339,15 @@ class NotebookEditor:
                     const text = (el.textContent || '').trim();
                     const aria = el.getAttribute('aria-label') || '';
                     const role = el.getAttribute('role') || '';
-                    if (el.tagName === 'BUTTON' || role === 'button') return true;
+                    // Source items in the current NotebookLM UI are <button> elements
+                    // with class "source-stretched-button" and the source title in aria-label.
+                    // Only treat as control if it looks like a UI control, not a source item.
+                    if (el.tagName === 'BUTTON') {
+                        const cls = (el.className || '') + ' ' + (el.getAttribute('role') || '');
+                        if (/source-stretched-button/.test(cls)) return false;
+                        if (aria && text === '') return false;
+                    }
+                    if (role === 'button' && !/source-stretched-button/.test(el.className || '')) return true;
                     if (/add source|add sources|افزودن منبع|افزودن منابع/i.test(text + ' ' + aria)) return true;
                     if (/source selector|select sources/i.test(aria)) return true;
                     return false;

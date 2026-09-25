@@ -17,10 +17,24 @@ class BrokenPage:
         raise RuntimeError("page died")
 
 
+class SourceButtonPage:
+    def evaluate(self, script, *_args, **_kwargs):
+        self.script = script
+        return 3
+
+
 class SourceCountAuditTests(unittest.TestCase):
     def test_source_count_exception_is_zero_not_negative(self):
         editor = NotebookEditor(BrokenPage(), Settings())
         self.assertEqual(0, editor.source_count())
+
+    def test_source_count_allows_current_source_item_buttons(self):
+        page = SourceButtonPage()
+        editor = NotebookEditor(page, Settings())
+
+        self.assertEqual(3, editor.source_count())
+        self.assertIn("source-stretched-button", page.script)
+        self.assertNotIn("el.tagName === 'BUTTON' || role === 'button'", page.script)
 
 class CreateModalSelectorTests(unittest.TestCase):
     def test_submit_selectors_do_not_match_fast_research(self):

@@ -16,7 +16,7 @@ UI_LABELS: dict[str, tuple[str, ...]] = {
     "persian": ("Persian", "فارسی"),
     "format": ("Format", "فرمت", "قالب"),
     "explainer": ("Explainer", "توضیحدهنده".replace("\x7f", "")),
-    "visual_style": ("Visual Style", "Style", "سبک بصری", "سبک"),
+    "visual_style": ("Visual Style", "Style", "سبک بصری", "سبک دیداری", "سبک"),
     "generate_now": ("Generate now", "اکنون تولید کردن", "اکنون تولید"),
     "more": ("More", "More options", "بیشتر", "گزینههای بیشتر".replace("\x7f", "")),
     "download": ("Download", "دانلود", "بارگیری"),
