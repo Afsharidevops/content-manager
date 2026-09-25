@@ -151,3 +151,16 @@ class StoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class VideoStyleModelTests(unittest.TestCase):
+    def test_video_style_fields_round_trip(self):
+        job = models.NotebookLMJob(
+            topic="Topic",
+            video_style="all",
+            video_template="explainer",
+            video_paths={"anime": "/tmp/a.mp4"},
+        )
+        loaded = models.NotebookLMJob.from_dict(job.to_dict())
+        self.assertEqual("all", loaded.video_style)
+        self.assertEqual("explainer", loaded.video_template)
+        self.assertEqual({"anime": "/tmp/a.mp4"}, loaded.video_paths)

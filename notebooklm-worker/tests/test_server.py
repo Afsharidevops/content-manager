@@ -188,3 +188,15 @@ class ServerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class VideoStyleAPITests(ServerTests):
+    def test_video_style_job_payload_is_stored(self):
+        status, payload = self.request(
+            "POST",
+            "/jobs",
+            {"topic": "Topic", "video_style": "all", "video_template": "explainer"},
+        )
+        self.assertEqual(201, status)
+        job = payload["job"]
+        self.assertEqual("all", job["video_style"])
+        self.assertEqual("explainer", job["video_template"])

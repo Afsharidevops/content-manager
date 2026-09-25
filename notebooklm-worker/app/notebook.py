@@ -44,7 +44,6 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[role='dialog'] button:has-text('arrow_forward')",
         "[role='dialog'] button.mat-mdc-icon-button:not(.mat-mdc-menu-trigger)",
         "[role='dialog'] [aria-label='ارسال']",
-        "[role='dialog'] button:has(svg):not([aria-haspopup])",
         "[role='dialog'] button[aria-label*='send' i]",
         "[role='dialog'] button[aria-label*='search' i]",
         "button:has-text('search')",
@@ -96,7 +95,6 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[aria-label*='website' i]",
         "[aria-label*='link' i]",
         "button:has-text('link')",
-        "button.drop-zone-icon-button:nth-of-type(2)",
     ],
     "source_youtube": [
         "button:has-text('YouTube')",
@@ -159,6 +157,14 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "button.mat-mdc-outlined-button:has-text('Save')",
         "button.mat-mdc-outlined-button:has-text('ذخیره')",
         "button.mat-mdc-outlined-button:has-text('تایید')",
+    ],
+    "insert_research": [
+        "[role='dialog'] button:has-text('Insert')",
+        "[role='dialog'] button:has-text('درج')",
+        "[role='dialog'] button:has-text('درج کردن')",
+        "button:has-text('Insert')",
+        "button:has-text('درج')",
+        "button:has-text('درج کردن')",
     ],
     "dialog_close": [
         "[role='dialog'] button[aria-label*='Close' i]",
@@ -294,11 +300,21 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[role='option']:has-text('کلاسیک')",
         "[role='option']:has-text('Classic')",
     ],
+    "video_style_anime": [
+        "[role='dialog'] [class*='style'] [class*='card']:has-text('انیمه')",
+        "[role='dialog'] [class*='style'] [class*='card']:has-text('Anime')",
+        "[role='dialog'] button:has-text('انیمه')",
+        "[role='dialog'] button:has-text('Anime')",
+        "[role='menuitem']:has-text('انیمه')",
+        "[role='menuitem']:has-text('Anime')",
+        "[role='option']:has-text('انیمه')",
+        "[role='option']:has-text('Anime')",
+    ],
     "video_source_select": [
         "[role='dialog'] [class*='source-select']",
         "[role='dialog'] button:has-text('منبع')",
         "[role='dialog'] [class*='mat-mdc-select']",
-        "[role='dialog'] [role='combobox']",
+        # scoped source selector must target the source container only, not global combobox
     ],
 }
 
@@ -554,16 +570,16 @@ class NotebookEditor:
         """Create or reuse a notebook.
         
         Returns True if the topic was submitted via the new "create with topic"
-        modal AND NotebookLM has created at least one source from it.
+        Fast Research modal and the runner must continue with Insert.
         Returns False if an existing notebook was reused or the old flow was used.
         
         The new NotebookLM UI shows a modal after clicking "Create new" where
         the user enters a topic directly. NotebookLM then creates the notebook
-        AND adds the topic as a source in one step.
+        then shows an explicit Insert step before sources are added.
         
-        IMPORTANT: Only returns True when source_count > 0 is confirmed.
-        If the modal flow fails, falls back to the old empty-notebook flow
-        so add_material(text) can be used instead.
+        IMPORTANT: True means the Fast Research flow was started, not that
+        sources already exist. The runner must click Insert and then verify
+        real sources before continuing.
         """
         import time as _time
         # Check if we are already on a notebook page by URL only
@@ -713,12 +729,9 @@ class NotebookEditor:
                     "[role='dialog'] button[aria-label*='send' i]",
                     "[role='dialog'] button[aria-label*='ارسال' i]",
                     "[role='dialog'] button[aria-label*='جستجو' i]",
-                    "[role='dialog'] button:has(svg)",
-                    "[role='dialog'] [role='button']:has(svg)",
                     "[role='dialog'] button.mat-mdc-icon-button",
                     "button:has-text('search')",
                     "button:has-text('send')",
-                    "[role='dialog'] button:not([disabled])",
                 ], timeout=5)
                 
                 if submit_btn is not None:
@@ -748,18 +761,8 @@ class NotebookEditor:
                     
                     self.page.wait_for_timeout(3000)
                     
-                    # Verify source was actually created
-                    _time.sleep(2)
-                    src_count = self.source_count()
-                    LOGGER.info("CREATE MODAL: source_count after submit=%d", src_count)
-                    
-                    if src_count > 0:
-                        LOGGER.info("CREATE MODAL: topic submitted AND source created - returning True")
-                        return True
-                    else:
-                        LOGGER.warning("CREATE MODAL: topic submitted but source_count=0, will fallback to add_material(text)")
-                        # Don't return True - let runner add source via add_material
-                        return False
+                    LOGGER.info("CREATE MODAL: Fast Research submitted; runner will wait for Insert")
+                    return True
                 else:
                     LOGGER.info("CREATE MODAL: submit button not found, trying Enter key")
                     try:
@@ -768,15 +771,8 @@ class NotebookEditor:
                         pass
                     self.page.wait_for_timeout(3000)
                     
-                    # Check if it worked
-                    src_count = self.source_count()
-                    LOGGER.info("CREATE MODAL (Enter): source_count=%d", src_count)
-                    if src_count > 0:
-                        LOGGER.info("CREATE MODAL: Enter key worked, source created")
-                        return True
-                    else:
-                        LOGGER.warning("CREATE MODAL: Enter key pressed but source_count=0")
-                        return False
+                    LOGGER.info("CREATE MODAL: Enter submitted Fast Research; runner will wait for Insert")
+                    return True
             except Exception as e:
                 LOGGER.warning("CREATE MODAL interaction failed: %s", e)
                 return False
@@ -1290,29 +1286,41 @@ class NotebookEditor:
     # ------------------------------------------------------------- studio
 
     def source_count(self) -> int:
-        """Count how many sources are currently in the notebook."""
+        """Count real source cards/items without counting source controls."""
         try:
-            count = self.page.evaluate("""() => {
-                // Try multiple ways to count sources
-                // 1. Source chips/pills in the source bar
-                const chips = document.querySelectorAll('[class*="source-chip"], [class*="source-pill"], [class*="source-item"]');
-                if (chips.length > 0) return chips.length;
-                // 2. Source counter text like "3 sources"
-                const body = document.body.textContent || '';
-                const match = body.match(/\\d+\\s*منبع/);
-                if (match) return parseInt(match[0]);
-                // 3. Count source buttons
-                const sourceBtns = document.querySelectorAll('[aria-label*="source" i], [aria-label*="منبع" i]');
-                const visible = Array.from(sourceBtns).filter(b => b.offsetParent !== null);
-                if (visible.length > 0) return visible.length;
-                // 4. Check if artibrary is empty
-                const emptyMsg = document.querySelector('[class*="empty"]');
-                if (emptyMsg && emptyMsg.offsetParent !== null) return 0;
-                return -1;
+            count = self.page.evaluate(r"""() => {
+                const visible = el => !!(el && el.offsetParent !== null);
+                const isControl = el => {
+                    const text = (el.textContent || '').trim();
+                    const aria = el.getAttribute('aria-label') || '';
+                    const role = el.getAttribute('role') || '';
+                    if (el.tagName === 'BUTTON' || role === 'button') return true;
+                    if (/add source|add sources|افزودن منبع|افزودن منابع/i.test(text + ' ' + aria)) return true;
+                    if (/source selector|select sources/i.test(aria)) return true;
+                    return false;
+                };
+                const roots = Array.from(document.querySelectorAll(
+                    '[aria-label*="Sources" i], [aria-label*="منابع"], [class*="source-list"], [class*="source-panel"], [class*="sources-panel"], [data-testid*="source"]'
+                )).filter(visible);
+                for (const root of roots) {
+                    const items = Array.from(root.querySelectorAll(
+                        '[data-source-id], [data-testid*="source-item"], [class*="source-item"], [class*="source-card"], [class*="source-chip"], [role="listitem"]'
+                    )).filter(el => {
+                        if (!visible(el) || isControl(el)) return false;
+                        const text = (el.textContent || '').trim();
+                        if (text.length < 2) return false;
+                        return true;
+                    });
+                    if (items.length > 0) return items.length;
+                }
+                return 0;
             }""")
-            return int(count) if count is not None else -1
-        except Exception:
-            return -1
+            count_val = int(count) if count is not None else 0
+            LOGGER.info("source_count result: %d", count_val)
+            return count_val
+        except Exception as exc:
+            LOGGER.warning("source_count exception: %s", exc)
+            return 0
 
     def open_studio(self) -> None:
         node = find_first(self.page, self.selectors["studio_tab"], timeout=8)
@@ -1322,3 +1330,50 @@ class NotebookEditor:
                 self.page.wait_for_timeout(1500)
             except Exception as error:  # noqa: BLE001
                 LOGGER.info("Studio control could not be clicked: %s", error)
+
+    def wait_for_research(self, *, timeout: int = 0) -> bool:
+        """Wait for Fast Research to complete, then return True.
+        Returns False if there's no research indicator (already done or old UI)."""
+        import time as _t
+        deadline = _t.time() + (timeout or self.settings.source_timeout_seconds)
+        LOGGER.info("Fast Research started")
+        # Look for research completion indicator — Insert button or status text
+        while _t.time() < deadline:
+            # Check if Insert button is visible
+            insert_btn = find_first(self.page, self.selectors.get("insert_research", []), timeout=2)
+            if insert_btn is not None:
+                LOGGER.info("Fast Research completed — Insert button found")
+                return True
+            # Check for "research complete" text
+            try:
+                text = (self.page.text_content("body") or "").lower()
+                complete_terms = ["research complete", "suggested for you", "پیشنهاد"]
+                if any(term in text for term in complete_terms):
+                    LOGGER.info("Fast Research: completion text found")
+                    return True
+            except Exception:
+                pass
+            _t.sleep(2)
+        LOGGER.info("Fast Research: no completion detected (may already be done)")
+        return False
+
+    def insert_research_results(self) -> bool:
+        """Click the Insert / درج کردن button after Fast Research completes.
+        Returns True if click succeeded and source count increased."""
+        before = self.source_count()
+        insert_btn = find_first(self.page, self.selectors.get("insert_research", []), timeout=10)
+        if insert_btn is None:
+            LOGGER.info("Insert button not found; sources may already be imported")
+            return False
+        try:
+            LOGGER.info("Importing research sources")
+            insert_btn.scroll_into_view_if_needed()
+            insert_btn.click()
+            self.page.wait_for_timeout(2000)
+            self.wait_for_sources(timeout=60)
+            after = self.source_count()
+            LOGGER.info("Sources imported: %d (was %d)", after, before)
+            return after > before
+        except Exception as error:  # noqa: BLE001
+            LOGGER.warning("Insert research failed: %s", error)
+            return False

@@ -27,7 +27,7 @@ from app.models import (
     STATUS_READY,
     STATUS_UPLOADING,
 )
-from app.notebook import NotebookEditor, load_selectors
+from app.notebook import NotebookEditor, load_selectors, NotebookLMError
 from app.recovery import RecoveryClient
 
 LOGGER = logging.getLogger("notebooklm.runner")
@@ -51,6 +51,18 @@ STAGE_STATES = {
 }
 
 
+def video_output_path(target_dir: str, base_name: str, video_template: str, style_slug: str) -> str:
+    """Return a deterministic, collision-safe MP4 path for one generated style."""
+    template = str(video_template or "explainer").strip().lower() or "explainer"
+    slug = str(style_slug or "default").strip().lower() or "default"
+    path = os.path.join(target_dir, f"{base_name}__{template}__{slug}.mp4")
+    collision_index = 2
+    while os.path.exists(path):
+        path = os.path.join(target_dir, f"{base_name}__{template}__{slug}-{collision_index}.mp4")
+        collision_index += 1
+    return path
+
+
 @dataclass
 class RunContext:
     job: NotebookLMJob
@@ -59,6 +71,7 @@ class RunContext:
     uploads_dir: str
     logs_dir: str
     videos_dir: str
+    store: JobStore
     progress: object  # callable(stage: str) -> None
     recovery: RecoveryClient
 
@@ -77,7 +90,7 @@ def run_browser_flow(ctx: RunContext) -> str:
             ctx.progress(STAGE_NOTEBOOK)
             topic_submitted_via_modal = editor.create_notebook(title)
             ctx.progress(STAGE_UPLOAD)
-            
+
             # Only render prompt and add as text source if topic was NOT already
             # submitted via the "create with topic" modal (new NotebookLM UI)
             if not topic_submitted_via_modal:
@@ -99,33 +112,97 @@ def run_browser_flow(ctx: RunContext) -> str:
                     duration=job.duration,
                     sources_note=sources_mod.sources_note(materials),
                 )
-            
+
             for material in materials:
                 editor.add_material(material)
+
+            # Fast Research → Insert step
+            research_inserted = False
+            if topic_submitted_via_modal:
+                editor.wait_for_research()
+                research_inserted = editor.insert_research_results()
+            if not research_inserted:
+                editor.wait_for_sources()
+
             ctx.progress(STAGE_PROCESS)
-            
-            # Wait for sources - if topic was submitted via modal, we need to wait
-            # for NotebookLM to finish processing the topic source
-            editor.wait_for_sources()
+
             # Verify sources were actually added
             src_count = editor.source_count()
             LOGGER.info("Source count after wait: %d", src_count)
-            if src_count == 0:
-                # If topic was submitted via modal but no source yet, wait more
+            if src_count <= 0:
                 if topic_submitted_via_modal:
-                    LOGGER.info("Topic submitted via modal but source count is 0, waiting more...")
+                    LOGGER.info("Topic submitted but source count is 0, waiting more...")
                     editor.wait_for_sources(timeout=120)
                     src_count = editor.source_count()
-                    LOGGER.info("Source count after extended wait: %d", src_count)
-                if src_count == 0:
+                if src_count <= 0:
                     raise NotebookLMError("source verification", "notebook has 0 sources after adding materials")
+
             ctx.progress(STAGE_GENERATE)
             editor.open_studio()
-            video_mod.start_video_overview(page, topic_note, settings, ctx.selectors)
-            video_mod.wait_for_video(page, settings, ctx.selectors)
-            ctx.progress(STAGE_DOWNLOAD)
-            target = os.path.join(ctx.videos_dir, f"{job.id}.mp4")
-            return video_mod.download_video(page, target, settings, ctx.selectors)
+
+            # Determine style strategy
+            video_style = str(
+                getattr(job, "video_style", "") or getattr(settings, "video_style", "auto") or "auto"
+            ).strip().lower()
+            video_template = str(
+                getattr(job, "video_template", "") or getattr(settings, "video_template", "explainer") or "explainer"
+            ).strip().lower()
+
+            base_name = f"{job.id}"
+            target_dir = ctx.videos_dir
+
+            if video_style == "all":
+                # Discover all video styles and generate one per style
+                all_styles = video_mod.discover_video_styles(page, settings, ctx.selectors)
+                if not all_styles:
+                    raise NotebookLMError("multi-style", "No visual styles discovered")
+                generated = []
+                failed = []
+                for index, vs in enumerate(all_styles):
+                    style_name = vs.label
+                    style_key = vs.key
+                    LOGGER.info("Generating style %d/%d: %s", index + 1, len(all_styles), style_name)
+                    try:
+                        tracker = video_mod.start_video_overview(
+                            page, topic_note, settings, ctx.selectors,
+                            style_name=style_name,
+                            video_template=video_template,
+                        )
+                        card = video_mod.wait_for_video(page, settings, ctx.selectors, tracker=tracker)
+                        ctx.progress(STAGE_DOWNLOAD)
+                        style_path = video_output_path(target_dir, base_name, video_template, vs.slug)
+                        video_mod.download_video(page, style_path, settings, ctx.selectors, video_card=card)
+                        generated.append({"style": style_name, "path": style_path})
+                        LOGGER.info("Downloaded style %s to: %s", style_name, style_path)
+                        job.video_paths[style_key] = style_path
+                        ctx.store.update(job.id, video_paths=job.video_paths)
+                    except Exception as style_error:  # noqa: BLE001
+                        failed.append({"style": style_name, "error": str(style_error)})
+                        LOGGER.warning("Failed style %s: %s", style_name, style_error)
+                if failed and not generated:
+                    raise NotebookLMError("multi-style", f"all styles failed: {len(failed)}")
+                LOGGER.info("Generated styles: %s", [g["style"] for g in generated])
+                LOGGER.info("Downloaded files: %s", [g["path"] for g in generated])
+                if failed:
+                    LOGGER.warning("Failed styles: %s", [f["style"] for f in failed])
+                ctx.store.update(job.id, video_paths=job.video_paths)
+                # Return first completed path for backward compatibility
+                if generated:
+                    return generated[0]["path"]
+                return ""
+            else:
+                style_override = None if video_style in {"", "auto", "default", "none", "null"} else video_style
+                tracker = video_mod.start_video_overview(
+                    page, topic_note, settings, ctx.selectors,
+                    style_name=style_override,
+                    video_template=video_template,
+                )
+                card = video_mod.wait_for_video(page, settings, ctx.selectors, tracker=tracker)
+                ctx.progress(STAGE_DOWNLOAD)
+                target = os.path.join(target_dir, f"{base_name}.mp4")
+                downloaded = video_mod.download_video(page, target, settings, ctx.selectors, video_card=card)
+                ctx.store.update(job.id, video_paths={video_style: downloaded})
+                return downloaded
         except Exception as error:
             if settings.keep_screenshots:
                 try:
@@ -227,6 +304,7 @@ class JobRunner:
                 uploads_dir=self.uploads_dir,
                 logs_dir=self.logs_dir,
                 videos_dir=self.videos_dir,
+                store=self.store,
                 progress=lambda stage: self._progress(job.id, stage),
                 recovery=RecoveryClient(self.settings),
             )

@@ -62,7 +62,7 @@ class Settings:
     log_level: str = "INFO"
     keep_screenshots: bool = True
     trim_last_seconds: int = 0
-    video_template: str = "short"
+    video_template: str = "explainer"
     video_style: str = "auto"
     upload_ttl_seconds: int = 86400
     session_import_path: str = ""
@@ -111,7 +111,7 @@ class Settings:
             log_level=_env("NOTEBOOKLM_LOG_LEVEL", "INFO").upper(),
             keep_screenshots=_env_bool("NOTEBOOKLM_KEEP_SCREENSHOTS", True),
             trim_last_seconds=_env_int("NOTEBOOKLM_TRIM_LAST_SECONDS", 0),
-            video_template=_env("NOTEBOOKLM_VIDEO_TEMPLATE", "short"),
+            video_template=_env("NOTEBOOKLM_VIDEO_TEMPLATE", "explainer"),
             video_style=_env("NOTEBOOKLM_VIDEO_STYLE", "auto"),
             upload_ttl_seconds=_env_int("NOTEBOOKLM_UPLOAD_TTL_SECONDS", 86400),
         )

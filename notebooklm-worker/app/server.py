@@ -149,7 +149,7 @@ class NotebookLMHandler(BaseHTTPRequestHandler):
                     "session_mode": self.settings.session_mode,
                     "timeout_seconds": self.settings.timeout_seconds,
                     "video_timeout_seconds": self.settings.video_timeout_seconds,
-                    "video_template": getattr(self.settings, "video_template", "short"),
+                    "video_template": getattr(self.settings, "video_template", "explainer"),
                     "video_style": getattr(self.settings, "video_style", "auto"),
                 },
             )
@@ -266,6 +266,8 @@ class NotebookLMHandler(BaseHTTPRequestHandler):
             style=profile.style,
             tone=profile.tone,
             audience=profile.audience,
+            video_template=str(payload.get("video_template") or ""),
+            video_style=str(payload.get("video_style") or ""),
         )
         self.store.create(job)
         LOGGER.info("Job %s queued: profile=%s", job.id, job.profile)
@@ -345,6 +347,9 @@ class NotebookLMHandler(BaseHTTPRequestHandler):
             return
         videos_dir = os.path.join(self.settings.data_dir, "videos")
         allowed = {os.path.basename(job.video_path or "")} - {""}
+        for path_value in (getattr(job, "video_paths", {}) or {}).values():
+            allowed.add(os.path.basename(path_value or ""))
+        allowed.discard("")
         allowed.add(f"{job_id}.mp4")
         if os.path.basename(name) not in allowed:
             _error(self, 404, "Artifact not found.")

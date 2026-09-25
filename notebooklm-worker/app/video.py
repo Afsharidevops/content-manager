@@ -1,870 +1,826 @@
-"""Video Overview: submit the prompt, wait for the render, download it."""
+"""Scoped NotebookLM Video Overview automation."""
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import os
+import re
 import subprocess
 import time
+from dataclasses import dataclass
+from hashlib import sha256
 
-from app.notebook import (
-    NotebookLMError,
-    visible_nodes,
-    click_first,
-    find_first,
-)
+from app import ui
+from app.notebook import NotebookLMError, find_first
 
 LOGGER = logging.getLogger("notebooklm.video")
 
 
-def _dismiss_blocking_notifications(page) -> int:
-    """Close notification dialogs that block interaction (NOT source dialogs)."""
-    import time as _time
-    dismissed = 0
-    known_notifications = [
-        "اکنون انعطاف", "هم اکنون", "بیشتر استفاده کن", "قابلیت‌های جدید",
-        "usage", "upgrade", "limit", "Gemini Notebook",
-        "getting started", "what's new", "welcome", "tip",
-        "اکنون می‌توانید", "تغییرات جدید",
-    ]
-    for _ in range(3):
-        try:
-            dialogs = page.locator("[role='dialog'], .cdk-overlay-pane, .notification-overlay")
-            for i in range(min(dialogs.count(), 5)):
-                try:
-                    d = dialogs.nth(i)
-                    if not d.is_visible():
-                        continue
-                    text = (d.text_content(timeout=300) or "").strip()
-                    if not any(n in text for n in known_notifications):
-                        continue
-                    LOGGER.info("NOTIFICATION DIALOG: %s", text[:120])
-                    close = d.locator("button[aria-label*='Close' i], button[aria-label*='بستن' i], [aria-label*='dismiss' i]")
-                    if close.count() > 0 and close.first.is_visible():
-                        close.first.click(timeout=1000)
-                        dismissed += 1
-                        _time.sleep(0.5)
-                        continue
-                    page.keyboard.press("Escape")
-                    _time.sleep(0.3)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    if dismissed:
-        page.wait_for_timeout(800)
-        LOGGER.info("Dismissed %d blocking notification(s)", dismissed)
-    return dismissed
+@dataclass(frozen=True)
+class VideoStyle:
+    """One visual style discovered from the current NotebookLM UI."""
+
+    label: str
+    key: str
+    slug: str
 
 
-def _log_dialog_state(page, tag: str = "") -> None:
-    """Log the current state of dialogs and overlays."""
+@dataclass
+class GenerationTracker:
+    """Identify the card created or changed by one generation request."""
+
+    before: dict[str, str]
+    style_label: str
+    started_at: float
+    card_identity: str = ""
+
+
+def _regex(values: tuple[str, ...] | list[str]):
+    return re.compile("|".join(re.escape(value) for value in values), re.IGNORECASE)
+
+
+def _text(locator) -> str:
     try:
-        dialogs = page.locator("[role='dialog']")
-        dlg_count = dialogs.count()
-        backdrops = page.locator(".cdk-overlay-backdrop").count()
-        dlg_text = ""
-        if dlg_count > 0:
-            try:
-                dlg_text = (dialogs.first.text_content(timeout=300) or "")[:200]
-            except Exception:
-                pass
-        LOGGER.info("DIALOG STATE [%s]: dialogs=%d backdrops=%d text=%r", 
-                     tag, dlg_count, backdrops, dlg_text[:80] if dlg_text else "")
+        return (locator.text_content(timeout=300) or "").strip()
     except Exception:
-        pass
+        return ""
 
 
-def _log_all_dialog_buttons(page) -> list[dict]:
-    """Log ALL buttons inside the active dialog. Returns list of button info dicts."""
-    result = []
+def _attribute(locator, name: str) -> str:
     try:
-        btns = page.evaluate("""() => {
-            const dialog = document.querySelector('[role="dialog"]');
-            if (!dialog) return [];
-            return Array.from(dialog.querySelectorAll('button, [role="button"], [role="menuitem"], [role="option"]')).map(b => ({
-                text: (b.textContent || '').trim().substring(0, 60),
-                aria: b.getAttribute('aria-label') || '',
-                cls: (b.className || '').substring(0, 60),
-                disabled: b.disabled || b.hasAttribute('disabled'),
-                role: b.getAttribute('role') || '',
-                tag: b.tagName,
-            }));
-        }""")
-        LOGGER.info("DIALOG BUTTONS (%d):", len(btns))
-        for i, b in enumerate(btns):
-            LOGGER.info("  [%d] text=%s aria=%s role=%s disabled=%s", 
-                        i, b.get('text','')[:40], b.get('aria','')[:30], 
-                        b.get('role',''), b.get('disabled'))
-            result.append(b)
-    except Exception as e:
-        LOGGER.info("Button dump failed: %s", e)
-    return result
+        return (locator.get_attribute(name) or "").strip()
+    except Exception:
+        return ""
 
 
-def _select_dropdown_option(page, trigger_selectors: list[str], option_selectors: list[str], 
-                             step: str) -> bool:
-    """Click a dropdown trigger, then select an option from the resulting menu."""
-    import time as _time
+def _is_visible(locator) -> bool:
     try:
-        trigger = find_first(page, trigger_selectors, timeout=3)
-        if trigger is None:
-            LOGGER.info("%s: trigger not found", step)
-            return False
-        trigger_text = ""
-        try:
-            trigger_text = (trigger.text_content(timeout=200) or "").strip()[:30]
-        except Exception:
-            pass
-        LOGGER.info("%s: trigger found text=%r", step, trigger_text)
-        trigger.click()
-        _time.sleep(0.5)
-        # Look for option
-        option = find_first(page, option_selectors, timeout=3)
-        if option is not None:
-            option.click()
-            _time.sleep(0.3)
-            LOGGER.info("%s: option selected", step)
-            return True
-        else:
-            LOGGER.info("%s: option not found", step)
-            return False
-    except Exception as e:
-        LOGGER.info("%s: failed: %s", step, e)
+        return locator.count() > 0 and locator.is_visible()
+    except Exception:
         return False
 
 
-def _select_video_sources(page, selectors: dict) -> None:
-    """Select all available sources in the Video Overview dialog."""
-    import time as _time
-    _log_dialog_state(page, "before-source-select")
-    
-    # Method 1: Try to find and click the source selector dropdown
-    # In new NotebookLM UI, the dialog has a source dropdown showing "0 منبع" or similar
+def _first_visible(locator):
     try:
-        # Look for mat-select or similar dropdown for source selection
-        source_selectors = [
-            "[role='dialog'] [class*='mat-mdc-select']:has-text('منبع')",
-            "[role='dialog'] [class*='mat-mdc-select']",
-            "[role='dialog'] [role='combobox']:has-text('منبع')",
-            "[role='dialog'] [role='combobox']",
-            "[role='dialog'] button:has-text('۰ منبع')",
-            "[role='dialog'] button:has-text('0 منبع')",
-            "[role='dialog'] button:has-text('منبع')",
-            "[role='dialog'] [class*='source']",
-        ]
-        selector_found = False
-        for sel in source_selectors:
-            try:
-                trigger = page.locator(sel).first
-                if trigger.count() > 0 and trigger.is_visible():
-                    txt = (trigger.text_content(timeout=200) or "").strip()[:40]
-                    LOGGER.info("SOURCE SELECTOR found: sel=%s text=%r", sel, txt)
-                    trigger.click()
-                    _time.sleep(0.5)
-                    selector_found = True
-                    break
-            except Exception:
-                continue
-        
-        if not selector_found:
-            LOGGER.info("No source selector dropdown found - using fallback")
-        else:
-            # Try to select all sources from the dropdown
-            # Look for checkboxes or selectable items
-            selectors_to_try = [
-                "text='انتخاب همه'",
-                "text='Select all'",
-                "[role='menuitemcheckbox']",
-                "[role='option']",
-                "[role='menuitem']",
-                "[class*='mat-mdc-option']",
-                "[class*='checkbox']",
-            ]
-            selected_any = False
-            for sel in selectors_to_try:
-                try:
-                    items = page.locator(sel)
-                    for i in range(min(items.count(), 10)):
-                        try:
-                            item = items.nth(i)
-                            if item.is_visible():
-                                item.click()
-                                selected_any = True
-                                LOGGER.info("Selected source item %d via %s", i, sel)
-                        except Exception:
-                            pass
-                    if selected_any:
-                        break
-                except Exception:
-                    continue
-            
-            if selected_any:
-                _time.sleep(0.5)
-                # Close dropdown by clicking elsewhere or pressing Escape
-                page.keyboard.press("Escape")
-                _time.sleep(0.3)
-            else:
-                LOGGER.info("Could not select any source - sources may already be selected")
-                page.keyboard.press("Escape")
-                _time.sleep(0.3)
-    except Exception as e:
-        LOGGER.info("Source selection error: %s", e)
-    
-    _log_dialog_state(page, "after-source-select")
-    
-    # Method 2: If dialog has no source selector shown and we're still at "0 source",
-    # the sources might be auto-selected. Just log the state.
-    try:
-        src_btn = page.locator("[role='dialog'] [class*='mat-mdc-select']").first
-        if src_btn.count() > 0 and src_btn.is_visible():
-            txt = (src_btn.text_content(timeout=200) or "").strip()
-            LOGGER.info("Source selector current value: %s", txt)
+        for index in range(min(locator.count(), 50)):
+            node = locator.nth(index)
+            if node.is_visible():
+                return node
     except Exception:
         pass
+    return None
 
 
-def _select_video_language(page, selectors: dict, lang: str = "persian") -> None:
-    """Select language in Video Overview dialog."""
-    if lang == "persian":
-        _select_dropdown_option(
-            page,
-            selectors.get("video_lang", ["[role='dialog'] button:has-text('Language')"]),
-            selectors.get("video_lang_persian", ["[role='menuitem']:has-text('Persian')"]),
-            step="select language Persian"
-        )
-    else:
-        LOGGER.info("Language %s selected (or not needed)", lang)
-
-
-def _select_video_template(page, selectors: dict, template: str = "short") -> None:
-    """Select template in Video Overview dialog."""
-    if template == "short":
-        _select_dropdown_option(
-            page,
-            selectors.get("video_template", ["[role='dialog'] button:has-text('Template')"]),
-            selectors.get("video_template_short", ["[role='menuitem']:has-text('Short')"]),
-            step="select template short"
-        )
-    elif template == "descriptive":
-        _select_dropdown_option(
-            page,
-            selectors.get("video_template", ["[role='dialog'] button:has-text('Template')"]),
-            selectors.get("video_template_descriptive", ["[role='menuitem']:has-text('Descriptive')"]),
-            step="select template descriptive"
-        )
-
-
-def _select_video_style(page, selectors: dict, style: str = "auto") -> None:
-    """Select visual style in Video Overview dialog."""
-    if style == "auto":
-        _select_dropdown_option(
-            page,
-            selectors.get("video_style", ["[role='dialog'] button:has-text('Style')"]),
-            selectors.get("video_style_auto", ["[role='menuitem']:has-text('Automatic')"]),
-            step="select style auto"
-        )
-    elif style == "classic":
-        _select_dropdown_option(
-            page,
-            selectors.get("video_style", ["[role='dialog'] button:has-text('Style')"]),
-            selectors.get("video_style_classic", ["[role='menuitem']:has-text('Classic')"]),
-            step="select style classic"
-        )
-
-
-def start_video_overview(page, prompt: str, settings, selectors: dict) -> None:
-    """Open the Video Overview composer and submit the rendered prompt."""
-    # Start network monitoring
-    import json as _json
-    
-    _video_requests = []
-    _video_responses = []
-    
-    def _on_request(request):
-        url = request.url
-        if "batchexecute" in url or ("google.com" in url and url.startswith("https://notebook")):
-            _video_requests.append({"url": url[:300], "method": request.method})
-    
-    def _on_response(response):
-        url = response.url
-        if "batchexecute" in url:
-            try:
-                body = response.text()[:2000]
-                _video_responses.append({"url": url[:300], "status": response.status, "body": body})
-            except Exception:
-                pass
-    
-    try:
-        page._video_requests = _video_requests
-        page._video_responses = _video_responses
-        page.on("request", _on_request)
-        page.on("response", _on_response)
-    except Exception:
-        pass
-    
-    # Dismiss blocking notifications
-    _dismiss_blocking_notifications(page)
-    
-    # Open Video Overview
-    click_first(page, selectors["video_overview"], step="open video overview")
-    page.wait_for_timeout(2000)
-    _dismiss_blocking_notifications(page)
-    
-    # Wait for dialog to appear
-    _found_dialog = False
-    for _ in range(5):
-        if page.locator("[role='dialog']").count() > 0:
-            _found_dialog = True
-            break
-        page.wait_for_timeout(1000)
-        click_first(page, selectors["video_overview"], step="retry video overview")
-        page.wait_for_timeout(1000)
-    
-    if not _found_dialog:
-        LOGGER.warning("Video compose dialog did NOT open after clicking Video Overview")
-    
-    _log_dialog_state(page, "video-dialog-opened")
-    
-    # Log all dialog buttons
-    _log_all_dialog_buttons(page)
-    
-    # Select sources in the dialog
-    _select_video_sources(page, selectors)
-    
-    _log_dialog_state(page, "after-source-select")
-    
-    # GUARD: Check if dialog still shows "0 source" after source selection
-    # If so, abort - source attachment failed
-    try:
-        dialog_text = page.evaluate("""() => {
-            const d = document.querySelector('[role="dialog"]');
-            return d ? d.textContent || '' : '';
-        }""") or ""
-        LOGGER.info("DIALOG TEXT after source select: %s", dialog_text[:200])
-        
-        # Check for zero source indicators
-        if "\u06f0 \u0645\u0646\u0628\u0639" in dialog_text or "0 \u0645\u0646\u0628\u0639" in dialog_text:
-            LOGGER.warning("DIALOG shows 0 sources! Sources were not attached to this dialog.")
-            # Try _select_video_sources one more time with force
-            LOGGER.info("Retrying source selection...")
-            _select_video_sources(page, selectors)
-            page.wait_for_timeout(1000)
-            dialog_text2 = page.evaluate("""() => {
-                const d = document.querySelector('[role="dialog"]');
-                return d ? d.textContent || '' : '';
-            }""") or ""
-            if "\u06f0 \u0645\u0646\u0628\u0639" in dialog_text2 or "0 \u0645\u0646\u0628\u0639" in dialog_text2:
-                LOGGER.error("Sources could not be attached to video dialog - aborting generation")
-                # Take screenshot for debugging
-                try:
-                    ss = os.path.join(settings.data_dir, "logs", f"zero-source-{int(time.time())}.png")
-                    page.screenshot(path=ss)
-                    LOGGER.info("Zero-source screenshot: %s", ss)
-                except Exception:
-                    pass
-                raise NotebookLMError(
-                    "video generation sources",
-                    "Video Overview dialog shows 0 sources. Sources must be attached before generation."
-                )
-    except NotebookLMError:
-        raise
-    except Exception as e:
-        LOGGER.info("Source check error: %s", e)
-    
-    # Customize: language, template, style
-    _select_video_language(page, selectors, lang="persian")
-    
-    # Template: get from settings or default to short
-    template = getattr(settings, "video_template", "short")
-    _select_video_template(page, selectors, template=template)
-    
-    # Style: only applicable for descriptive template
-    style = getattr(settings, "video_style", "auto")
-    if template == "descriptive":
-        _select_video_style(page, selectors, style=style)
-    
-    _log_dialog_state(page, "after-customization")
-    
-    # Dismiss notifications before prompt
-    _dismiss_blocking_notifications(page)
-    
-    # Fill prompt field
-    node = find_first(page, selectors["video_prompt"], timeout=15)
-    if node is not None:
+def _click_ready(locator, *, step: str, timeout_ms: int = 5000) -> None:
+    """Click a visible, enabled control with one bounded retry."""
+    last_error: Exception | None = None
+    for _ in range(2):
         try:
-            ph = node.get_attribute("placeholder") or ""
-            aria = node.get_attribute("aria-label") or ""
-            LOGGER.info("VIDEO PROMPT FIELD: placeholder=%r aria=%r", ph, aria)
-            
-            node.scroll_into_view_if_needed()
-            node.click()
-            page.wait_for_timeout(300)
-            node.fill("")
-            page.wait_for_timeout(100)
-            node.fill(prompt)
-            page.wait_for_timeout(200)
-            
-            # Fire native events
+            locator.wait_for(state="visible", timeout=timeout_ms)
             try:
-                node.evaluate("(el) => { el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); }")
-            except Exception:
+                if locator.is_disabled():
+                    raise NotebookLMError(step, "control is disabled")
+            except AttributeError:
                 pass
-            
-            try:
-                val = node.input_value(timeout=500)
-                LOGGER.info("PROMPT VALUE SET: chars=%d preview=%r", len(val), val[:80])
-            except Exception:
-                pass
-        except Exception as error:
-            LOGGER.warning("Video prompt could not be typed: %s", error)
-            try:
-                node.click()
-                page.keyboard.press("Control+A")
-                page.keyboard.press("Delete")
-                page.keyboard.type(prompt, delay=3)
-            except Exception as e2:
-                LOGGER.warning("Video prompt keyboard fallback also failed: %s", e2)
-    else:
-        LOGGER.warning("Video prompt field not found; generating with defaults")
-    
-    # Log dialog state before generating
-    _log_dialog_state(page, "before-generate")
-    
-    # Find and click the Generate button
-    _click_generate(page, selectors, settings)
-
-
-def _click_generate(page, selectors: dict, settings) -> None:
-    """Find the actual generate/submit button and click it with multiple strategies."""
-    import time as _time
-    
-    # Log ALL buttons in dialog
-    _log_all_dialog_buttons(page)
-    
-    # Find the generate button - prefer the primary "اکنون تولید کردن" button
-    gen_node = find_first(page, selectors["video_generate"], timeout=10)
-    
-    if gen_node is not None:
-        # Verify we're NOT about to click the dismiss button
-        try:
-            actual_text = (gen_node.text_content(timeout=200) or "").strip()
-            if "بعداً" in actual_text or "skip" in actual_text.lower() or "later" in actual_text.lower():
-                LOGGER.error("WRONG BUTTON (dismiss): '%s' - trying alternate selector", actual_text[:50])
-                fallback_selectors = [s for s in selectors["video_generate"] if "بعداً" not in s]
-                gen_node = find_first(page, fallback_selectors, timeout=5)
-                if gen_node is not None:
-                    actual_text = (gen_node.text_content(timeout=200) or "").strip()
-        except Exception:
-            pass
-        
-        # Log button state
-        try:
-            btn_disabled = gen_node.is_disabled()
-            btn_text = gen_node.text_content(timeout=300) or ""
-            btn_aria = gen_node.get_attribute("aria-label") or ""
-            LOGGER.info("GENERATE BTN BEFORE: disabled=%s text=%r", btn_disabled, btn_text.strip()[:50])
-        except Exception:
-            pass
-        
-        # Multiple click strategies
-        clicked = False
-        for strategy_name, strategy_fn in [
-            ("normal click", lambda: gen_node.click(timeout=3000)),
-            ("force click", lambda: gen_node.click(force=True, timeout=3000, no_wait_after=True)),
-            ("JS MouseEvent", lambda: page.evaluate("(el) => el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}))", gen_node)),
-            ("keyboard Enter", lambda: [gen_node.focus(), page.keyboard.press("Enter")]),
-        ]:
-            try:
-                strategy_fn()
-                LOGGER.info("GENERATE: %s done", strategy_name)
-                clicked = True
-                break
-            except Exception as exc:
-                LOGGER.info("GENERATE: %s failed: %s", strategy_name, exc)
-        
-        if not clicked:
-            LOGGER.warning("GENERATE: all click strategies failed")
-        
-        page.wait_for_timeout(2000)
-    else:
-        LOGGER.warning("GENERATE: button not found")
-    
-    # Capture state after click
-    _log_dialog_state(page, "after-generate")
-    
-    # Log network requests
-    _dump_network(page, tag="after-generate")
-    
-    # Take screenshot
-    try:
-        ss_path = os.path.join(settings.data_dir, "logs", f"video-after-gen-{int(time.time())}.png")
-        page.screenshot(path=ss_path)
-        LOGGER.info("SCREENSHOT after generate: %s", ss_path)
-    except Exception:
-        pass
-
-
-def _dump_network(page, tag: str = "") -> None:
-    """Dump captured network requests/responses."""
-    import json as _json
-    try:
-        reqs = getattr(page, "_video_requests", []) or []
-        resps = getattr(page, "_video_responses", []) or []
-        rpc_names = set()
-        for r in reqs:
-            if 'rpcids=' in r.get('url',''):
-                idx = r['url'].find('rpcids=')
-                rid = r['url'][idx:idx+50]
-                rpc_names.add(rid)
-        LOGGER.info("NETWORK [%s]: requests=%d responses=%d rpc_ids=%s", 
-                     tag, len(reqs), len(resps), list(rpc_names)[:5])
-        for r in resps:
-            LOGGER.info("RPC RESP [%s]: status=%s body=%s", 
-                         tag, r.get("status"), (r.get("body","")[:300]))
-    except Exception:
-        pass
-
-
-def _dump_page_state(page, tag: str = "") -> None:
-    """Dump page state for debugging."""
-    try:
-        buttons = page.locator("button, [role='button'], mat-card, video")
-        visible = []
-        for i in range(min(buttons.count(), 20)):
-            try:
-                b = buttons.nth(i)
-                if b.is_visible():
-                    txt = (b.text_content(timeout=200) or "").strip()[:50]
-                    aria = (b.get_attribute("aria-label") or "")[:30]
-                    if txt or aria:
-                        visible.append(f"  [{i}] text={txt!r} aria={aria!r}")
-            except Exception:
-                pass
-        if visible:
-            LOGGER.info("PAGE STATE [%s]:\n%s", tag, "\n".join(visible))
-        else:
-            LOGGER.info("PAGE STATE [%s]: no visible interactive elements", tag)
-    except Exception:
-        pass
-
-
-def video_ready(page, selectors: dict) -> bool:
-    """True when a rendered video or its download affordance is visible."""
-    # Check for video element
-    for selector in selectors["video_ready"]:
-        for node in visible_nodes(page, selector):
-            try:
-                tag = node.evaluate("(n) => n.tagName")
-                if tag == "VIDEO":
-                    src = node.evaluate("(n) => n.currentSrc || n.src || ''")
-                    if src:
-                        LOGGER.info("VIDEO READY: src=%s", src[:120])
-                        return True
-                elif tag in ("BUTTON", "A"):
-                    LOGGER.info("VIDEO ACTION found: tag=%s text=%s", tag, 
-                                (node.text_content(timeout=200) or "")[:40].strip())
-                    return True
-                else:
-                    LOGGER.info("VIDEO READY via %s: tag=%s", selector, tag)
-                    return True
-            except Exception:
-                continue
-    
-    # Check for non-empty artifact library
-    try:
-        has_artifact = page.evaluate("""() => {
-            const containers = document.querySelectorAll('[class*="artifact-library"]');
-            for (const c of containers) {
-                if (c.className.includes('empty')) continue;
-                const text = c.textContent || '';
-                if (text.includes('\\u062e\\u0648\\u0627\\u0647\\u062f \\u0634\\u062f') ||
-                    text.includes('saved here')) continue;
-                if (c.children.length > 0 && c.offsetParent !== null) {
-                    const actionable = c.querySelector('button, video, [role="button"], a, img, [class*="card"]');
-                    if (actionable) {
-                        LOGGER.info("VIDEO ARTIFACT LIBRARY has content (non-empty)");
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }""")
-        if has_artifact:
-            return True
-    except Exception:
-        pass
-    
-    # Check for video card specifically
-    try:
-        has_video_card = page.evaluate("""() => {
-            // Look for video cards in the main content area
-            const cards = document.querySelectorAll('[class*="card"], [class*="overview"], article, [class*="generated"]');
-            for (const card of cards) {
-                if (!card.offsetParent) continue;
-                const text = card.textContent || '';
-                if (text.includes('مرور ویدیویی') || text.includes('Video Overview') || text.includes('video')) {
-                    const hasPlayBtn = card.querySelector('button[aria-label*="play" i], [class*="play-button"]');
-                    if (hasPlayBtn || card.querySelector('video')) {
-                        LOGGER.info("VIDEO CARD found: text=%s", text.substring(0, 80));
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }""")
-        if has_video_card:
-            return True
-    except Exception:
-        pass
-    
-    return False
-
-
-def wait_for_video(page, settings, selectors: dict) -> None:
-    """Poll until the Video Overview finishes rendering."""
-    start = time.time()
-    deadline = start + max(120, settings.video_timeout_seconds)
-    last_log = 0.0
-    
-    while time.time() < deadline:
-        if video_ready(page, selectors):
-            LOGGER.info("VIDEO GENERATION COMPLETE after %.0fs", time.time() - start)
+            locator.scroll_into_view_if_needed(timeout=timeout_ms)
+            locator.click(timeout=timeout_ms)
             return
-        
-        elapsed = time.time() - start
-        now = time.time()
-        if now - last_log > 30.0:
-            LOGGER.info("WAITING for video: %.0fs elapsed", elapsed)
-            _dump_page_state(page, tag="waiting")
-            last_log = now
-        
-        page.wait_for_timeout(max(3, settings.poll_seconds) * 1000)
-    
-    _dump_network(page, tag="timeout")
+        except NotebookLMError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            last_error = error
+            time.sleep(0.2)
+    raise NotebookLMError(step, f"click failed: {last_error}")
+
+
+def _save_debug(page, settings, prefix: str, *, card=None) -> list[str]:
+    """Save a bounded screenshot and JSON state for a failed async step."""
+    logs_dir = os.path.join(settings.data_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    stamp = int(time.time())
+    image_path = os.path.join(logs_dir, f"{prefix}-{stamp}.png")
+    json_path = os.path.join(logs_dir, f"{prefix}-{stamp}.json")
+    written: list[str] = []
     try:
-        ss_path = os.path.join(settings.data_dir, "logs", f"video-timeout-{int(time.time())}.png")
-        page.screenshot(path=ss_path)
-        LOGGER.info("SCREENSHOT at timeout: %s", ss_path)
+        page.screenshot(path=image_path, full_page=False)
+        written.append(image_path)
+    except Exception as error:  # noqa: BLE001
+        LOGGER.warning("Could not save %s screenshot: %s", prefix, error)
+    data = {"url": str(getattr(page, "url", "") or ""), "step": prefix}
+    try:
+        data["title"] = page.title()
+    except Exception:
+        data["title"] = ""
+    if card is not None:
+        data["video_card_text"] = _text(card)[:2000]
+    try:
+        controls = page.locator("button:visible, [role='button']:visible, [role='menuitem']:visible")
+        data["visible_controls"] = [
+            {
+                "text": _text(controls.nth(index))[:120],
+                "aria_label": _attribute(controls.nth(index), "aria-label")[:120],
+            }
+            for index in range(min(controls.count(), 30))
+        ]
+    except Exception:
+        data["visible_controls"] = []
+    try:
+        with open(json_path, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+        written.append(json_path)
+    except OSError as error:
+        LOGGER.warning("Could not save %s debug JSON: %s", prefix, error)
+    if written:
+        LOGGER.info("Debug artifacts for %s: %s", prefix, written)
+    return written
+
+
+def _dialog(page, timeout_seconds: int):
+    deadline = time.time() + max(1, timeout_seconds)
+    while time.time() < deadline:
+        dialog = _first_visible(page.get_by_role("dialog"))
+        if dialog is not None:
+            return dialog
+        time.sleep(0.2)
+    return None
+
+
+def _studio_root(page):
+    for name in ("Studio", "استودیو"):
+        root = _first_visible(page.get_by_role("region", name=re.compile(re.escape(name), re.I)))
+        if root is not None:
+            return root
+    for selector in ("[aria-label*='Studio' i]", "[aria-label*='استودیو']", "[class*='studio']"):
+        root = _first_visible(page.locator(selector))
+        if root is not None:
+            return root
+    return page
+
+
+def _labeled_container(root, names: tuple[str, ...], css_selectors: tuple[str, ...]):
+    """Find a scoped section by role/name, accessible label, text, then CSS."""
+    pattern = _regex(names)
+    for role in ("group", "region"):
+        node = _first_visible(root.get_by_role(role, name=pattern))
+        if node is not None:
+            return node
+    for name in names:
+        for selector in (f"[aria-label*='{name}' i]", f"[data-testid*='{ui.safe_style_slug(name)}' i]"):
+            node = _first_visible(root.locator(selector))
+            if node is not None:
+                return node
+    for name in names:
+        label = _first_visible(root.get_by_text(name, exact=True))
+        if label is None:
+            continue
+        candidate = label
+        for _ in range(4):
+            try:
+                candidate = candidate.locator("xpath=..")
+                if candidate.locator("button, [role='button'], [role='radio'], [role='combobox']").count() > 0:
+                    return candidate
+            except Exception:
+                break
+    for selector in css_selectors:
+        node = _first_visible(root.locator(selector))
+        if node is not None:
+            return node
+    return None
+
+
+def _open_video_customization(page, settings, selectors: dict):
+    LOGGER.info("Opening Video Overview")
+    studio = _studio_root(page)
+    overview = _first_visible(studio.get_by_role("button", name=_regex(ui.labels("video_overview"))))
+    if overview is None:
+        overview = _first_visible(studio.get_by_text(_regex(ui.labels("video_overview"))))
+    if overview is None:
+        overview = find_first(studio, selectors.get("video_overview", []), timeout=5)
+    if overview is None:
+        raise NotebookLMError("open video overview", "Video Overview control was not found in Studio")
+    _click_ready(overview, step="open video overview")
+
+    timeout = int(getattr(settings, "step_timeout_seconds", 45))
+    dialog = _dialog(page, timeout)
+    if dialog is None:
+        customize = _first_visible(studio.get_by_role("button", name=_regex(ui.labels("customize"))))
+        if customize is not None:
+            _click_ready(customize, step="open video customization")
+            dialog = _dialog(page, timeout)
+    if dialog is None:
+        _save_debug(page, settings, "video-customize-timeout")
+        raise NotebookLMError("video customization", "customization dialog did not open")
+
+    customize = _first_visible(dialog.get_by_role("button", name=_regex(ui.labels("customize"))))
+    if customize is not None:
+        _click_ready(customize, step="open video customization")
+        dialog = _dialog(page, timeout) or dialog
+    LOGGER.info("Video customization opened")
+    return dialog
+
+
+def _parse_count(text: str) -> int:
+    translated = str(text or "").translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+    match = re.search(r"(\d+)\s*(?:sources?|منبع)", translated, re.IGNORECASE)
+    return int(match.group(1)) if match else 0
+
+
+def _selected_source_count(container) -> int:
+    count = _parse_count(_text(container))
+    if count > 0:
+        return count
+    for selector in ("[aria-selected='true']", "[aria-checked='true']", "input:checked"):
+        try:
+            selected = container.locator(selector).count()
+            if selected > 0:
+                return selected
+        except Exception:
+            continue
+    return 0
+
+
+def _select_video_sources(page, dialog) -> int:
+    """Keep preselected sources intact; only open the scoped source control at zero."""
+    container = _labeled_container(
+        dialog,
+        ui.labels("sources"),
+        ("[data-testid*='source-select']", "[class*='source-select']", "[class*='sources']"),
+    )
+    if container is None:
+        raise NotebookLMError("video sources", "Sources container was not found in customization")
+    selected = _selected_source_count(container)
+    if selected > 0:
+        LOGGER.info("Video sources already selected: %d", selected)
+        return selected
+
+    trigger = _first_visible(container.get_by_role("combobox"))
+    if trigger is None:
+        trigger = _first_visible(container.locator("button[aria-haspopup='listbox'], button[aria-haspopup='menu']"))
+    if trigger is None:
+        raise NotebookLMError("video sources", "no scoped source selector was found")
+    _click_ready(trigger, step="open source selector")
+
+    select_all = None
+    for role in ("option", "menuitem", "menuitemcheckbox"):
+        select_all = _first_visible(page.get_by_role(role, name=_regex(ui.labels("select_all"))))
+        if select_all is not None:
+            break
+    if select_all is not None:
+        _click_ready(select_all, step="select all sources")
+    else:
+        overlay = _first_visible(page.locator("[role='listbox']:visible, [role='menu']:visible"))
+        if overlay is None:
+            raise NotebookLMError("video sources", "source selector opened without options")
+        choices = overlay.locator("[role='option'], [role='menuitemcheckbox']")
+        clicked = 0
+        for index in range(min(choices.count(), 50)):
+            choice = choices.nth(index)
+            if not choice.is_visible() or _attribute(choice, "aria-selected") == "true":
+                continue
+            _click_ready(choice, step="select video source")
+            clicked += 1
+        if clicked == 0:
+            raise NotebookLMError("video sources", "no available source could be selected")
+    try:
+        page.keyboard.press("Escape")
     except Exception:
         pass
-    
-    raise NotebookLMError(
-        "video generation",
-        f"the overview was not ready after {settings.video_timeout_seconds}s",
+    selected = _selected_source_count(container)
+    if selected <= 0:
+        raise NotebookLMError("video sources", "source selector still reports zero selected sources")
+    LOGGER.info("Video sources selected: %d", selected)
+    return selected
+
+
+def _select_video_language(page, dialog, language: str = "persian") -> None:
+    if ui.normalize_label(language) not in {"persian", ui.normalize_label("فارسی")}:
+        raise NotebookLMError("video language", f"unsupported language: {language}")
+    container = _labeled_container(
+        dialog,
+        ui.labels("language"),
+        ("[data-testid*='language']", "[class*='language']"),
+    )
+    if container is None:
+        raise NotebookLMError("video language", "Language container was not found")
+    if any(ui.normalize_label(label) in ui.normalize_label(_text(container)) for label in ui.labels("persian")):
+        LOGGER.info("Language: Persian (already selected)")
+        return
+    trigger = _first_visible(container.get_by_role("combobox"))
+    if trigger is None:
+        trigger = _first_visible(container.locator("button[aria-haspopup='listbox'], button[aria-haspopup='menu']"))
+    if trigger is None:
+        raise NotebookLMError("video language", "scoped language combobox was not found")
+    _click_ready(trigger, step="open language selector")
+    option = None
+    for role in ("option", "menuitem"):
+        option = _first_visible(page.get_by_role(role, name=_regex(ui.labels("persian"))))
+        if option is not None:
+            break
+    if option is None:
+        option = _first_visible(page.get_by_text(_regex(ui.labels("persian"))))
+    if option is None:
+        raise NotebookLMError("video language", "Persian option was not found")
+    _click_ready(option, step="select Persian language")
+    refreshed = _labeled_container(dialog, ui.labels("language"), ("[data-testid*='language']", "[class*='language']"))
+    if refreshed is not None and not any(
+        ui.normalize_label(label) in ui.normalize_label(_text(refreshed)) for label in ui.labels("persian")
+    ):
+        raise NotebookLMError("video language", "Persian did not become the selected language")
+    LOGGER.info("Language: Persian")
+
+
+def _option_cards(container):
+    return container.locator(
+        "[role='radio'], [data-option], [data-value], "
+        "[class*='option-card'], [class*='format-card'], [class*='style-card'], mat-card"
     )
 
 
-def download_video(page, target_path: str, settings, selectors: dict) -> str:
-    """Download the finished overview to ``target_path`` and return the path."""
-    import base64
-    os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
-    
-    page.wait_for_timeout(3000)
-    
-    _dump_page_state(page, tag="download-start")
-    _dump_network(page, tag="download-start")
-    
-    # Try multiple strategies to get the video
-    
-    # Strategy 1: Find video element with src
-    video_src = page.evaluate("""() => {
-        const videos = document.querySelectorAll('video');
-        for (const v of videos) {
-            const src = v.currentSrc || v.src || '';
-            if (src && src.startsWith('blob:')) {
-                return {src: src, method: 'blob'};
-            }
-            if (src) {
-                return {src: src, method: 'src'};
-            }
-        }
-        return null;
-    }""")
-    
-    if video_src:
-        url = video_src.get('src', '')
-        LOGGER.info("VIDEO SOURCE found: %s...", url[:100])
-        if url.startswith('blob:'):
-            b64data = page.evaluate("""async (url) => {
-                try {
-                    const r = await fetch(url);
-                    if (!r.ok) return 'HTTP:' + r.status;
-                    const blob = await r.blob();
-                    return await new Promise((res, rej) => {
-                        const reader = new FileReader();
-                        reader.onload = () => res(reader.result);
-                        reader.onerror = () => rej('FileReader error');
-                        reader.readAsDataURL(blob);
-                    });
-                } catch(e) { return 'ERROR:' + e.message; }
-            }""", url)
-            if b64data and b64data.startswith("data:"):
-                _, data = b64data.split(",", 1)
-                raw = base64.b64decode(data)
-                with open(target_path, "wb") as f:
-                    f.write(raw)
-                LOGGER.info("VIDEO DOWNLOADED via blob: %d bytes", len(raw))
-                _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
-                return target_path
-        else:
-            # Direct URL
-            b64data = page.evaluate("""async (url) => {
-                try {
-                    const r = await fetch(url);
-                    if (!r.ok) return 'HTTP:' + r.status;
-                    const blob = await r.blob();
-                    return await new Promise((res, rej) => {
-                        const reader = new FileReader();
-                        reader.onload = () => res(reader.result);
-                        reader.onerror = () => rej('FileReader error');
-                        reader.readAsDataURL(blob);
-                    });
-                } catch(e) { return 'ERROR:' + e.message; }
-            }""", url)
-            if b64data and b64data.startswith("data:"):
-                _, data = b64data.split(",", 1)
-                raw = base64.b64decode(data)
-                with open(target_path, "wb") as f:
-                    f.write(raw)
-                LOGGER.info("VIDEO DOWNLOADED via src: %d bytes", len(raw))
-                _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
-                return target_path
-    
-    # Strategy 2: Click play button on video card to make video appear
-    play_selectors = [
-        "button[aria-label*='play' i]",
-        "[aria-label*='play' i]",
-        "[class*='play-button']",
-        "[class*='play_arrow']",
-        "button:has(svg)",
-        "[class*='video-overview'] button",
-        "[class*='overview-card'] button",
-    ]
-    for sel in play_selectors:
+def _card_label(card) -> str:
+    aria = _attribute(card, "aria-label")
+    if aria:
+        return aria
+    lines = [line.strip() for line in _text(card).splitlines() if line.strip()]
+    return lines[0] if lines else ""
+
+
+def _card_selected(card) -> bool | None:
+    for attribute in ("aria-selected", "aria-pressed", "aria-checked"):
+        value = _attribute(card, attribute).lower()
+        if value in {"true", "false"}:
+            return value == "true"
+    classes = _attribute(card, "class").casefold()
+    if any(token in classes for token in ("selected", "active", "checked")):
+        return True
+    return None
+
+
+def _find_option_card(container, labels: tuple[str, ...]):
+    cards = _option_cards(container)
+    normalized = [ui.normalize_label(label) for label in labels]
+    for index in range(min(cards.count(), 100)):
+        card = cards.nth(index)
+        label = ui.normalize_label(_card_label(card))
+        text = ui.normalize_label(_text(card))
+        if label in normalized or any(text == target or text.startswith(f"{target} ") for target in normalized):
+            return card
+    return None
+
+
+def _is_style_card(card) -> bool:
+    label = ui.normalize_label(_card_label(card))
+    text = ui.normalize_label(_text(card))
+    control_labels = (
+        ui.labels("customize")
+        + ui.labels("generate_now")
+        + ui.labels("more")
+        + ("next", "previous", "قبلی", "بعدی", "expand", "collapse")
+    )
+    if not label or any(ui.normalize_label(item) in label for item in control_labels):
+        return False
+    if any(ui.normalize_label(item) in text for item in ui.labels("format") + ui.labels("language")):
+        return False
+    role = _attribute(card, "role")
+    classes = _attribute(card, "class").casefold()
+    data_value = _attribute(card, "data-value") or _attribute(card, "data-option")
+    if role == "radio" or data_value:
+        return True
+    return any(token in classes for token in ("style-card", "option-card", "visual-style"))
+
+
+def _select_video_template(page, dialog, template: str = "explainer") -> str:
+    """Select the card-based Format option."""
+    del page
+    normalized = ui.normalize_label(template)
+    target = ui.labels("explainer") if normalized in {"explainer", "descriptive"} else ("Brief", "کوتاه")
+    container = _labeled_container(
+        dialog,
+        ui.labels("format"),
+        ("[data-testid*='format']", "[class*='format']", "[class*='template']"),
+    )
+    if container is None:
+        raise NotebookLMError("video format", "Format card container was not found")
+    card = _find_option_card(container, target)
+    if card is None:
+        raise NotebookLMError("video format", f"format card was not found: {template}")
+    if _card_selected(card) is not True:
+        _click_ready(card, step=f"select video format {template}")
+    selected = _card_selected(card)
+    if selected is False:
+        raise NotebookLMError("video format", f"format card did not become selected: {template}")
+    label = _card_label(card) or template
+    LOGGER.info("Format: %s", label)
+    return label
+
+
+def _scroll_style_carousel(container, direction: int) -> bool:
+    try:
+        result = container.evaluate(
+            """(root, direction) => {
+                const nodes = [root, ...root.querySelectorAll('*')];
+                const scroller = nodes.find(node => node.scrollWidth > node.clientWidth + 4);
+                if (!scroller) return false;
+                const before = scroller.scrollLeft;
+                const step = Math.max(120, Math.floor(scroller.clientWidth * 0.75));
+                scroller.scrollLeft = before + direction * step;
+                return scroller.scrollLeft !== before;
+            }""",
+            direction,
+        )
+        return bool(result)
+    except Exception:
+        return False
+
+
+def _style_container(dialog):
+    return _labeled_container(
+        dialog,
+        ui.labels("visual_style"),
+        ("[data-testid*='visual-style']", "[data-testid*='style']", "[class*='visual-style']", "[class*='style-picker']"),
+    )
+
+
+def discover_styles_from_dialog(dialog) -> list[VideoStyle]:
+    """Discover every runtime style card, including cards in a carousel."""
+    container = _style_container(dialog)
+    if container is None:
+        raise NotebookLMError("video style discovery", "Visual Style container was not found")
+    discovered: dict[str, VideoStyle] = {}
+    directions = [1] * 8 + [-1] * 8
+    stagnant = 0
+    for direction in directions:
+        before = len(discovered)
+        cards = _option_cards(container)
+        for index in range(min(cards.count(), 100)):
+            card = cards.nth(index)
+            if not _is_style_card(card):
+                continue
+            label = _card_label(card)
+            key = ui.normalize_label(label)
+            if not key:
+                continue
+            try:
+                card.scroll_into_view_if_needed(timeout=2000)
+            except Exception:
+                pass
+            discovered.setdefault(key, VideoStyle(label=label, key=key, slug=ui.safe_style_slug(label)))
+        stagnant = stagnant + 1 if len(discovered) == before else 0
+        moved = _scroll_style_carousel(container, direction)
+        if stagnant >= 2 and not moved:
+            break
+        time.sleep(0.15)
+    styles = list(discovered.values())
+    LOGGER.info("Discovered video styles: %s", [style.label for style in styles])
+    return styles
+
+
+def _select_video_style(page, dialog, requested: str | None) -> VideoStyle | None:
+    del page
+    normalized = ui.normalize_label(requested or "")
+    if normalized in {"", "auto", "default", "none", "null"}:
+        LOGGER.info("Style: NotebookLM default")
+        return None
+    if normalized == "all":
+        raise NotebookLMError("video style", "'all' must be orchestrated outside one customization dialog")
+    container = _style_container(dialog)
+    styles = discover_styles_from_dialog(dialog)
+    available = [style.label for style in styles]
+    matched = next(
+        (style for style in styles if ui.style_matches(requested or "", style.label, style.key)),
+        None,
+    )
+    if matched is None:
+        raise NotebookLMError(
+            "video style",
+            f"Requested style {requested!r} was not found. Available styles: {available}",
+        )
+    card = _find_option_card(container, tuple(ui.style_aliases(requested or "")))
+    if card is None:
+        card = _find_option_card(container, (matched.label,))
+    if card is None:
+        raise NotebookLMError("video style", f"style card disappeared: {matched.label}")
+    card.scroll_into_view_if_needed(timeout=3000)
+    if _card_selected(card) is not True:
+        _click_ready(card, step=f"select video style {matched.label}")
+    selected = _card_selected(card)
+    if selected is False:
+        raise NotebookLMError("video style", f"style card did not become selected: {matched.label}")
+    LOGGER.info("Style: %s", matched.label)
+    return matched
+
+
+def _fill_prompt(dialog, prompt: str, selectors: dict) -> None:
+    if not str(prompt or "").strip():
+        return
+    prompt_field = _first_visible(dialog.get_by_role("textbox"))
+    if prompt_field is None:
+        prompt_field = find_first(dialog, selectors.get("video_prompt", []), timeout=3)
+    if prompt_field is None:
+        LOGGER.info("Video prompt field is not available; continuing with configured options")
+        return
+    try:
+        prompt_field.fill(prompt)
+    except Exception as error:
+        raise NotebookLMError("video prompt", f"could not fill prompt: {error}") from error
+
+
+def _video_cards(page) -> list:
+    studio = _studio_root(page)
+    selectors = (
+        "[data-artifact-id]",
+        "[data-testid*='video-overview']",
+        "[class*='video-overview-card']",
+        "[class*='artifact-card']",
+        "article",
+        "mat-card",
+    )
+    for selector in selectors:
+        cards = studio.locator(selector)
+        matched = []
+        for index in range(min(cards.count(), 100)):
+            card = cards.nth(index)
+            if not _is_visible(card):
+                continue
+            content = ui.normalize_label(f"{_text(card)} {_attribute(card, 'aria-label')}")
+            if any(ui.normalize_label(label) in content for label in ui.labels("video_overview")):
+                matched.append(card)
+        if matched:
+            return matched
+    return []
+
+
+def _card_identity(card, index: int) -> str:
+    for attribute in ("data-artifact-id", "data-id", "data-testid", "id"):
+        value = _attribute(card, attribute)
+        if value:
+            return f"{attribute}:{value}"
+    first_line = ""
+    text = _text(card)
+    if text:
+        first_line = text.splitlines()[0]
+    title = ui.normalize_label(_attribute(card, "aria-label") or first_line)
+    digest = sha256(title.encode("utf-8")).hexdigest()[:12]
+    return f"fallback:{digest}:{index}"
+
+
+def _card_signature(card) -> str:
+    busy = 0
+    for selector in ("[role='progressbar']", "progress", "[aria-busy='true']", "mat-progress-bar"):
         try:
-            btn = page.locator(sel).first
-            if btn.is_visible():
-                LOGGER.info("Play button found: %s", sel)
-                btn.click()
-                page.wait_for_timeout(3000)
-                video_after = page.evaluate("""() => {
-                    const v = document.querySelector('video');
-                    if (v) return v.currentSrc || v.src || '';
-                    return '';
-                }""")
-                if video_after:
-                    LOGGER.info("VIDEO SRC AFTER PLAY: %s", video_after[:150])
-                    b64data = page.evaluate("""async (url) => {
-                        try {
-                            const r = await fetch(url);
-                            if (!r.ok) return 'HTTP:' + r.status;
-                            const blob = await r.blob();
-                            return await new Promise((res, rej) => {
-                                const reader = new FileReader();
-                                reader.onload = () => res(reader.result);
-                                reader.onerror = () => rej('FileReader error');
-                                reader.readAsDataURL(blob);
-                            });
-                        } catch(e) { return 'ERROR:' + e.message; }
-                    }""", video_after)
-                    if b64data and b64data.startswith("data:"):
-                        _, data = b64data.split(",", 1)
-                        raw = base64.b64decode(data)
-                        with open(target_path, "wb") as f:
-                            f.write(raw)
-                        LOGGER.info("VIDEO DOWNLOADED after play: %d bytes", len(raw))
-                        _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
-                        return target_path
-                break
+            busy += card.locator(selector).count()
         except Exception:
-            continue
-    
-    # Strategy 3: Use the artifact menu for download
+            pass
+    raw = f"{ui.normalize_label(_text(card))}|{_attribute(card, 'class')}|busy={busy}"
+    return sha256(raw.encode("utf-8")).hexdigest()
+
+
+def snapshot_video_cards(page) -> dict[str, str]:
+    return {
+        _card_identity(card, index): _card_signature(card)
+        for index, card in enumerate(_video_cards(page))
+    }
+
+
+def _locate_generation_card(page, tracker: GenerationTracker):
+    candidates = []
+    changed = []
+    for index, card in enumerate(_video_cards(page)):
+        identity = _card_identity(card, index)
+        signature = _card_signature(card)
+        if tracker.card_identity and identity == tracker.card_identity:
+            return card
+        if identity not in tracker.before:
+            candidates.append((identity, card))
+        elif tracker.before[identity] != signature:
+            changed.append((identity, card))
+    pool = candidates or changed
+    if len(pool) == 1:
+        tracker.card_identity = pool[0][0]
+        return pool[0][1]
+    return None
+
+
+def _card_completed(card) -> bool:
+    for selector in ("[role='progressbar']", "progress", "[aria-busy='true']", "mat-progress-bar"):
+        try:
+            if _first_visible(card.locator(selector)) is not None:
+                return False
+        except Exception:
+            pass
+    text = ui.normalize_label(_text(card))
+    busy_terms = ("generating", "processing", "creating", "در حال تولید", "درحال تولید", "در حال ساخت")
+    if any(ui.normalize_label(term) in text for term in busy_terms):
+        return False
+    menu = _first_visible(card.get_by_role("button", name=_regex(ui.labels("more"))))
+    if menu is None:
+        menu = _first_visible(card.locator("button[aria-haspopup='menu'], button[title*='More' i]"))
+    if menu is not None:
+        return True
+    for selector in ("video", "button[aria-label*='play' i]", "[data-status='complete']", "[aria-label*='Download' i]"):
+        if _first_visible(card.locator(selector)) is not None:
+            return True
+    return any(term in text for term in ("ready", "complete", "آماده", "تکمیل"))
+
+
+def _generate_button(dialog, selectors: dict):
+    button = _first_visible(dialog.get_by_role("button", name=_regex(ui.labels("generate_now"))))
+    if button is not None:
+        return button
+    return find_first(dialog, selectors.get("video_generate", []), timeout=3)
+
+
+def _click_generate(page, dialog, selectors: dict, style_label: str) -> GenerationTracker:
+    button = _generate_button(dialog, selectors)
+    if button is None:
+        raise NotebookLMError("video generation", "Generate now button was not found")
+    if not _is_visible(button):
+        raise NotebookLMError("video generation", "Generate now button is not visible")
     try:
-        # Find the artifact and its more menu
-        artifact_menu = find_first(page, selectors.get("video_menu", []), timeout=3)
-        if artifact_menu is not None:
-            artifact_menu.click()
-            page.wait_for_timeout(500)
-            download_btn = find_first(page, selectors.get("video_download", []), timeout=2)
-            if download_btn is not None:
-                download_btn.click()
-                page.wait_for_timeout(2000)
-                # After clicking download, check for video element
-                video_after = page.evaluate("""() => {
-                    const v = document.querySelector('video');
-                    if (v) return v.currentSrc || v.src || '';
-                    return '';
-                }""")
-                if video_after:
-                    b64data = page.evaluate("""async (url) => {
-                        try {
-                            const r = await fetch(url);
-                            if (!r.ok) return 'HTTP:' + r.status;
-                            const blob = await r.blob();
-                            return await new Promise((res, rej) => {
-                                const reader = new FileReader();
-                                reader.onload = () => res(reader.result);
-                                reader.onerror = () => rej('FileReader error');
-                                reader.readAsDataURL(blob);
-                            });
-                        } catch(e) { return 'ERROR:' + e.message; }
-                    }""", video_after)
-                    if b64data and b64data.startswith("data:"):
-                        _, data = b64data.split(",", 1)
-                        raw = base64.b64decode(data)
-                        with open(target_path, "wb") as f:
-                            f.write(raw)
-                        LOGGER.info("VIDEO DOWNLOADED via menu: %d bytes", len(raw))
-                        _try_trim(target_path, getattr(settings, "trim_last_seconds", 0))
-                        return target_path
-    except Exception as e:
-        LOGGER.info("Artifact menu download failed: %s", e)
-    
-    # Strategy 4: Deep DOM scan for any video-related elements
+        if button.is_disabled():
+            raise NotebookLMError("video generation", "Generate now button is disabled")
+    except AttributeError:
+        pass
+    before = snapshot_video_cards(page)
+    LOGGER.info("Starting video generation")
+    _click_ready(button, step="generate video overview")
+    return GenerationTracker(before=before, style_label=style_label, started_at=time.time())
+
+
+def discover_video_styles(page, settings, selectors: dict) -> list[VideoStyle]:
+    """Open Customize once and return every Visual Style currently offered."""
+    dialog = _open_video_customization(page, settings, selectors)
+    _select_video_sources(page, dialog)
+    styles = discover_styles_from_dialog(dialog)
     try:
-        dom = page.evaluate("""() => {
-            const results = [];
-            const all = document.querySelectorAll('body *');
-            for (const el of all) {
-                if (!el.offsetParent) continue;
-                const tag = el.tagName.toLowerCase();
-                if (['script','style','meta','link','noscript'].includes(tag)) continue;
-                const cls = (el.className || '').substring(0, 80);
-                const txt = (el.textContent || '').trim().substring(0, 100);
-                const aria = el.getAttribute('aria-label') || '';
-                if (tag === 'video' || cls.includes('video') || cls.includes('artifact') || 
-                    cls.includes('card') || aria.includes('play') || aria.includes('video') ||
-                    aria.includes('download') || cls.includes('download')) {
-                    const rect = el.getBoundingClientRect();
-                    results.push({
-                        tag: tag, cls: cls, txt: txt.substring(0, 60),
-                        aria: aria.substring(0, 40),
-                        w: Math.round(rect.width), h: Math.round(rect.height),
-                        hasVideo: !!el.querySelector('video') || tag === 'video',
-                    });
-                }
-            }
-            return results;
-        }""")
-        if dom:
-            LOGGER.info("DOWNLOAD SCAN: found %d video-related elements:", len(dom))
-            for i, d in enumerate(dom[:15]):
-                LOGGER.info("  [%d] <%s> cls=%s aria=%s hasV=%s", 
-                            i, d.get('tag',''), d.get('cls',''), d.get('aria',''), d.get('hasVideo'))
-    except Exception as e:
-        LOGGER.info("DOM scan failed: %s", e)
-    
-    # Take final screenshot
-    try:
-        ss_path = os.path.join(settings.data_dir, "logs", f"video-dl-fail-{int(time.time())}.png")
-        page.screenshot(path=ss_path)
-        LOGGER.info("SCREENSHOT at download fail: %s", ss_path)
+        page.keyboard.press("Escape")
     except Exception:
         pass
-    
-    raise NotebookLMError("download video", "could not find or download the generated video")
+    if not styles:
+        raise NotebookLMError("video style discovery", "NotebookLM returned no visual style cards")
+    return styles
+
+
+def start_video_overview(
+    page,
+    prompt: str,
+    settings,
+    selectors: dict,
+    *,
+    style_name: str | None = None,
+    video_template: str | None = None,
+) -> GenerationTracker:
+    """Configure and start one Video Overview generation."""
+    dialog = _open_video_customization(page, settings, selectors)
+    _select_video_sources(page, dialog)
+    _select_video_language(page, dialog, language="persian")
+    video_format = str(video_template or getattr(settings, "video_template", "explainer") or "explainer")
+    _select_video_template(page, dialog, template=video_format)
+    requested_style = style_name if style_name is not None else getattr(settings, "video_style", "auto")
+    selected_style = _select_video_style(page, dialog, requested_style)
+    _fill_prompt(dialog, prompt, selectors)
+    return _click_generate(page, dialog, selectors, selected_style.label if selected_style else "default")
+
+
+def video_ready(page, selectors: dict, card=None) -> bool:
+    """Return readiness for one specific Video Overview card only."""
+    del page, selectors
+    return card is not None and _card_completed(card)
+
+
+def wait_for_video(page, settings, selectors: dict, tracker: GenerationTracker | None = None):
+    """Wait for the card belonging to this generation, never a page-global match."""
+    tracker = tracker or GenerationTracker(snapshot_video_cards(page), "default", time.time())
+    timeout = max(1, int(getattr(settings, "video_timeout_seconds", 1500)))
+    poll = max(1, int(getattr(settings, "poll_seconds", 15)))
+    deadline = time.time() + timeout
+    LOGGER.info("Waiting for video generation")
+    while time.time() < deadline:
+        card = _locate_generation_card(page, tracker)
+        if card is not None and _card_completed(card):
+            LOGGER.info("Video ready for style: %s", tracker.style_label)
+            return card
+        page.wait_for_timeout(min(poll, 5) * 1000)
+    card = _locate_generation_card(page, tracker)
+    _save_debug(page, settings, "video-generation-timeout", card=card)
+    raise NotebookLMError(
+        "video generation",
+        f"Video Overview for style {tracker.style_label!r} was not ready after {timeout}s",
+    )
+
+
+def _open_card_menu(page, card):
+    if not _card_completed(card):
+        raise NotebookLMError("download video", "Video Overview card is not completed")
+    menu_button = _first_visible(card.get_by_role("button", name=_regex(ui.labels("more"))))
+    if menu_button is None:
+        for selector in (
+            "button[aria-haspopup='menu']",
+            "button[aria-label*='More' i]",
+            "button[aria-label*='بیشتر']",
+            "button[title*='More' i]",
+            "button[data-testid*='menu']",
+        ):
+            menu_button = _first_visible(card.locator(selector))
+            if menu_button is not None:
+                break
+    if menu_button is None:
+        raise NotebookLMError("download video", "three-dot menu was not found in the completed Video card")
+    LOGGER.info("Opening video menu")
+    _click_ready(menu_button, step="open video menu")
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        menu = _first_visible(page.get_by_role("menu"))
+        if menu is not None:
+            return menu
+        time.sleep(0.1)
+    raise NotebookLMError("download video", "video menu did not open")
+
+
+def _download_item(menu):
+    item = _first_visible(menu.get_by_role("menuitem", name=_regex(ui.labels("download"))))
+    if item is not None:
+        return item
+    for label in ui.labels("download"):
+        item = _first_visible(menu.get_by_text(label, exact=True))
+        if item is not None:
+            return item
+    return None
+
+
+def _direct_video_fallback(page, card, target_path: str) -> bool:
+    """Fetch a card-scoped video source only after the download event failed."""
+    video = _first_visible(card.locator("video"))
+    if video is None:
+        return False
+    try:
+        source = video.evaluate("node => node.currentSrc || node.src || ''")
+    except Exception:
+        return False
+    if not source:
+        return False
+    try:
+        encoded = page.evaluate(
+            """async url => {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const buffer = await response.arrayBuffer();
+                let binary = '';
+                const bytes = new Uint8Array(buffer);
+                for (let offset = 0; offset < bytes.length; offset += 32768) {
+                    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+                }
+                return btoa(binary);
+            }""",
+            source,
+        )
+        with open(target_path, "wb") as handle:
+            handle.write(base64.b64decode(encoded))
+        return os.path.getsize(target_path) > 0
+    except Exception as error:  # noqa: BLE001
+        LOGGER.info("Direct video fallback failed: %s", error)
+        return False
+
+
+def download_video(page, target_path: str, settings, selectors: dict, *, video_card=None) -> str:
+    """Download one completed card via Playwright's download event."""
+    del selectors
+    if video_card is None:
+        cards = [card for card in _video_cards(page) if _card_completed(card)]
+        if len(cards) != 1:
+            raise NotebookLMError("download video", "a specific completed Video card is required")
+        video_card = cards[0]
+    if not _card_completed(video_card):
+        raise NotebookLMError("download video", "Video Overview card is not completed")
+    os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
+    menu = _open_card_menu(page, video_card)
+    item = _download_item(menu)
+    if item is None:
+        raise NotebookLMError("download video", "Download/دانلود/بارگیری item was not found in the open menu")
+    timeout_ms = max(1, int(getattr(settings, "download_timeout_seconds", 300))) * 1000
+    LOGGER.info("Starting download")
+    event_error: Exception | None = None
+    try:
+        with page.expect_download(timeout=timeout_ms) as download_info:
+            _click_ready(item, step="download video", timeout_ms=min(timeout_ms, 10000))
+        download = download_info.value
+        download.save_as(target_path)
+    except Exception as error:  # noqa: BLE001
+        event_error = error
+        LOGGER.warning("Playwright download event failed: %s", error)
+        if not _direct_video_fallback(page, video_card, target_path):
+            _save_debug(page, settings, "video-download-failed", card=video_card)
+            raise NotebookLMError("download video", f"download event failed: {error}") from error
+    if not os.path.isfile(target_path) or os.path.getsize(target_path) <= 0:
+        _save_debug(page, settings, "video-download-empty", card=video_card)
+        raise NotebookLMError("download video", "downloaded file is missing or empty")
+    if event_error is None:
+        LOGGER.info("Download saved to: %s", target_path)
+    else:
+        LOGGER.info("Download fallback saved to: %s", target_path)
+    _try_trim(target_path, int(getattr(settings, "trim_last_seconds", 0) or 0))
+    return target_path
 
 
 def _try_trim(path: str, trim_last: int) -> None:
@@ -873,41 +829,64 @@ def _try_trim(path: str, trim_last: int) -> None:
         return
     try:
         probe = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", path],
-            capture_output=True, text=True, timeout=30,
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         total = float(probe.stdout.strip() or 0)
         if total > trim_last + 1:
             _trim_video(path, total - trim_last)
         else:
             LOGGER.info("Video too short (%.1fs) to trim %ds", total, trim_last)
-    except Exception as exc:
-        LOGGER.warning("Could not probe/trim video: %s", exc)
+    except Exception as error:  # noqa: BLE001
+        LOGGER.warning("Could not probe/trim video: %s", error)
 
 
 def _trim_video(path: str, keep: float) -> str | None:
     """Trim a video to ``keep`` seconds from the start using ffmpeg."""
-    import subprocess as _sp
-    import tempfile as _tf
+    import tempfile
+
     try:
-        fd, tmp = _tf.mkstemp(suffix=os.path.splitext(path)[1] or ".mp4")
-        os.close(fd)
-        result = _sp.run(
-            ["ffmpeg", "-y", "-i", path, "-t", str(keep),
-             "-c", "copy", "-avoid_negative_ts", "make_zero", tmp],
-            capture_output=True, timeout=120, text=True,
+        descriptor, temporary_path = tempfile.mkstemp(suffix=os.path.splitext(path)[1] or ".mp4")
+        os.close(descriptor)
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                path,
+                "-t",
+                str(keep),
+                "-c",
+                "copy",
+                "-avoid_negative_ts",
+                "make_zero",
+                temporary_path,
+            ],
+            capture_output=True,
+            timeout=120,
+            text=True,
         )
         if result.returncode != 0:
             LOGGER.warning("trim failed (ffmpeg exit %d): %s", result.returncode, result.stderr[:200])
-            os.unlink(tmp)
+            os.unlink(temporary_path)
             return None
-        os.replace(tmp, path)
+        os.replace(temporary_path, path)
         LOGGER.info("Trimmed %s to %.1fs", path, keep)
         return path
     except FileNotFoundError:
         LOGGER.warning("ffmpeg not available, skip trim")
         return None
-    except Exception as exc:
-        LOGGER.warning("trim error: %s", exc)
+    except Exception as error:  # noqa: BLE001
+        LOGGER.warning("trim error: %s", error)
         return None

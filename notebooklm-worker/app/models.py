@@ -89,6 +89,9 @@ class NotebookLMJob:
     status: str = STATUS_CREATED
     stage: str = ""
     video_path: str = ""
+    video_paths: dict[str, str] = field(default_factory=dict)
+    video_template: str = ""
+    video_style: str = ""
     error: str = ""
     log_path: str = ""
     claimed_at: str = ""
@@ -102,6 +105,8 @@ class NotebookLMJob:
         if not self.created_at:
             self.created_at = _now()
         self.sources = normalize_sources(self.sources)
+        if isinstance(self.video_paths, list):
+            self.video_paths = {}
 
     def to_dict(self) -> dict:
         return asdict(self)

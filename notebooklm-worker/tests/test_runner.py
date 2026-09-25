@@ -99,3 +99,71 @@ class RunnerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class AuditRunnerTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="nlm-audit-runner-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.settings = Settings(data_dir=self.dir, poll_seconds=1)
+        self.store = JobStore(os.path.join(self.dir, "jobs.json"))
+
+    def test_source_count_negative_fails_the_job(self):
+        def automation(ctx):
+            ctx.progress(runner_mod.STAGE_SOURCES)
+            ctx.progress(runner_mod.STAGE_PROCESS)
+            from app.notebook import NotebookLMError
+            count = -1
+            if count <= 0:
+                raise NotebookLMError("source verification", "notebook has 0 sources after adding materials")
+            return "unreachable"
+
+        job = self.store.create(NotebookLMJob(topic="Topic"))
+        runner = runner_mod.JobRunner(self.settings, self.store, automation=automation)
+        runner.run_job(job)
+        stored = self.store.get(job.id)
+        self.assertEqual("failed", stored.status)
+        self.assertIn("source verification", stored.error)
+
+    def test_all_styles_generates_one_download_per_style(self):
+        styles = [("Anime", "anime"), ("Classic", "classic")]
+
+        def automation(ctx):
+            ctx.progress(runner_mod.STAGE_SOURCES)
+            ctx.progress(runner_mod.STAGE_PROCESS)
+            ctx.progress(runner_mod.STAGE_GENERATE)
+            paths = {}
+            for label, key in styles:
+                ctx.progress(runner_mod.STAGE_DOWNLOAD)
+                path = os.path.join(ctx.videos_dir, f"{ctx.job.id}__explainer__{key}.mp4")
+                with open(path, "wb") as handle:
+                    handle.write(f"video-{key}".encode())
+                paths[key] = path
+            ctx.store.update(ctx.job.id, video_paths=paths)
+            return next(iter(paths.values()))
+
+        job = self.store.create(NotebookLMJob(topic="Topic", video_style="all"))
+        runner = runner_mod.JobRunner(self.settings, self.store, automation=automation)
+        runner.run_job(job)
+        stored = self.store.get(job.id)
+        self.assertEqual("ready", stored.status)
+        self.assertEqual({"anime", "classic"}, set(stored.video_paths))
+        for path in stored.video_paths.values():
+            self.assertTrue(os.path.isfile(path))
+            self.assertGreater(os.path.getsize(path), 0)
+
+class AuditPathTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="nlm-paths-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def test_all_style_output_path_includes_format_and_style(self):
+        path = runner_mod.video_output_path(self.dir, "job1", "explainer", "anime")
+        self.assertTrue(path.endswith("job1__explainer__anime.mp4"))
+
+    def test_all_style_output_path_avoids_collision(self):
+        first = runner_mod.video_output_path(self.dir, "job1", "explainer", "anime")
+        with open(first, "wb") as handle:
+            handle.write(b"old")
+        second = runner_mod.video_output_path(self.dir, "job1", "explainer", "anime")
+        self.assertTrue(second.endswith("job1__explainer__anime-2.mp4"))
+        self.assertNotEqual(first, second)
