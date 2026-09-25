@@ -47,7 +47,7 @@ class TelegramApiTest(unittest.TestCase):
         self.assertEqual(payload["chat_id"], 12345)
         self.assertEqual(payload["text"], "Hello")
         buttons = payload["reply_markup"]["inline_keyboard"][0]
-        self.assertEqual([button["text"] for button in buttons], ["Approve", "Reject"])
+        self.assertEqual([button["text"] for button in buttons], ["Approve to Telegram", "Reject"])
         self.assertEqual(buttons[0]["callback_data"], "approve:draft-1")
         self.assertEqual(result["message_id"], 42)
 

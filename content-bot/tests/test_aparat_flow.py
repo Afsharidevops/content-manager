@@ -240,5 +240,79 @@ class AparatFlowTests(unittest.TestCase):
         self.assertEqual("aparat", self.bot._channel_for(profile).key)
 
 
+
+    def test_video_publish_does_not_send_text_continuation(self):
+        """Aparat video-only: continuation texts must not be sent after the video."""
+        from pathlib import Path as _Path
+        media_dir = _Path(self.tmp) / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        mp4 = media_dir / f"{self.draft_id}.mp4"
+        mp4.write_bytes(b"video-bytes")
+        long_body = "\n\n".join(
+            f"Paragraph number {i} to inflate the body beyond the caption limit."
+            for i in range(60)
+        )
+        self.bot.state.update_draft(
+            self.draft_id,
+            {
+                "body": long_body,
+                "source_url": "https://example.com/layers",
+                "media": {
+                    "kind": "video",
+                    "driver": "user-upload",
+                    "status": "done",
+                    "artifact": mp4.name,
+                    "local_path": str(mp4),
+                    "duration": "",
+                },
+            },
+        )
+        profile = self.bot._platform_profiles({})[("aparat")]
+        self.bot._publish_to_channel(None, self.record(), profile, self.channel)
+        self.assertEqual(1, len(self.channel.videos))
+        sent_texts = [
+            method for method, *_ in getattr(self.channel, "_text_calls", [])
+        ]
+        self.assertEqual([], sent_texts)
+
+    def test_plain_telegram_approve_does_not_send_instagram_package(self):
+        """A plain Approve should only publish to Telegram without any Instagram package."""
+        from pathlib import Path as _Path
+        media_dir = _Path(self.tmp) / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        mp4 = media_dir / f"{self.draft_id}-ig.mp4"
+        mp4.write_bytes(b"video-bytes")
+        self.bot.state.update_draft(
+            self.draft_id,
+            {
+                "status": "media_ready",
+                "media": {
+                    "kind": "video",
+                    "driver": "user-upload",
+                    "status": "done",
+                    "artifact": mp4.name,
+                    "local_path": str(mp4),
+                    "duration": "",
+                },
+            },
+        )
+        self.bot._approve(
+            "q-approve",
+            self.bot.state.get_draft(self.draft_id),
+            11,
+            100,
+            targets=("telegram",),
+        )
+        # No sendDocument calls should have gone to the operator (chat_id 11)
+        documents_to_operator = [
+            m for m in self.api.sent_messages
+            if "Instagram" in str(m.get("text") or "")
+        ]
+        self.assertEqual(
+            [],
+            documents_to_operator,
+            "Plain Approve must not auto-send an Instagram package",
+        )
+
 if __name__ == "__main__":  # pragma: no cover - unittest entry point
     unittest.main()

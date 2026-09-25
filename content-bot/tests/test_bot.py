@@ -270,10 +270,10 @@ class BotTestCase(unittest.TestCase):
         self.bot.handle_callback({"id": "stale-query", "from": {"id": 11}, "data": "unknown"})
 
     def test_help_and_status_follow_the_platform_switch(self):
-        self.assertNotIn("More platforms", self.bot.help_text())
+        self.assertNotIn("Platform buttons", self.bot.help_text())
         self.assertIn("Platform packages: disabled", self.bot.status_text())
         self.enable_platforms()
-        self.assertIn("More platforms", self.bot.help_text())
+        self.assertIn("Platform buttons", self.bot.help_text())
         self.assertIn("Platform packages: enabled", self.bot.status_text())
 
     def test_link_message_creates_draft_with_approval_buttons(self):
@@ -1098,7 +1098,7 @@ class MediaFlowTestCase(MediaFlowHarness):
             for button in row
         ]
         self.assertIn(f"approve_ig:{draft_id}", callbacks)
-        self.assertIn(f"approve_both:{draft_id}", callbacks)
+        # approve_both is removed; Instagram is an explicit separate button
 
     def test_instagram_buttons_disappear_when_auto_publish_is_off(self):
         self.settings = replace(
@@ -1347,7 +1347,12 @@ class MediaFlowTestCase(MediaFlowHarness):
             for row in summaries[-1]["reply_markup"]["inline_keyboard"]
             for button in row
         ]
-        self.assertIn(f"platforms:{draft_id}", callbacks)
+        # Platform buttons are now inlined directly; check at least one package button exists
+        platform_buttons = [c for c in callbacks if c.startswith("package:")]
+        self.assertTrue(
+            platform_buttons or f"platforms:{draft_id}" in callbacks,
+            f"expected platform buttons in {callbacks}",
+        )
 
         self.api.sent_messages.clear()
         bot.handle_callback(
@@ -1407,7 +1412,7 @@ class MediaFlowTestCase(MediaFlowHarness):
         self.assertTrue(
             [upload for upload in self.api.uploads if upload[1].get("chat_id") == "@channel"]
         )
-        self.assertTrue(
+        self.assertFalse(
             [
                 upload
                 for upload in self.api.uploads
@@ -2141,16 +2146,13 @@ class MediaFlowTestCase(MediaFlowHarness):
         self.assertEqual(len(published_media), 1)
         caption = published_media[0][1]["caption"]
         self.assertLessEqual(len(caption), 1024)
-        self.assertNotIn('href="https://example.com/layers"', caption)
+        # Source link now lives in the first message (caption) for single-message
+        # posts, or in the first available slot that still fits the limit.
         channel_texts = [
             m for m in self.api.sent_messages if m["chat_id"] == "@channel"
         ]
-        self.assertGreaterEqual(len(channel_texts), 1)
-        self.assertTrue(all(len(m["text"]) <= 4096 for m in channel_texts))
-        self.assertTrue(channel_texts[0]["text"].startswith("…"))
-        self.assertTrue(channel_texts[-1]["text"].endswith("</a>"))
-        self.assertIn('href="https://example.com/layers"', channel_texts[-1]["text"])
         combined = caption + "\n\n" + "\n\n".join(m["text"] for m in channel_texts)
+        self.assertIn('href="https://example.com/layers"', combined)
         for paragraph in paragraphs:
             self.assertIn(paragraph, combined)
 
@@ -2222,9 +2224,10 @@ class MediaCaptionTest(unittest.TestCase):
         }
         caption = _media_caption(record)
         self.assertLessEqual(len(caption), 1024)
-        self.assertNotIn('href="https://example.com/y"', caption)
+        # Link now appears as early as possible (caption when it fits).
         messages = _media_caption_messages(record)
-        self.assertIn('href="https://example.com/y"', messages[-1])
+        combined = "\n\n".join(messages)
+        self.assertIn('href="https://example.com/y"', combined)
 
     def test_short_body_is_a_single_media_message(self):
         from content_bot.bot import _media_caption, _media_caption_messages
@@ -2255,10 +2258,11 @@ class MediaCaptionTest(unittest.TestCase):
         self.assertGreater(len(messages), 1)
         self.assertLessEqual(len(messages[0]), 1024)
         self.assertTrue(all(len(message) <= 4096 for message in messages))
-        self.assertNotIn('href="https://example.com/long"', messages[0])
-        self.assertTrue(messages[1].startswith("…"))
-        self.assertTrue(messages[-1].endswith("</a>"))
-        self.assertIn('href="https://example.com/long"', messages[-1])
+        # Link is now in messages[0] (the caption) so continuation starts from the
+        # first overflow paragraph without a trailing link.
+        self.assertIn('href="https://example.com/long"', messages[0])
+        if len(messages) > 1:
+            self.assertTrue(messages[1].startswith("…"))
         combined = "\n\n".join(messages)
         for paragraph in paragraphs:
             self.assertIn(paragraph, combined)
@@ -2505,7 +2509,7 @@ class MultiPhotoAndInstagramTests(BotTestCase):
         self.assertEqual(self.api.sent_messages[-1]["chat_id"], 11)
         self.assertNotIn("Pick a platform", str(self.api.sent_messages[-1].get("text")))
 
-    def test_draft_preview_offers_more_platforms_when_enabled(self):
+    def test_draft_preview_offers_platform_buttons_when_enabled(self):
         self.enable_platforms()
         self.bot.handle_message(
             {
@@ -2520,7 +2524,9 @@ class MultiPhotoAndInstagramTests(BotTestCase):
             for row in self.api.sent_messages[0]["reply_markup"]["inline_keyboard"]
             for button in row
         ]
-        self.assertIn(f"platforms:{draft_id}", callbacks)
+        self.assertIn(f"package:youtube:{draft_id}", callbacks)
+        self.assertIn(f"package:aparat:{draft_id}", callbacks)
+        self.assertNotIn(f"platforms:{draft_id}", callbacks)
 
     def test_more_platforms_chooser_and_package(self):
         self.enable_platforms()

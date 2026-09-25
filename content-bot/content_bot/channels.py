@@ -190,19 +190,27 @@ class EitaaChannel(ChatChannel):
 
     def _send_file(self, filename: str, data: bytes, caption: str) -> None:
         url = f"{self.api_base}/{self.token}/sendFile"
-        try:
-            status, body = request_multipart(
-                url,
-                fields={"chat_id": self.chat_id, "caption": _plain_text(caption)},
-                file_field="file",
-                filename=filename,
-                file_bytes=data,
-                timeout=180,
-            )
-        except ConnectionError as error:
-            raise ChannelError(f"{self.label}: network error: {error}") from error
-        if status >= 400:
-            raise ChannelError(f"{self.label}: HTTP {status} {_error_note(body)}")
+        last_error: Exception | None = None
+        for attempt in range(3):
+            import time as _time
+            if attempt:
+                _time.sleep(attempt * 5)
+            try:
+                status, body = request_multipart(
+                    url,
+                    fields={"chat_id": self.chat_id, "caption": _plain_text(caption)},
+                    file_field="file",
+                    filename=filename,
+                    file_bytes=data,
+                    timeout=180,
+                )
+            except ConnectionError as error:
+                last_error = error
+                continue
+            if status >= 400:
+                raise ChannelError(f"{self.label}: HTTP {status} {_error_note(body)}")
+            return
+        raise ChannelError(f"{self.label}: network error: {last_error}") from last_error
 
     def send_photo(self, filename: str, data: bytes, caption: str) -> None:
         self._send_file(filename, data, caption)

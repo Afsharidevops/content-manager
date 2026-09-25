@@ -221,7 +221,8 @@ def run_browser_flow(ctx: RunContext) -> str:
                 )
                 card = video_mod.wait_for_video(page, settings, ctx.selectors, tracker=tracker)
                 ctx.progress(STAGE_DOWNLOAD)
-                target = os.path.join(target_dir, f"{base_name}.mp4")
+                style_slug = style_override or "auto"
+                target = video_output_path(target_dir, base_name, video_template, style_slug)
                 downloaded = video_mod.download_video(page, target, settings, ctx.selectors, video_card=card)
                 remote_path = store_video_artifact(settings, downloaded)
                 update = {"video_paths": {video_style: downloaded}}

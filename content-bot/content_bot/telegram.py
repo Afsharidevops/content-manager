@@ -409,24 +409,42 @@ class TelegramApi:
             raise TelegramError(f"Telegram file download HTTP {status}")
         return body
 
+def platform_target_rows(targets: list[tuple[str, str]] | None) -> list[list[dict]]:
+    """Render explicit publication targets as two-button rows."""
+    rows: list[list[dict]] = []
+    row: list[dict] = []
+    for label, callback_data in targets or []:
+        row.append({"text": label, "callback_data": callback_data})
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return rows
+
 
 def approval_keyboard(
     draft_id: str,
     *,
     platforms: bool = False,
     manual_package: bool = False,
+    platform_targets: list[tuple[str, str]] | None = None,
 ) -> dict:
     """Inline keyboard for one draft proposal."""
     rows = [
         [
-            {"text": "Approve", "callback_data": f"approve:{draft_id}"},
+            {"text": "Approve to Telegram", "callback_data": f"approve:{draft_id}"},
             {"text": "Reject", "callback_data": f"reject:{draft_id}"},
         ]
     ]
-    if manual_package:
-        rows.append(instagram_package_row(draft_id))
-    if platforms:
-        rows.append(platform_choice_row(draft_id))
+    target_rows = platform_target_rows(platform_targets)
+    if target_rows:
+        rows.extend(target_rows)
+    else:
+        if manual_package:
+            rows.append(instagram_package_row(draft_id))
+        if platforms:
+            rows.append(platform_choice_row(draft_id))
     return {"inline_keyboard": rows}
 
 
@@ -633,24 +651,19 @@ def upload_wait_keyboard(draft_id: str) -> dict:
 
 
 def platform_choice_row(draft_id: str) -> list[dict]:
-    """Row that opens the manual-upload platform chooser for one draft.
-
-    Opt-in: keyboards only carry this row when the operator enables the
-    packages (``CONTENT_PLATFORMS_ENABLED``), because Telegram and Instagram
-    publish through their APIs without it.
-    """
+    """One row exposing the platform picker."""
     return [
-        {"text": "More platforms...", "callback_data": f"platforms:{draft_id}"}
+        {"text": "Choose another platform", "callback_data": f"platforms:{draft_id}"}
     ]
 
 
 def packages_keyboard(draft_id: str) -> dict:
-    """Keep the upload packages reachable from the post-publish message."""
+    """Keep publication targets reachable from the post-publish message."""
     return {"inline_keyboard": [platform_choice_row(draft_id)]}
 
 
 def platforms_keyboard(draft_id: str, profiles: list[tuple[str, str]]) -> dict:
-    """Chooser for platforms that receive a copy-ready upload package."""
+    """Chooser for one explicit publication target."""
     rows: list[list[dict]] = []
     row: list[dict] = []
     for key, label in profiles:
@@ -664,9 +677,9 @@ def platforms_keyboard(draft_id: str, profiles: list[tuple[str, str]]) -> dict:
 
 
 def instagram_package_row(draft_id: str) -> list[dict]:
-    """Manual-upload hand-off offered while automatic publishing is off."""
+    """Manual-upload hand-off offered as an explicit Instagram target."""
     return [
-        {"text": "Instagram package", "callback_data": f"post_package:{draft_id}"}
+        {"text": "Instagram", "callback_data": f"post_package:{draft_id}"}
     ]
 
 
@@ -691,11 +704,12 @@ def user_media_preview_keyboard(
     collecting: bool = False,
     platforms: bool = False,
     manual_package: bool = False,
+    platform_targets: list[tuple[str, str]] | None = None,
 ) -> dict:
     """Approve/Reject plus text-only fallback for an operator-uploaded file."""
     rows = [
         [
-            {"text": "Approve", "callback_data": f"approve:{draft_id}"},
+            {"text": "Approve to Telegram", "callback_data": f"approve:{draft_id}"},
             {"text": "Reject", "callback_data": f"reject:{draft_id}"},
         ]
     ]
@@ -706,12 +720,16 @@ def user_media_preview_keyboard(
         )
     actions.append({"text": "Text only", "callback_data": f"media:none:{draft_id}"})
     rows.append(actions)
-    if instagram:
-        rows.append(instagram_approval_row(draft_id))
-    if manual_package:
-        rows.append(instagram_package_row(draft_id))
-    if platforms:
-        rows.append(platform_choice_row(draft_id))
+    target_rows = platform_target_rows(platform_targets)
+    if target_rows:
+        rows.extend(target_rows)
+    else:
+        if manual_package:
+            rows.append(instagram_package_row(draft_id))
+        if platforms:
+            rows.append(platform_choice_row(draft_id))
+        elif instagram:
+            rows.append(instagram_approval_row(draft_id))
     return {"inline_keyboard": rows}
 
 
@@ -776,11 +794,12 @@ def media_preview_keyboard(
     instagram: bool = False,
     platforms: bool = False,
     manual_package: bool = False,
+    platform_targets: list[tuple[str, str]] | None = None,
 ) -> dict:
     """Approve/Reject plus media actions on one generated preview message."""
     rows = [
         [
-            {"text": "Approve", "callback_data": f"approve:{draft_id}"},
+            {"text": "Approve to Telegram", "callback_data": f"approve:{draft_id}"},
             {"text": "Reject", "callback_data": f"reject:{draft_id}"},
         ],
         [
@@ -788,12 +807,16 @@ def media_preview_keyboard(
             {"text": "Text only", "callback_data": f"media:none:{draft_id}"},
         ],
     ]
-    if instagram:
-        rows.append(instagram_approval_row(draft_id))
-    if manual_package:
-        rows.append(instagram_package_row(draft_id))
-    if platforms:
-        rows.append(platform_choice_row(draft_id))
+    target_rows = platform_target_rows(platform_targets)
+    if target_rows:
+        rows.extend(target_rows)
+    else:
+        if manual_package:
+            rows.append(instagram_package_row(draft_id))
+        if platforms:
+            rows.append(platform_choice_row(draft_id))
+        elif instagram:
+            rows.append(instagram_approval_row(draft_id))
     return {"inline_keyboard": rows}
 
 

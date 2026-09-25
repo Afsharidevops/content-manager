@@ -107,8 +107,8 @@ def _media_caption_messages(record: dict) -> list[str]:
     The first message is the media caption and never exceeds Telegram's
     1024-character media caption limit. Any paragraphs that do not fit are
     returned as continuation text messages so that no post content is lost.
-    When a continuation exists, the clickable source link moves to the end
-    of the last message instead of the caption.
+    The clickable source link stays in the first message when it fits, so
+    link previews and channel context stay attached to the media.
     """
     url = str(record.get("source_url") or "").strip()
     body = writer_mod.Writer._strip_source_url(str(record.get("body") or ""), url)
@@ -126,12 +126,16 @@ def _media_caption_messages(record: dict) -> list[str]:
         return [assemble(paragraphs, with_link=True)]
     caption_parts: list[str] = []
     for part in paragraphs:
-        if len(assemble(caption_parts + [part], with_link=False)) <= _MEDIA_CAPTION_MAX:
+        if len(assemble(caption_parts + [part], with_link=True)) <= _MEDIA_CAPTION_MAX:
             caption_parts.append(part)
         else:
             break
+    if not caption_parts and paragraphs:
+        caption_parts = [paragraphs[0]]
+        while len(assemble(caption_parts, with_link=True)) > _MEDIA_CAPTION_MAX and len(caption_parts[0]) > 1:
+            caption_parts[0] = caption_parts[0][:-1].rstrip()
     rest = paragraphs[len(caption_parts):]
-    messages = [assemble(caption_parts, with_link=False)]
+    messages = [assemble(caption_parts, with_link=True)]
     continuation: list[str] = []
     current: list[str] = []
     current_len = 0
@@ -155,14 +159,6 @@ def _media_caption_messages(record: dict) -> list[str]:
         continuation.append("\n\n".join(current))
     if continuation:
         continuation[0] = "…\n\n" + continuation[0]
-    if suffix and continuation:
-        last = continuation[-1]
-        if len(last) + len(suffix) > _TEXT_MESSAGE_MAX:
-            continuation.append(suffix.lstrip("\n"))
-        else:
-            continuation[-1] = last + suffix
-    elif suffix:
-        continuation.append(suffix.lstrip("\n"))
     return messages + continuation
 
 
@@ -1700,10 +1696,9 @@ class ContentBot:
         ]
         if self.settings.platforms_enabled:
             lines.append(
-                "More platforms... on a preview publishes to the automatic "
-                "channels (Bale, Eitaa) and sends a copy-ready package for "
-                "YouTube, Aparat, LinkedIn, or any platform added to "
-                "editorial-policy.yaml."
+                "Platform buttons on a preview publish one selected target "
+                "at a time, including automatic channels and copy-ready "
+                "packages from editorial-policy.yaml."
             )
         if self._routines_summary() != "not configured":
             lines.append(
@@ -2986,22 +2981,55 @@ class ContentBot:
         """
         return not self.settings.instagram_publish_enabled
 
-    def _approval_keyboard(self, draft_id: str) -> dict:
+    def _platform_target_buttons(
+        self, draft_id: str, record: dict | None = None
+    ) -> list[tuple[str, str]]:
+        """Return explicit publication buttons for one draft."""
+        record = record if isinstance(record, dict) else self.state.get_draft(draft_id)
+        targets: list[tuple[str, str]] = []
+        if self.settings.instagram_publish_enabled:
+            targets.append(("Instagram", f"approve_ig:{draft_id}"))
+        elif self._manual_package_enabled():
+            targets.append(("Instagram", f"post_package:{draft_id}"))
+        if not self.settings.platforms_enabled:
+            return targets
+        policy = workflow.load_policy(self.settings.policy_dir)
+        profiles = self._platform_profiles(policy)
+        sent = set((record or {}).get("published_targets") or [])
+        video_ready = platforms_mod.has_video(record or {})
+        for key, profile in profiles.items():
+            label = str(getattr(profile, "label", "") or key)
+            channel = self._channel_for(profile)
+            if key in sent:
+                label = f"{label} / sent"
+            elif channel is not None and platforms_mod.needs_video(profile) and not video_ready:
+                label = f"{label} (needs video)"
+            elif channel is not None:
+                label = f"{label} (auto)"
+            elif str(getattr(profile, "mode", "package")) == "auto":
+                label = f"{label} (setup needed)"
+            targets.append((label, f"package:{key}:{draft_id}"))
+        return targets
+
+    def _approval_keyboard(self, draft_id: str, record: dict | None = None) -> dict:
         """Draft buttons with the publishing options this deployment enables."""
         return telegram_mod.approval_keyboard(
             draft_id,
             platforms=self.settings.platforms_enabled,
             manual_package=self._manual_package_enabled(),
+            platform_targets=self._platform_target_buttons(draft_id, record),
         )
 
     def _preview_keyboard(
         self, factory, draft_id: str, *, collecting: bool = False
     ) -> dict:
         """Build preview buttons with the options the factory supports."""
+        record = self.state.get_draft(draft_id)
         options = {
             "instagram": self.settings.instagram_publish_enabled,
             "platforms": self.settings.platforms_enabled,
             "manual_package": self._manual_package_enabled(),
+            "platform_targets": self._platform_target_buttons(draft_id, record),
         }
         if collecting:
             try:
@@ -3521,9 +3549,6 @@ class ContentBot:
             notes.append(
                 "These hand over a copy-ready package: " + ", ".join(manual) + "."
             )
-        if len(automatic) >= 2:
-            pairs.append(("#all", "All targets"))
-            notes.append("All targets publishes to every automatic platform above.")
         self.api.send_message(
             chat_id,
             "Pick a platform. " + " ".join(notes),
@@ -3612,9 +3637,6 @@ class ContentBot:
         policy = workflow.load_policy(self.settings.policy_dir)
         profiles = self._platform_profiles(policy)
         wanted = str(key or "").strip().lower()
-        if wanted == "#all":
-            self._publish_to_targets(query_id, record, profiles)
-            return
         profile = profiles.get(wanted)
         if profile is None:
             self._safe_answer(query_id, "Unknown platform.")
@@ -3752,8 +3774,9 @@ class ContentBot:
                         messages[0],
                         meta=platforms_mod.video_meta(published_record, profile),
                     )
-                for continuation in messages[1:]:
-                    channel.send_text(continuation)
+                if not platforms_mod.needs_video(profile):
+                    for continuation in messages[1:]:
+                        channel.send_text(continuation)
             elif platforms_mod.needs_video(profile) and media.get("oversized"):
                 # Telegram only serves bot downloads up to 20 MB, so the file
                 # never reached storage and a video-only platform cannot use it.
@@ -4000,12 +4023,9 @@ class ContentBot:
                 self._safe_answer(query_id, detail)
                 return False
             manual_package = True
-        if not manual_package and not self.settings.instagram_publish_enabled:
-            # Instagram stays manual in this deployment, so an approval that
-            # carries media also hands over the Instagram package.
-            media = record.get("media") or {}
-            if media.get("files") or str(media.get("kind") or "") in {"image", "video"}:
-                manual_package = True
+        # The Instagram package is only sent when Instagram was explicitly
+        # selected as a target.  Do not auto-attach it on a plain Telegram
+        # Approve even when automatic IG publishing is off.
         policy = workflow.load_policy(self.settings.policy_dir)
         zone = _policy_zone(policy)
         day = self.now_fn().astimezone(zone).date().isoformat()
