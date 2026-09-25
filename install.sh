@@ -1292,7 +1292,7 @@ smart_router_bind="$(existing_env_value SMART_ROUTER_BIND_IP)"; smart_router_bin
 smart_router_port="$(existing_env_value SMART_ROUTER_PORT)"; smart_router_port="${smart_router_port:-8787}"
 smart_router_mode="$(existing_env_value SMART_ROUTER_MODE)"; smart_router_mode="${smart_router_mode:-observe}"
 smart_router_policy="$(existing_env_value SMART_ROUTER_POLICY)"; smart_router_policy="${smart_router_policy:-heuristic}"
-smart_router_allow_tier_overrides="$(existing_env_value SMART_ROUTER_ALLOW_TIER_OVERRIDES)"; smart_router_allow_tier_overrides="${smart_router_allow_tier_overrides:-false}"
+smart_router_allow_tier_overrides="$(existing_env_value SMART_ROUTER_ALLOW_TIER_OVERRIDES)"; smart_router_allow_tier_overrides="${smart_router_allow_tier_overrides:-true}"
 smart_router_dashboard_enabled="$(existing_env_value SMART_ROUTER_DASHBOARD_ENABLED)"; smart_router_dashboard_enabled="${smart_router_dashboard_enabled:-true}"
 smart_router_control_plane_enabled="$(existing_env_value SMART_ROUTER_CONTROL_PLANE_ENABLED)"; smart_router_control_plane_enabled="${smart_router_control_plane_enabled:-true}"
 smart_router_require_auth="$(existing_env_value SMART_ROUTER_REQUIRE_AUTH)"; smart_router_require_auth="${smart_router_require_auth:-true}"
@@ -1405,7 +1405,7 @@ esac
 if [[ "$configure_smart_router" == true && "$install_smart_router" == true ]]; then
   printf '\nHermes Smart Router v0.5.9 settings\n'
   printf '%s\n' '-----------------------------------'
-  printf '%s\n' 'Smart routing applies to model=auto. Tier aliases auto-fast/auto-standard/auto-strong are exposed only when tier overrides are enabled.'
+  printf '%s\n' 'Smart routing applies to model=auto. Content Bot defaults to auto-strong, so tier aliases are recommended for local trusted stacks.'
   printf '%s\n' 'Explicit upstream model names pass through without automatic tier selection.'
   printf '%s\n' ''
   printf '%s\n' 'Router modes:'
@@ -1872,10 +1872,10 @@ if [[ "$install_content" == true && "$configure_content" == true ]]; then
   elif [[ "$install_omniroute" == true && "$install_smart_router" != true && -z "$content_writer_model" ]]; then
     content_writer_model_default="auto/best-chat"
   else
-    content_writer_model_default="${content_writer_model:-auto}"
+    content_writer_model_default="${content_writer_model:-auto-strong}"
   fi
   while true; do
-    content_writer_model="$(prompt "Writer model id (as your API expects; local router: auto)" "$content_writer_model_default")"
+    content_writer_model="$(prompt "Writer model id (as your API expects; local Smart Router: auto-strong)" "$content_writer_model_default")"
     [[ -n "$content_writer_model" ]] && break
     warn "A writer model id is required." >&2
   done

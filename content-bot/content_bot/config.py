@@ -56,8 +56,8 @@ class BotSettings:
     telegram_api_base: str = "https://api.telegram.org"
     writer_base_url: str = ""
     writer_api_key: str = ""
-    writer_model: str = "auto"
-    writer_max_tokens: int = 1600
+    writer_model: str = "auto-strong"
+    writer_max_tokens: int = 4000
     writer_reasoning_effort: str = ""
     policy_dir: str = "/policy"
     data_dir: str = "/data"
@@ -125,8 +125,8 @@ class BotSettings:
             telegram_api_base=_env("CONTENT_TELEGRAM_API_BASE", "https://api.telegram.org"),
             writer_base_url=_env("CONTENT_WRITER_BASE_URL"),
             writer_api_key=_env("CONTENT_WRITER_API_KEY"),
-            writer_model=_env("CONTENT_WRITER_MODEL", "auto"),
-            writer_max_tokens=_env_int("CONTENT_WRITER_MAX_TOKENS", 1600),
+            writer_model=_env("CONTENT_WRITER_MODEL", "auto-strong"),
+            writer_max_tokens=_env_int("CONTENT_WRITER_MAX_TOKENS", 4000),
             writer_reasoning_effort=_env("CONTENT_WRITER_REASONING_EFFORT"),
             policy_dir=_env("CONTENT_POLICY_DIR", "/policy"),
             data_dir=_env("CONTENT_DATA_DIR", "/data"),
