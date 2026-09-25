@@ -180,6 +180,27 @@ if __name__ == "__main__":
 
 
 class AuditVideoHelperTests(unittest.TestCase):
+    def test_video_card_content_uses_nested_aria_description(self):
+        described = mock.Mock()
+        described.is_visible.return_value = True
+        described.get_attribute.side_effect = lambda attribute: {
+            "aria-description": "مرور ویدیویی",
+            "aria-label": "",
+        }.get(attribute, "")
+        described_locator = mock.Mock()
+        described_locator.count.return_value = 1
+        described_locator.nth.return_value = described
+
+        card = mock.Mock()
+        card.text_content.return_value = "videocam 5:21 توضیح‌دهنده"
+        card.get_attribute.return_value = ""
+        card.locator.return_value = described_locator
+
+        self.assertIn(
+            ui.normalize_label("مرور ویدیویی"),
+            v._video_card_content(card),
+        )
+
     def test_card_label_strips_material_check_prefix_without_space(self):
         card = mock.Mock()
         card.get_attribute.return_value = ""

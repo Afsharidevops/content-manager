@@ -592,22 +592,13 @@ def _video_cards(page) -> list:
     studio = _studio_root(page)
     overview_labels = {ui.normalize_label(label) for label in ui.labels("video_overview")}
 
-    artifact_cards = studio.locator(".artifact-item-button, [class*='artifact-item']")
+    artifact_cards = studio.locator("[class~='artifact-item-button']")
     matched = []
     for index in range(min(artifact_cards.count(), 100)):
         card = artifact_cards.nth(index)
         if not _is_visible(card):
             continue
-        described = _first_visible(card.locator("[aria-description]"))
-        content_parts = [
-            _text(card),
-            _attribute(card, "aria-description"),
-            _attribute(card, "aria-label"),
-        ]
-        if described is not None:
-            content_parts.append(_attribute(described, "aria-description"))
-            content_parts.append(_attribute(described, "aria-label"))
-        content = ui.normalize_label(" ".join(content_parts))
+        content = _video_card_content(card)
         if any(label in content for label in overview_labels):
             matched.append(card)
     if matched:
@@ -634,6 +625,20 @@ def _video_cards(page) -> list:
         if legacy:
             return legacy
     return []
+
+
+def _video_card_content(card) -> str:
+    """Return text plus the nested semantic label of one artifact card."""
+    described = _first_visible(card.locator("[aria-description]"))
+    content_parts = [
+        _text(card),
+        _attribute(card, "aria-description"),
+        _attribute(card, "aria-label"),
+    ]
+    if described is not None:
+        content_parts.append(_attribute(described, "aria-description"))
+        content_parts.append(_attribute(described, "aria-label"))
+    return ui.normalize_label(" ".join(content_parts))
 
 
 def _card_identity(card, index: int) -> str:
@@ -820,7 +825,20 @@ def _open_card_menu(page, card):
     if menu_button is None:
         raise NotebookLMError("download video", "three-dot menu was not found in the completed Video card")
     LOGGER.info("Opening video menu")
-    _click_ready(menu_button, step="open video menu")
+    try:
+        _click_ready(menu_button, step="open video menu")
+    except NotebookLMError as error:
+        if "cdk-overlay-backdrop" not in str(error):
+            raise
+        existing_menu = _first_visible(page.get_by_role("menu"))
+        if existing_menu is not None:
+            return existing_menu
+        try:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(500)
+        except Exception:
+            pass
+        _click_ready(menu_button, step="open video menu")
     deadline = time.time() + 5
     while time.time() < deadline:
         menu = _first_visible(page.get_by_role("menu"))
