@@ -24,6 +24,7 @@ SIGNED_OUT_RE = re.compile(
     r"accounts\.google\.com|/v3/signin|ServiceLogin|/signin/", re.IGNORECASE
 )
 NOTEBOOKLM_RE = re.compile(r"^https?://(notebooklm|notebook)\.google\.com/", re.IGNORECASE)
+UNSUPPORTED_REDIRECT_MARKER = "location=unsupported"
 
 
 class SessionError(RuntimeError):
@@ -118,6 +119,19 @@ def open_notebooklm(page, settings) -> None:
     page.goto(settings.home_url, wait_until="domcontentloaded")
     page.wait_for_timeout(2500)
     url = str(page.url or "")
+    if UNSUPPORTED_REDIRECT_MARKER in url or (
+        "notebook.google" in url and not is_notebooklm_url(url)
+    ):
+        LOGGER.warning(
+            "NotebookLM home did not open the app shell; url=%s expected_home=%s "
+            "reason=unsupported_or_wrong_host action=retry_home_navigation",
+            url,
+            settings.home_url,
+        )
+        page.goto(settings.home_url, wait_until="domcontentloaded")
+        page.wait_for_timeout(3000)
+        url = str(page.url or "")
+        LOGGER.info("NotebookLM home retry completed; url=%s", url)
     if is_signed_out_url(url):
         raise SessionError(
             "The Google session is signed out. Run ./manage.sh notebooklm-login, "
