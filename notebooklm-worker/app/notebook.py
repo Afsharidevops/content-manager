@@ -595,6 +595,17 @@ def fill_first(page, selectors: list[str], text: str, *, step: str, timeout: flo
     return node
 
 
+def _is_studio_collapse_control(label: str) -> bool:
+    normalized = str(label or "").casefold()
+    close_word = "\u062c\u0645\u0639"
+    studio_word = "\u0627\u0633\u062a\u0648\u062f\u06cc\u0648"
+    return (
+        "collapse" in normalized
+        or "hide studio" in normalized
+        or (close_word in normalized and studio_word in normalized)
+    )
+
+
 class NotebookEditor:
     """Drive one NotebookLM notebook through a single job."""
 
@@ -1357,7 +1368,12 @@ class NotebookEditor:
         node = find_first(self.page, self.selectors["studio_tab"], timeout=8)
         if node is not None:
             try:
-                LOGGER.info("Studio aria: %s", (node.get_attribute("aria-label") or "").strip())
+                aria = (node.get_attribute("aria-label") or "").strip()
+                LOGGER.info("Studio aria: %s", aria)
+                if _is_studio_collapse_control(aria):
+                    LOGGER.info("Studio panel is already open; skip collapse control")
+                    return
+                node.scroll_into_view_if_needed(timeout=3000)
                 node.click()
                 self.page.wait_for_timeout(1500)
             except Exception as error:  # noqa: BLE001
