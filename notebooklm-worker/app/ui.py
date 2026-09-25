@@ -25,7 +25,15 @@ UI_LABELS: dict[str, tuple[str, ...]] = {
 }
 
 STYLE_ALIASES: dict[str, tuple[str, ...]] = {
-    "anime": ("anime", "انیمه"),
+    "auto": ("auto", "default", "\u0627\u0646\u062a\u062e\u0627\u0628 \u062e\u0648\u062f\u06a9\u0627\u0631"),
+    "classic": ("classic", "\u06a9\u0644\u0627\u0633\u06cc\u06a9", "\u06a9\u0644\u0627\u0633\u064a\u06a9"),
+    "whiteboard": ("whiteboard", "white board", "\u062a\u062e\u062a\u0647 \u0633\u0641\u06cc\u062f", "\u062a\u062e\u062a\u0647\u200c\u0633\u0641\u06cc\u062f"),
+    "kawaii": ("kawaii", "\u06a9\u0627\u0648\u0627\u06cc\u06cc"),
+    "anime": ("anime", "\u0627\u0646\u06cc\u0645\u0647"),
+    "watercolor": ("watercolor", "water color", "\u0622\u0628 \u0631\u0646\u06af", "\u0622\u0628\u200c\u0631\u0646\u06af"),
+    "retro_print": ("retro print", "vintage print", "\u0686\u0627\u067e \u0633\u0628\u06a9 \u0642\u062f\u06cc\u0645"),
+    "heritage": ("heritage", "\u0645\u06cc\u0631\u0627\u062b"),
+    "paper_craft": ("paper craft", "papercraft", "\u06a9\u0627\u0631\u062f\u0633\u062a\u06cc \u06a9\u0627\u063a\u0630\u06cc"),
 }
 
 

@@ -512,6 +512,23 @@ NOTEBOOKLM_DURATION_OPTIONS = (
     ("~5 minutes", "5min"),
 )
 
+#: Visual style options shown after the profile is chosen. These match the
+#: actual card labels inside NotebookLM's Visual Style carousel. The first
+#: value is the Telegram keyboard label; the second is the ``video_style``
+#: string sent to the worker.
+NOTEBOOKLM_STYLES = (
+    ("Default (auto)", "auto"),
+    ("Classic / \u06a9\u0644\u0627\u0633\u06cc\u06a9", "classic"),
+    ("Whiteboard / \u062a\u062e\u062a\u0647\u200c\u0633\u0641\u06cc\u062f", "whiteboard"),
+    ("Kawaii / \u06a9\u0627\u0648\u0627\u06cc\u06cc", "kawaii"),
+    ("Anime / \u0627\u0646\u06cc\u0645\u0647", "anime"),
+    ("Watercolor / \u0622\u0628\u200c\u0631\u0646\u06af", "watercolor"),
+    ("Retro print / \u0686\u0627\u067e \u0633\u0628\u06a9 \u0642\u062f\u06cc\u0645", "retro_print"),
+    ("Heritage / \u0645\u06cc\u0631\u0627\u062b", "heritage"),
+    ("Paper craft / \u06a9\u0627\u0631\u062f\u0633\u062a\u06cc \u06a9\u0627\u063a\u0630\u06cc", "paper_craft"),
+)
+
+
 
 def notebooklm_profile_keyboard(draft_id: str) -> dict:
     """Pick the NotebookLM video profile before the job starts."""
@@ -536,6 +553,36 @@ def notebooklm_duration_keyboard(draft_id: str, profile_sub: str) -> dict:
     cancel = {"text": "Default length", "callback_data": f"media:nlm_dur_:{draft_id}"}
     rows.append([cancel])
     rows.append([{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}])
+    return {"inline_keyboard": rows}
+
+
+def notebooklm_style_keyboard(draft_id: str) -> dict:
+    """Pick a visual style after the profile, before the duration."""
+    rows: list[list[dict[str, str]]] = []
+    row: list[dict[str, str]] = []
+    for label, style_key in NOTEBOOKLM_STYLES:
+        row.append(
+            {
+                "text": label,
+                "callback_data": f"media:nlm_style_{style_key}:{draft_id}",
+            }
+        )
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append(
+        [
+            {
+                "text": "\u270f\ufe0f Custom style\u2026",
+                "callback_data": f"media:nlm_style_custom:{draft_id}",
+            }
+        ]
+    )
+    rows.append(
+        [{"text": "Cancel video", "callback_data": f"media:none:{draft_id}"}]
+    )
     return {"inline_keyboard": rows}
 
 def video_style_keyboard(draft_id: str, *, character: bool) -> dict:

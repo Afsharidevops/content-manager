@@ -99,6 +99,8 @@ class NotebookLM:
         sources: list | None = None,
         content_id: str = "",
         duration_profile: str = "",
+        video_style: str = "",
+        video_template: str = "",
     ) -> str:
         """Queue one video job and return its id."""
         body = {
@@ -110,6 +112,12 @@ class NotebookLM:
         dp = str(duration_profile or "").strip()
         if dp:
             body["duration_profile"] = dp
+        style = str(video_style or "").strip()
+        if style:
+            body["video_style"] = style
+        template = str(video_template or "").strip()
+        if template:
+            body["video_template"] = template
         try:
             payload = self.request_json(
                 self._url("jobs"),

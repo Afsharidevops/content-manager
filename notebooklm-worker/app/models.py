@@ -90,6 +90,8 @@ class NotebookLMJob:
     stage: str = ""
     video_path: str = ""
     video_paths: dict[str, str] = field(default_factory=dict)
+    video_remote_path: str = ""
+    video_remote_paths: dict[str, str] = field(default_factory=dict)
     video_template: str = ""
     video_style: str = ""
     error: str = ""
@@ -107,6 +109,8 @@ class NotebookLMJob:
         self.sources = normalize_sources(self.sources)
         if isinstance(self.video_paths, list):
             self.video_paths = {}
+        if isinstance(self.video_remote_paths, list):
+            self.video_remote_paths = {}
 
     def to_dict(self) -> dict:
         return asdict(self)

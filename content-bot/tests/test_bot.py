@@ -188,7 +188,17 @@ class FakeNotebookLM:
         self.errors = {}
         self.downloads = []
 
-    def submit(self, *, topic, profile, sources=None, content_id="", duration_profile=""):
+    def submit(
+        self,
+        *,
+        topic,
+        profile,
+        sources=None,
+        content_id="",
+        duration_profile="",
+        video_style="",
+        video_template="",
+    ):
         self.submits.append(
             {
                 "topic": topic,
@@ -196,6 +206,8 @@ class FakeNotebookLM:
                 "sources": list(sources or []),
                 "content_id": content_id,
                 "duration_profile": duration_profile,
+                "video_style": video_style,
+                "video_template": video_template,
             }
         )
         job_id = f"nlm-{len(self.submits)}"
@@ -3152,8 +3164,19 @@ class NotebookLMFlowTests(MediaFlowHarness):
             }
         )
 
+    def choose_style(self, bot, draft_id, style_key="anime"):
+        """Select a NotebookLM visual style after choosing a profile."""
+        bot.handle_callback(
+            {
+                "id": "q1",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:nlm_style_{style_key}:{draft_id}",
+            }
+        )
+
     def choose_duration(self, bot, draft_id, dur_key="3min"):
-        """Select a duration after choosing a profile."""
+        """Select a duration after choosing a profile and style."""
         bot.handle_callback(
             {
                 "id": "q1",
@@ -3174,9 +3197,10 @@ class NotebookLMFlowTests(MediaFlowHarness):
                 parts.append(text)
         return "\n".join(parts)
 
-    def start_job(self, bot, draft_id, sub="nlm_tech") -> str:
-        """Pick one profile + duration and return the job id of the started job."""
+    def start_job(self, bot, draft_id, sub="nlm_tech", style_key="anime") -> str:
+        """Pick one profile, style, and duration, then return the job id."""
         self.choose(bot, draft_id, sub)
+        self.choose_style(bot, draft_id, style_key)
         self.choose_duration(bot, draft_id)
         return str(bot.state.load()["drafts"][draft_id]["media"]["job_id"])
 
@@ -3214,7 +3238,10 @@ class NotebookLMFlowTests(MediaFlowHarness):
         # First choose a profile
         self.choose(bot, draft_id, "nlm_edu")
         # The draft stores the chosen profile, no submit yet
-        # Then choose a duration to actually start the job
+        self.assertEqual(0, len(self.notebooklm.submits))
+        self.assertIn(f"media:nlm_style_anime:{draft_id}", self.media_keyboard_datas())
+        # Then choose a style and duration to actually start the job
+        self.choose_style(bot, draft_id, "watercolor")
         self.choose_duration(bot, draft_id)
         self.assertEqual(1, len(self.notebooklm.submits))
         submit = self.notebooklm.submits[0]
@@ -3222,6 +3249,7 @@ class NotebookLMFlowTests(MediaFlowHarness):
         self.assertEqual(draft_id, submit["content_id"])
         self.assertTrue(submit["topic"])
         self.assertEqual(submit.get("duration_profile", ""), "3min")
+        self.assertEqual("watercolor", submit.get("video_style"))
         kinds = [source["kind"] for source in submit["sources"]]
         self.assertIn("text", kinds)
         self.assertIn("auto", kinds)
@@ -3231,7 +3259,19 @@ class NotebookLMFlowTests(MediaFlowHarness):
         self.assertEqual("notebooklm", state["media"]["driver"])
         self.assertEqual("video", state["media"]["kind"])
         self.assertEqual("educational_fa", state["media"]["profile"])
+        self.assertEqual("watercolor", state["media"]["video_style"])
         self.assertIn("⏳ Preparing the sources...", self.texts())
+
+    def test_a_custom_style_can_be_typed_before_duration(self):
+        bot, draft_id = self.start()
+        self.choose(bot, draft_id, "nlm_tech")
+        self.choose_style(bot, draft_id, "custom")
+        bot.handle_message({"chat": {"id": 11}, "from": {"id": 11}, "text": "classic"})
+        self.assertIn("Style saved", self.texts())
+        self.choose_duration(bot, draft_id, "1min")
+        self.assertEqual(1, len(self.notebooklm.submits))
+        self.assertEqual("classic", self.notebooklm.submits[0]["video_style"])
+        self.assertEqual("1min", self.notebooklm.submits[0]["duration_profile"])
 
     def test_the_progress_stage_edits_the_ask_message_once(self):
         bot, draft_id = self.start()

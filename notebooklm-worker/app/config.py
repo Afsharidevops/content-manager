@@ -41,6 +41,13 @@ def _env_int(name: str, default: int) -> int:
 @dataclass(frozen=True)
 class Settings:
     data_dir: str = "/data"
+    # S3-compatible object storage (optional; RustFS / MinIO)
+    s3_endpoint_url: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_bucket: str = ""
+    s3_key_prefix: str = ""
+    s3_force_path_style: bool = True
     bind_ip: str = "127.0.0.1"
     port: int = 8860
     api_token: str = ""
@@ -114,4 +121,15 @@ class Settings:
             video_template=_env("NOTEBOOKLM_VIDEO_TEMPLATE", "explainer"),
             video_style=_env("NOTEBOOKLM_VIDEO_STYLE", "auto"),
             upload_ttl_seconds=_env_int("NOTEBOOKLM_UPLOAD_TTL_SECONDS", 86400),
+            s3_endpoint_url=_env("NOTEBOOKLM_S3_ENDPOINT_URL") or _env("S3_ENDPOINT_URL"),
+            s3_access_key_id=_env("NOTEBOOKLM_S3_ACCESS_KEY_ID")
+            or _env("S3_ACCESS_KEY_ID"),
+            s3_secret_access_key=_env("NOTEBOOKLM_S3_SECRET_ACCESS_KEY")
+            or _env("S3_SECRET_ACCESS_KEY"),
+            s3_bucket=_env("NOTEBOOKLM_S3_BUCKET") or _env("S3_BUCKET"),
+            s3_key_prefix=_env("NOTEBOOKLM_S3_KEY_PREFIX") or _env("S3_KEY_PREFIX"),
+            s3_force_path_style=_env_bool(
+                "NOTEBOOKLM_S3_FORCE_PATH_STYLE",
+                _env_bool("S3_FORCE_PATH_STYLE", True),
+            ),
         )

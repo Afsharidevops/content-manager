@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from app import browser as browser_mod
 from app import prompts as prompts_mod
+from app import s3 as s3_mod
 from app import sources as sources_mod
 from app import video as video_mod
 from app.models import (
@@ -61,6 +62,19 @@ def video_output_path(target_dir: str, base_name: str, video_template: str, styl
         path = os.path.join(target_dir, f"{base_name}__{template}__{slug}-{collision_index}.mp4")
         collision_index += 1
     return path
+
+def store_video_artifact(settings, local_path: str) -> str:
+    """Upload a downloaded video when S3 is configured; always keep local."""
+    remote = s3_mod.s3_upload(
+        local_path,
+        endpoint_url=getattr(settings, "s3_endpoint_url", ""),
+        access_key_id=getattr(settings, "s3_access_key_id", ""),
+        secret_access_key=getattr(settings, "s3_secret_access_key", ""),
+        bucket=getattr(settings, "s3_bucket", ""),
+        key_prefix=getattr(settings, "s3_key_prefix", ""),
+        force_path_style=bool(getattr(settings, "s3_force_path_style", True)),
+    )
+    return remote or ""
 
 
 @dataclass
@@ -171,11 +185,19 @@ def run_browser_flow(ctx: RunContext) -> str:
                         card = video_mod.wait_for_video(page, settings, ctx.selectors, tracker=tracker)
                         ctx.progress(STAGE_DOWNLOAD)
                         style_path = video_output_path(target_dir, base_name, video_template, vs.slug)
-                        video_mod.download_video(page, style_path, settings, ctx.selectors, video_card=card)
-                        generated.append({"style": style_name, "path": style_path})
-                        LOGGER.info("Downloaded style %s to: %s", style_name, style_path)
-                        job.video_paths[style_key] = style_path
-                        ctx.store.update(job.id, video_paths=job.video_paths)
+                        downloaded = video_mod.download_video(page, style_path, settings, ctx.selectors, video_card=card)
+                        remote_path = store_video_artifact(settings, downloaded)
+                        generated.append({"style": style_name, "path": downloaded})
+                        LOGGER.info("Downloaded style %s to: %s", style_name, downloaded)
+                        if remote_path:
+                            LOGGER.info("Uploaded style %s to: %s", style_name, remote_path)
+                            job.video_remote_paths[style_key] = remote_path
+                        job.video_paths[style_key] = downloaded
+                        ctx.store.update(
+                            job.id,
+                            video_paths=job.video_paths,
+                            video_remote_paths=job.video_remote_paths,
+                        )
                     except Exception as style_error:  # noqa: BLE001
                         failed.append({"style": style_name, "error": str(style_error)})
                         LOGGER.warning("Failed style %s: %s", style_name, style_error)
@@ -201,7 +223,12 @@ def run_browser_flow(ctx: RunContext) -> str:
                 ctx.progress(STAGE_DOWNLOAD)
                 target = os.path.join(target_dir, f"{base_name}.mp4")
                 downloaded = video_mod.download_video(page, target, settings, ctx.selectors, video_card=card)
-                ctx.store.update(job.id, video_paths={video_style: downloaded})
+                remote_path = store_video_artifact(settings, downloaded)
+                update = {"video_paths": {video_style: downloaded}}
+                if remote_path:
+                    update["video_remote_path"] = remote_path
+                    update["video_remote_paths"] = {video_style: remote_path}
+                ctx.store.update(job.id, **update)
                 return downloaded
         except Exception as error:
             if settings.keep_screenshots:

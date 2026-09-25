@@ -646,6 +646,24 @@ class ContentBot:
                     "Send /forget_link <url> to allow a previously published link to be drafted again.",
                 )
             return
+        pending_style = self._notebooklm_style_pending_draft(chat_id)
+        if pending_style is not None:
+            draft_id = str(pending_style.get("id") or "")
+            if draft_id:
+                self.state.update_draft(
+                    draft_id,
+                    {"nlm_video_style": text, "nlm_style_pending": False},
+                )
+                ask_id = pending_style.get("ask_message_id")
+                if ask_id is not None and chat_id is not None:
+                    self._edit_safe(
+                        chat_id,
+                        int(ask_id),
+                        "How long should the video be?",
+                        telegram_mod.notebooklm_duration_keyboard(draft_id, ""),
+                    )
+            self.api.send_message(chat_id, "Style saved. Choose a video length.")
+            return
         if self._awaiting_draft(chat_id) is not None:
             self.api.send_message(
                 chat_id,
@@ -730,6 +748,21 @@ class ContentBot:
                 )
             ):
                 return record
+        return None
+
+
+    def _notebooklm_style_pending_draft(self, chat_id) -> dict | None:
+        """Return the active draft waiting for a custom NotebookLM style."""
+        drafts = self.state.load().get("drafts") or {}
+        for draft_id, record in drafts.items():
+            if (
+                isinstance(record, dict)
+                and record.get("chat_id") == chat_id
+                and record.get("nlm_style_pending")
+            ):
+                draft = dict(record)
+                draft["id"] = str(draft.get("id") or draft_id)
+                return draft
         return None
 
     def _receive_user_media(self, chat_id, attachment: dict) -> None:
@@ -2209,7 +2242,7 @@ class ContentBot:
             self._safe_answer(query_id, "Choose a video profile.")
             return
         if sub in NOTEBOOKLM_PROFILE_BY_SUB:
-            # Store chosen profile, then ask for duration
+            # Store chosen profile, then ask for visual style
             self.state.update_draft(draft_id, {"nlm_profile": NOTEBOOKLM_PROFILE_BY_SUB[sub]})
             ask_id = record.get("ask_message_id")
             chat_id = record.get("chat_id")
@@ -2217,8 +2250,36 @@ class ContentBot:
                 self._edit_safe(
                     chat_id,
                     int(ask_id),
+                    "Choose a visual style for the video:",
+                    telegram_mod.notebooklm_style_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, "Choose a visual style.")
+            return
+        if sub.startswith("nlm_style_"):
+            style_key = sub.replace("nlm_style_", "", 1)
+            if style_key == "custom":
+                # Ask user to type the style name
+                self.state.update_draft(draft_id, {"nlm_style_pending": True})
+                ask_id = record.get("ask_message_id")
+                chat_id = record.get("chat_id")
+                if chat_id is not None and ask_id is not None:
+                    self._edit_safe(
+                        chat_id,
+                        int(ask_id),
+                        "Type the exact visual style name you want "
+                        "(e.g. \u0627\u0646\u06cc\u0645\u0647, Classic, Watercolor).",
+                    )
+                self._safe_answer(query_id, "Type the style name.")
+                return
+            self.state.update_draft(draft_id, {"nlm_video_style": style_key, "nlm_style_pending": False})
+            ask_id = record.get("ask_message_id")
+            chat_id = record.get("chat_id")
+            if chat_id is not None and ask_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
                     "How long should the video be?",
-                    telegram_mod.notebooklm_duration_keyboard(draft_id, sub),
+                    telegram_mod.notebooklm_duration_keyboard(draft_id, ""),
                 )
             self._safe_answer(query_id, "Choose a video length.")
             return
@@ -2227,10 +2288,12 @@ class ContentBot:
             nlm_profile = str((record.get("media") or {}).get("nlm_profile") or 
                               record.get("nlm_profile") or 
                               self.settings.notebooklm_default_profile)
+            nlm_video_style = str(record.get("nlm_video_style") or "").strip()
             self._start_notebooklm_job(
                 draft_id,
                 nlm_profile,
                 duration_profile=duration_key,
+                video_style=nlm_video_style,
                 query_id=query_id,
             )
             return
@@ -2319,6 +2382,7 @@ class ContentBot:
                     draft_id,
                     str(media.get("profile") or self.settings.notebooklm_default_profile),
                     duration_profile=str(media.get("duration_profile") or ""),
+                    video_style=str(media.get("video_style") or record.get("nlm_video_style") or ""),
                     query_id=query_id,
                 )
                 return
@@ -2449,7 +2513,7 @@ class ContentBot:
         return sources
 
     def _start_notebooklm_job(
-        self, draft_id: str, profile: str, *, duration_profile: str = "", query_id: str = ""
+        self, draft_id: str, profile: str, *, duration_profile: str = "", video_style: str = "", query_id: str = ""
     ) -> None:
         """Queue one NotebookLM video job for a draft."""
         if self.notebooklm is None:
@@ -2475,6 +2539,7 @@ class ContentBot:
                 sources=self._notebooklm_sources(record),
                 content_id=draft_id,
                 duration_profile=duration_profile,
+                video_style=video_style,
             )
         except notebooklm_mod.NotebookLMError as error:
             self._record_event(draft_id, "notebooklm_submit_failed", str(error))
@@ -2497,6 +2562,7 @@ class ContentBot:
                     "driver": notebooklm_mod.DRIVER,
                     "profile": profile,
                     "duration_profile": duration_profile,
+                    "video_style": video_style,
                     "job_id": job_id,
                     "status": "running",
                     "stage_shown": "",
