@@ -757,6 +757,7 @@ def wait_for_video(page, settings, selectors: dict, tracker: GenerationTracker |
     poll = max(1, int(getattr(settings, "poll_seconds", 15)))
     deadline = time.time() + timeout
     LOGGER.info("Waiting for video generation")
+    LOGGER.info("Video cards before generation: %d", len(tracker.before))
     while time.time() < deadline:
         card = _locate_generation_card(page, tracker)
         if card is not None and _card_completed(card):
@@ -764,6 +765,12 @@ def wait_for_video(page, settings, selectors: dict, tracker: GenerationTracker |
             return card
         page.wait_for_timeout(min(poll, 5) * 1000)
     card = _locate_generation_card(page, tracker)
+    total_cards = len(_video_cards(page))
+    LOGGER.warning(
+        "Video generation timeout: total_cards=%d tracked_card=%s",
+        total_cards,
+        "found" if card is not None else "not found",
+    )
     _save_debug(page, settings, "video-generation-timeout", card=card)
     raise NotebookLMError(
         "video generation",
