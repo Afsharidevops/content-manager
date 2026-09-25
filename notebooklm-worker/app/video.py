@@ -612,6 +612,103 @@ def _video_cards(page) -> list:
     return []
 
 
+def _artifact_video_cards(page) -> list:
+    """Locate completed Video Overview artifact cards from the current DOM.
+
+    Evidence from real NotebookLM UI (2025-09):
+    - Ready cards live in .artifact-item-button wrappers.
+    - The inner stretched button carries aria-description='مرور ویدیویی'.
+    - Completed cards show artifact-details with duration (e.g. '7:30').
+    - The actions div has a 'بیشتر' / 'More options' menu button.
+    """
+    studio = _studio_root(page)
+    candidates = studio.locator(".artifact-item-button, [class*='artifact-item']")
+    matched = []
+    for index in range(min(candidates.count(), 100)):
+        card = candidates.nth(index)
+        if not _is_visible(card):
+            continue
+        content = ui.normalize_label(f"{_text(card)} {_attribute(card, 'aria-description')}")
+        video_label = ui.normalize_label(ui.labels("video_overview")[0])
+        fa_label = ui.normalize_label(ui.labels("video_overview")[1] if len(ui.labels("video_overview")) > 1 else "مرور ویدیویی")
+        if not (video_label in content or fa_label in content):
+            continue
+        matched.append(card)
+    if matched:
+        return matched
+    return []
+
+
+def _artifact_video_cards(page) -> list:
+    """Locate completed Video Overview artifact cards from the current DOM.
+
+    Evidence from real NotebookLM UI (2025-09):
+    - Ready cards live in .artifact-item-button wrappers.
+    - The inner stretched button carries aria-description='مرور ویدیویی'.
+    - Completed cards show artifact-details with duration (e.g. '7:30').
+    - The actions div has a 'بیشتر' / 'More options' menu button.
+    """
+    studio = _studio_root(page)
+    candidates = studio.locator(".artifact-item-button, [class*='artifact-item']")
+    matched = []
+    for index in range(min(candidates.count(), 100)):
+        card = candidates.nth(index)
+        if not _is_visible(card):
+            continue
+        content = ui.normalize_label(f"{_text(card)} {_attribute(card, 'aria-description')}")
+        video_label = ui.normalize_label(ui.labels("video_overview")[0])
+        fa_label = ui.normalize_label(ui.labels("video_overview")[1] if len(ui.labels("video_overview")) > 1 else "مرور ویدیویی")
+        if not (video_label in content or fa_label in content):
+            continue
+        matched.append(card)
+    if matched:
+        return matched
+    return []
+def _video_cards(page) -> list:
+    """Locate Video Overview artifact cards from Studio using real DOM class evidence.
+
+    Primary: .artifact-item-button with inner aria-description matching 'Video Overview'/'مرور ویدیویی'.
+    Fallback: legacy selectors for older NotebookLM builds.
+    """
+    studio = _studio_root(page)
+    # Primary: artifact-item-button cards with Video Overview aria-description (2025-09 UI)
+    candidates = studio.locator(".artifact-item-button, [class*='artifact-item']")
+    matched = []
+    overview_labels = {ui.normalize_label(label) for label in ui.labels("video_overview")}
+    for index in range(min(candidates.count(), 100)):
+        card = candidates.nth(index)
+        if not _is_visible(card):
+            continue
+        content_parts = [_text(card), _attribute(card, "aria-description"), _attribute(card, "aria-label")]
+        content = ui.normalize_label(" ".join(content_parts))
+        if any(label in content for label in overview_labels):
+            matched.append(card)
+    if matched:
+        return matched
+    # Fallback: legacy data-attribute and semantic selectors
+    fallback_selectors = (
+        "[data-artifact-id]",
+        "[data-testid*='video-overview']",
+        "[class*='video-overview-card']",
+        "[class*='artifact-card']",
+        "article",
+        "mat-card",
+    )
+    for selector in fallback_selectors:
+        cards = studio.locator(selector)
+        legacy = []
+        for index in range(min(cards.count(), 100)):
+            card = cards.nth(index)
+            if not _is_visible(card):
+                continue
+            content = ui.normalize_label(f"{_text(card)} {_attribute(card, 'aria-label')}")
+            if any(label in content for label in overview_labels):
+                legacy.append(card)
+        if legacy:
+            return legacy
+    return []
+
+
 def _card_identity(card, index: int) -> str:
     for attribute in ("data-artifact-id", "data-id", "data-testid", "id"):
         value = _attribute(card, attribute)
