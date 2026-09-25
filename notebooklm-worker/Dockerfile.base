@@ -1,0 +1,32 @@
+FROM python:3.13-slim-bookworm
+
+LABEL org.opencontainers.image.title="NotebookLM Worker Base" \
+      org.opencontainers.image.version="0.1.0" \
+      org.opencontainers.image.description="Runtime dependencies for the NotebookLM browser automation worker"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    HOME=/tmp \
+    TMPDIR=/tmp \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates fonts-noto-core xvfb x11vnc wget fluxbox ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 10006 notebooklm \
+    && useradd --uid 10006 --gid notebooklm --home-dir /nonexistent --no-create-home notebooklm
+
+WORKDIR /app
+COPY notebooklm-worker/requirements.txt ./notebooklm-worker/requirements.txt
+RUN pip install --no-cache-dir -r notebooklm-worker/requirements.txt \
+    && playwright install --with-deps chromium \
+    && rm -rf /root/.cache/pip
+
+RUN wget -qO /tmp/novnc.tar.gz https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.tar.gz \
+    && tar xzf /tmp/novnc.tar.gz -C /opt/ \
+    && mv /opt/noVNC-1.5.0 /opt/novnc \
+    && rm /tmp/novnc.tar.gz
+
+RUN pip install --no-cache-dir websockify && rm -rf /root/.cache/pip
