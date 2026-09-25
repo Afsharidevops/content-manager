@@ -18,15 +18,30 @@ from app import sources as sources_mod
 
 LOGGER = logging.getLogger("notebooklm.notebook")
 
+CREATE_MODAL_SUBMIT_SELECTORS = [
+    "[role='dialog'] [aria-label='ارسال']",
+    "[role='dialog'] button[aria-label*='ارسال' i]",
+    "[role='dialog'] button[aria-label*='send' i]",
+    "[role='dialog'] button:has-text('arrow_forward')",
+    "[role='dialog'] button.mat-mdc-icon-button:not([aria-haspopup]):not([aria-label*=بستن i])",
+    "button:has-text('arrow_forward')",
+    "button:has-text('send')",
+]
+
 DEFAULT_SELECTORS: dict[str, list[str]] = {
     "new_notebook": [
         "button:has-text('Create new')",
         "button:has-text('New notebook')",
+        "button[aria-label='دفترچه جدید']",
+        "nb-button[aria-label='دفترچه جدید']",
+        "button:has-text('دفترچه جدید')",
+        "nb-button:has-text('دفترچه جدید')",
         "[role='button']:has-text('Create new')",
+        "[role='button']:has-text('دفترچه جدید')",
         "button[jsname]:has-text('add')",
         ".create-new-button",
         ".create-new-action-button",
-        "[aria-label*='notebook' i]",
+        "button[aria-label*='new notebook' i]",
         "button:has-text('add')",
         "mat-card:has-text('add')",
     ],
@@ -39,16 +54,7 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "input[placeholder*='جستجو' i]",
         "input[placeholder*='search' i]",
     ],
-    "create_modal_submit": [
-        "button.mat-mdc-icon-button:not([aria-label*=search i]):not([aria-label*=بستن i])",
-        "[role='dialog'] button:has-text('arrow_forward')",
-        "[role='dialog'] button.mat-mdc-icon-button:not(.mat-mdc-menu-trigger)",
-        "[role='dialog'] [aria-label='ارسال']",
-        "[role='dialog'] button[aria-label*='send' i]",
-        "[role='dialog'] button[aria-label*='search' i]",
-        "button:has-text('search')",
-        "button:has-text('send')",
-    ],
+    "create_modal_submit": CREATE_MODAL_SUBMIT_SELECTORS,
     "notebook_title": [
         "input[aria-label*='notebook title' i]",
         "textarea[aria-label*='title' i]",
@@ -162,9 +168,13 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "[role='dialog'] button:has-text('Insert')",
         "[role='dialog'] button:has-text('درج')",
         "[role='dialog'] button:has-text('درج کردن')",
+        "[role='dialog'] button:has-text('Import')",
+        "[role='dialog'] button:has-text('وارد کردن')",
         "button:has-text('Insert')",
         "button:has-text('درج')",
         "button:has-text('درج کردن')",
+        "button:has-text('Import')",
+        "button:has-text('وارد کردن')",
     ],
     "dialog_close": [
         "[role='dialog'] button[aria-label*='Close' i]",
@@ -439,8 +449,37 @@ def dismiss_overlays(page) -> int:
         pass
     return dismissed
 
-
-
+def dismiss_blocking_popovers(page) -> int:
+    """Dismiss non-dialog NotebookLM popovers that can cover active controls."""
+    try:
+        closed = page.evaluate("""
+            () => {
+                let count = 0;
+                const roots = Array.from(document.querySelectorAll('.cdk-overlay-popover, .cdk-overlay-pane'));
+                const clicked = new Set();
+                roots.forEach(root => {
+                    if (root.querySelector('textarea, input, [contenteditable="true"], [aria-label="ارسال"]')) return;
+                    const isPromo = Array.from(root.querySelectorAll('img')).some(img =>
+                        String(img.src || '').includes('/promos/') || String(img.alt || '').includes('Gemini Notebook')
+                    );
+                    if (!isPromo) return;
+                    const close = root.querySelector(
+                        'button[aria-label*="Close" i], button[aria-label*="بستن کادر گفتگو"], button.close-button'
+                    );
+                    if (!close || clicked.has(close)) return;
+                    clicked.add(close);
+                    close.click();
+                    count += 1;
+                });
+                return count;
+            }
+        """)
+        if closed:
+            LOGGER.info("Closed %d blocking promo popover overlays", closed)
+            page.wait_for_timeout(300)
+        return int(closed or 0)
+    except Exception:
+        return 0
 
 
 def load_selectors(path: str = "") -> dict[str, list[str]]:
@@ -724,15 +763,7 @@ class NotebookEditor:
                     pass
                 
                 # Find the submit button
-                submit_btn = find_first(self.page, [
-                    "[role='dialog'] button[aria-label*='search' i]",
-                    "[role='dialog'] button[aria-label*='send' i]",
-                    "[role='dialog'] button[aria-label*='ارسال' i]",
-                    "[role='dialog'] button[aria-label*='جستجو' i]",
-                    "[role='dialog'] button.mat-mdc-icon-button",
-                    "button:has-text('search')",
-                    "button:has-text('send')",
-                ], timeout=5)
+                submit_btn = find_first(self.page, CREATE_MODAL_SUBMIT_SELECTORS, timeout=5)
                 
                 if submit_btn is not None:
                     LOGGER.info("CREATE MODAL: clicking submit button")
@@ -742,7 +773,7 @@ class NotebookEditor:
                         LOGGER.info("SUBMIT BTN: aria=%r text=%r", submit_aria, submit_text)
                     except Exception:
                         pass
-                    
+                    dismiss_blocking_popovers(self.page)
                     submit_btn.click()
                     _time.sleep(1)
                     
@@ -1326,10 +1357,11 @@ class NotebookEditor:
         node = find_first(self.page, self.selectors["studio_tab"], timeout=8)
         if node is not None:
             try:
+                LOGGER.info("Studio aria: %s", (node.get_attribute("aria-label") or "").strip())
                 node.click()
                 self.page.wait_for_timeout(1500)
             except Exception as error:  # noqa: BLE001
-                LOGGER.info("Studio control could not be clicked: %s", error)
+                LOGGER.warning("Studio control could not be clicked: %s", error)
 
     def wait_for_research(self, *, timeout: int = 0) -> bool:
         """Wait for Fast Research to complete, then return True.
