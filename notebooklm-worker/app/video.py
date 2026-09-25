@@ -588,99 +588,22 @@ def _fill_prompt(dialog, prompt: str, selectors: dict) -> None:
 
 
 def _video_cards(page) -> list:
+    """Locate Video Overview artifact cards from Studio."""
     studio = _studio_root(page)
-    selectors = (
-        "[data-artifact-id]",
-        "[data-testid*='video-overview']",
-        "[class*='video-overview-card']",
-        "[class*='artifact-card']",
-        "article",
-        "mat-card",
-    )
-    for selector in selectors:
-        cards = studio.locator(selector)
-        matched = []
-        for index in range(min(cards.count(), 100)):
-            card = cards.nth(index)
-            if not _is_visible(card):
-                continue
-            content = ui.normalize_label(f"{_text(card)} {_attribute(card, 'aria-label')}")
-            if any(ui.normalize_label(label) in content for label in ui.labels("video_overview")):
-                matched.append(card)
-        if matched:
-            return matched
-    return []
-
-
-def _artifact_video_cards(page) -> list:
-    """Locate completed Video Overview artifact cards from the current DOM.
-
-    Evidence from real NotebookLM UI (2025-09):
-    - Ready cards live in .artifact-item-button wrappers.
-    - The inner stretched button carries aria-description='مرور ویدیویی'.
-    - Completed cards show artifact-details with duration (e.g. '7:30').
-    - The actions div has a 'بیشتر' / 'More options' menu button.
-    """
-    studio = _studio_root(page)
-    candidates = studio.locator(".artifact-item-button, [class*='artifact-item']")
-    matched = []
-    for index in range(min(candidates.count(), 100)):
-        card = candidates.nth(index)
-        if not _is_visible(card):
-            continue
-        content = ui.normalize_label(f"{_text(card)} {_attribute(card, 'aria-description')}")
-        video_label = ui.normalize_label(ui.labels("video_overview")[0])
-        fa_label = ui.normalize_label(ui.labels("video_overview")[1] if len(ui.labels("video_overview")) > 1 else "مرور ویدیویی")
-        if not (video_label in content or fa_label in content):
-            continue
-        matched.append(card)
-    if matched:
-        return matched
-    return []
-
-
-def _artifact_video_cards(page) -> list:
-    """Locate completed Video Overview artifact cards from the current DOM.
-
-    Evidence from real NotebookLM UI (2025-09):
-    - Ready cards live in .artifact-item-button wrappers.
-    - The inner stretched button carries aria-description='مرور ویدیویی'.
-    - Completed cards show artifact-details with duration (e.g. '7:30').
-    - The actions div has a 'بیشتر' / 'More options' menu button.
-    """
-    studio = _studio_root(page)
-    candidates = studio.locator(".artifact-item-button, [class*='artifact-item']")
-    matched = []
-    for index in range(min(candidates.count(), 100)):
-        card = candidates.nth(index)
-        if not _is_visible(card):
-            continue
-        content = ui.normalize_label(f"{_text(card)} {_attribute(card, 'aria-description')}")
-        video_label = ui.normalize_label(ui.labels("video_overview")[0])
-        fa_label = ui.normalize_label(ui.labels("video_overview")[1] if len(ui.labels("video_overview")) > 1 else "مرور ویدیویی")
-        if not (video_label in content or fa_label in content):
-            continue
-        matched.append(card)
-    if matched:
-        return matched
-    return []
-def _video_cards(page) -> list:
-    """Locate Video Overview artifact cards from Studio using real DOM class evidence.
-
-    Primary: .artifact-item-button with inner aria-description matching 'Video Overview'/'مرور ویدیویی'.
-    Fallback: legacy selectors for older NotebookLM builds.
-    """
-    studio = _studio_root(page)
-    # Primary: artifact-item-button cards with Video Overview aria-description (2025-09 UI)
-    candidates = studio.locator(".artifact-item-button, [class*='artifact-item']")
-    matched = []
     overview_labels = {ui.normalize_label(label) for label in ui.labels("video_overview")}
-    for index in range(min(candidates.count(), 100)):
-        card = candidates.nth(index)
+
+    artifact_cards = studio.locator(".artifact-item-button, [class*='artifact-item']")
+    matched = []
+    for index in range(min(artifact_cards.count(), 100)):
+        card = artifact_cards.nth(index)
         if not _is_visible(card):
             continue
         described = _first_visible(card.locator("[aria-description]"))
-        content_parts = [_text(card), _attribute(card, "aria-description"), _attribute(card, "aria-label")]
+        content_parts = [
+            _text(card),
+            _attribute(card, "aria-description"),
+            _attribute(card, "aria-label"),
+        ]
         if described is not None:
             content_parts.append(_attribute(described, "aria-description"))
             content_parts.append(_attribute(described, "aria-label"))
@@ -689,7 +612,7 @@ def _video_cards(page) -> list:
             matched.append(card)
     if matched:
         return matched
-    # Fallback: legacy data-attribute and semantic selectors
+
     fallback_selectors = (
         "[data-artifact-id]",
         "[data-testid*='video-overview']",
