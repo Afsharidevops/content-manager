@@ -460,6 +460,15 @@ class StackView:
                 "note": "Drafts, media, and Instagram state stay in data/content-bot.",
             },
             {
+                "service": "notebooklm-worker",
+                "mode": "s3" if backend in {"rustfs", "external"} else "local",
+                "note": (
+                    "Completed videos uploaded to the bucket."
+                    if backend in {"rustfs", "external"}
+                    else "Videos saved locally in data/notebooklm-worker."
+                ),
+            },
+            {
                 "service": "media-studio",
                 "mode": "local",
                 "note": "Jobs and generated media stay in data/media-studio.",

@@ -888,6 +888,7 @@ class StorageAndBackupViewTest(unittest.TestCase):
         modes = {row["service"]: row["mode"] for row in payload["consumers"]}
         self.assertEqual(modes["open-webui"], "s3")
         self.assertEqual(modes["content-bot"], "local")
+        self.assertEqual(modes["notebooklm-worker"], "s3")
         self.assertEqual(modes["n8n"], "local")
         self.assertEqual(payload["rustfs"]["api_url"], "https://s3.stack.example.com")
         self.assertEqual(
