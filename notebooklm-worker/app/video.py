@@ -679,7 +679,11 @@ def _video_cards(page) -> list:
         card = candidates.nth(index)
         if not _is_visible(card):
             continue
+        described = _first_visible(card.locator("[aria-description]"))
         content_parts = [_text(card), _attribute(card, "aria-description"), _attribute(card, "aria-label")]
+        if described is not None:
+            content_parts.append(_attribute(described, "aria-description"))
+            content_parts.append(_attribute(described, "aria-label"))
         content = ui.normalize_label(" ".join(content_parts))
         if any(label in content for label in overview_labels):
             matched.append(card)
