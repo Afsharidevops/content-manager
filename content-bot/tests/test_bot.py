@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -304,10 +305,47 @@ class BotTestCase(unittest.TestCase):
         published = [payload for method, payload in self.api.calls if method == "sendMessage"]
         self.assertEqual(published[0]["chat_id"], "@channel")
         self.assertEqual(published[0]["parse_mode"], "HTML")
+        self.assertTrue(published[0]["disable_web_page_preview"])
         self.assertTrue(published[0]["text"].startswith("<b>\u202b"))
         self.assertEqual(self.bot.state.load()["published_today"], 0)
         self.assertEqual(len(self.bot.state.load()["published"]), 1)
         self.assertIsNone(self.bot.state.get_draft(draft_id))
+
+    def test_published_text_keeps_source_link_once_without_preview_card(self):
+        self.bot.handle_message(
+            {
+                "chat": {"id": 11},
+                "from": {"id": 11},
+                "text": "https://example.com/layers",
+            }
+        )
+        draft_id = list(self.bot.state.load()["drafts"].keys())[0]
+        url = "https://example.com/layers"
+        self.bot.state.update_draft(
+            draft_id,
+            {
+                "body": f"Generated body text.\n\n{url}",
+                "source_url": url,
+            },
+        )
+        self.api.calls.clear()
+
+        self.bot.handle_callback(
+            {
+                "id": "q-source-once",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 101},
+                "data": f"approve:{draft_id}",
+            }
+        )
+
+        published = [payload for method, payload in self.api.calls if method == "sendMessage"]
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["chat_id"], "@channel")
+        visible_text = re.sub(r'<a href="[^"]+">([^<]+)</a>', r"\1", published[0]["text"])
+        self.assertEqual(visible_text.count(url), 1)
+        self.assertTrue(published[0]["text"].endswith(f'<a href="{url}">{url}</a>'))
+        self.assertTrue(published[0]["disable_web_page_preview"])
 
     def test_on_demand_approve_bypasses_daily_limit(self):
         for index in range(3):

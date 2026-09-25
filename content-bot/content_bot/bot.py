@@ -3328,7 +3328,10 @@ class ContentBot:
     @staticmethod
     def channel_text(record: dict) -> str:
         title = _html_title(str(record.get("title") or ""))
-        return f"{title}\n\n{_rtl_body_html(str(record.get('body') or ''))}"
+        url = str(record.get("source_url") or "").strip()
+        body = writer_mod.Writer._strip_source_url(str(record.get("body") or ""), url)
+        link_html = f"\n\n<a href=\"{url}\">{_html_escape(url)}</a>" if url else ""
+        return f"{title}\n\n{_rtl_body_html(body)}{link_html}"
 
     # ------------------------------------------------------------ callbacks
 
@@ -4222,7 +4225,12 @@ class ContentBot:
                 self.api.send_message(channel, continuation, parse_mode="HTML")
             return
         if kind not in {"image", "video"} or not local_path:
-            self.api.send_message(channel, self.channel_text(record), parse_mode="HTML")
+            self.api.send_message(
+                channel,
+                self.channel_text(record),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
             return
         path = Path(local_path)
         if not path.is_file():

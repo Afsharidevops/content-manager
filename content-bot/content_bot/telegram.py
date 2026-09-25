@@ -343,12 +343,15 @@ class TelegramApi:
         text: str,
         reply_markup: dict | None = None,
         parse_mode: str | None = None,
+        disable_web_page_preview: bool | None = None,
     ) -> dict:
         params = {"chat_id": chat_id, "text": text}
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
         if parse_mode is not None:
             params["parse_mode"] = parse_mode
+        if disable_web_page_preview is not None:
+            params["disable_web_page_preview"] = disable_web_page_preview
         result = self._call("sendMessage", params)
         return result if isinstance(result, dict) else {}
 
