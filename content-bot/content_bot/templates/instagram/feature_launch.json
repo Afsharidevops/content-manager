@@ -1,0 +1,101 @@
+{
+  "id": "feature_launch",
+  "label": "Feature Announcement",
+  "description": "Announce a new feature: before scenario, new capability, demo, and CTA.",
+  "platform": "instagram",
+  "destination_key": "reel",
+  "total_duration": 30,
+  "story_structure": {
+    "before": "Show the old pain point or limitation",
+    "after": "Reveal the new feature that solves it",
+    "demo": "Show the feature in action",
+    "cta": "Encourage adoption or sign-up"
+  },
+  "layout_rules": {
+    "aspect_ratio": "9:16",
+    "resolution": "1080x1920",
+    "fps": 30,
+    "safe_zone_top_px": 120,
+    "safe_zone_bottom_px": 200,
+    "text_area": "center",
+    "background": "split_contrast"
+  },
+  "text_style": {
+    "headline_font_size": 64,
+    "body_font_size": 36,
+    "font_weight": "bold",
+    "language": "en",
+    "max_words_per_scene": 8
+  },
+  "animation_rules": {
+    "default_in": "slide_up",
+    "default_out": "fade",
+    "headline_in": "scale",
+    "before_in": "slide_left",
+    "after_in": "slide_right"
+  },
+  "transition_rules": {
+    "between_scenes": "fade",
+    "duration_ms": 300
+  },
+  "asset_placement": {
+    "before_asset": "left_half",
+    "after_asset": "right_half",
+    "demo_asset": "full_screen",
+    "logo_position": "bottom_center"
+  },
+  "scenes": [
+    {
+      "id": 1,
+      "label": "Before",
+      "start_s": 0,
+      "duration": 7,
+      "narration": "{{before_problem}}",
+      "visual": "Split screen or full screen showing the old way. Desaturated colors, frustrated expression or complex UI.",
+      "emotion": "frustration",
+      "animation": "slide_left",
+      "transition": "fade",
+      "text_overlay": "Before: {{before_problem}}",
+      "asset": "before_visual"
+    },
+    {
+      "id": 2,
+      "label": "After",
+      "start_s": 7,
+      "duration": 5,
+      "narration": "{{after_solution}}",
+      "visual": "Bright vibrant color shift. The new feature name in large text. Clean and simple reveal.",
+      "emotion": "excitement",
+      "animation": "slide_right",
+      "transition": "fade",
+      "text_overlay": "Now: {{after_solution}}",
+      "asset": "new_logo_or_badge"
+    },
+    {
+      "id": 3,
+      "label": "Demo",
+      "start_s": 12,
+      "duration": 12,
+      "narration": "{{demo_description}}",
+      "visual": "Screen recording or UI animation of the feature being used. Call-out highlights and zoom on key UX moments.",
+      "emotion": "delight",
+      "animation": "zoom_in",
+      "transition": "fade",
+      "text_overlay": "{{demo_description}}",
+      "asset": "demo_video"
+    },
+    {
+      "id": 4,
+      "label": "CTA",
+      "start_s": 24,
+      "duration": 6,
+      "narration": "{{cta_text}}",
+      "visual": "Simple CTA. Bold background with large text. Feature name and call to action.",
+      "emotion": "action",
+      "animation": "scale",
+      "transition": "fade",
+      "text_overlay": "{{cta_text}}",
+      "asset": "logo"
+    }
+  ]
+}

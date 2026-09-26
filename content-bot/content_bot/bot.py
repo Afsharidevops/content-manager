@@ -24,6 +24,7 @@ from content_bot import adapt as adapt_mod
 from content_bot import publications as publications_mod
 from content_bot import panel_actions as panel_actions_mod
 from content_bot import platforms as platforms_mod
+from content_bot import reel_templates as reel_templates_mod
 from content_bot import workflow, writer as writer_mod
 from content_bot.config import BotSettings
 from content_bot.http import request_bytes
@@ -1418,12 +1419,20 @@ class ContentBot:
         target = str(destination.get("label") or "AI video")
         aspect = str(destination.get("aspect_ratio") or "9:16")
         resolution = str(destination.get("resolution") or "1080x1920")
+        timeline_meta = timeline.get("meta") if isinstance(timeline.get("meta"), dict) else {}
+        language = str(timeline_meta.get("language") or "fa").lower()
+        if language == "en":
+            language_line = "Language: English narration and English on-screen text only."
+            master_language = "keep narration natural in English"
+        else:
+            language_line = "Language: Persian narration. Keep facts faithful to the source text."
+            master_language = "keep narration natural in Persian"
         lines = [
             "AI VIDEO PRODUCTION PROMPT",
             "",
             f"Target platform: {target}",
             f"Canvas: {aspect}, {resolution}, {int(destination.get('fps') or 30)} fps",
-            "Language: Persian narration. Keep facts faithful to the source text.",
+            language_line,
             "Style: cinematic, clean, modern, no watermarks, no random text on screen.",
             "",
             "SCENARIO",
@@ -1449,7 +1458,7 @@ class ContentBot:
             "MASTER INSTRUCTION",
             "Create the final video from this scenario, storyboard, and timeline. "
             "Follow the scene order and durations. Use the visual directions for shots/backgrounds, "
-            "keep narration natural in Persian, preserve the selected canvas, and avoid invented facts.",
+            f"{master_language}, preserve the selected canvas, and avoid invented facts.",
         ]
         return "\n".join(lines)
 
@@ -2034,6 +2043,29 @@ class ContentBot:
             return
         if sub.startswith("vid_dest_"):
             destination_key = sub[len("vid_dest_"):]
+            if destination_key == "reel":
+                templates = reel_templates_mod.available_templates()
+                chat_id = record.get("chat_id")
+                ask_id = record.get("ask_message_id")
+                if not templates:
+                    self._safe_answer(query_id, "No Instagram Reel templates are configured.")
+                    return
+                self.state.update_draft(
+                    draft_id,
+                    {
+                        "agent_video_destination": destination_key,
+                        "agent_video_template": "",
+                    },
+                )
+                if chat_id is not None and ask_id is not None:
+                    self._edit_safe(
+                        chat_id,
+                        int(ask_id),
+                        "Choose an Instagram Motion Reel template:",
+                        telegram_mod.instagram_reel_template_keyboard(draft_id, templates),
+                    )
+                self._safe_answer(query_id, "Choose a Reel template.")
+                return
             try:
                 plan = self._agent_video_plan(record, self._video_destination(destination_key)[1], timeout=240)
             except media_mod.MediaStudioError as error:
@@ -2066,6 +2098,51 @@ class ContentBot:
             if ask_id is not None and chat_id is not None:
                 self._edit_safe(chat_id, int(ask_id), "\n".join(lines), telegram_mod.ai_video_plan_keyboard(draft_id))
             self._safe_answer(query_id, "Video plan ready.")
+            return
+        if sub.startswith("reel_tpl_"):
+            template_id = sub[len("reel_tpl_"):]
+            key, destination = self._video_destination("reel")
+            try:
+                plan = reel_templates_mod.template_to_plan(
+                    template_id,
+                    str(record.get("title") or ""),
+                    str(record.get("body") or ""),
+                    str(record.get("source_url") or ""),
+                )
+            except ValueError as error:
+                self._safe_answer(query_id, str(error))
+                return
+            plan["timeline"] = self._apply_video_destination(
+                plan["timeline"], destination
+            )
+            plan["timeline"].setdefault("meta", {})["language"] = "en"
+            plan["storyboard"]["language"] = "en"
+            self.state.update_draft(
+                draft_id,
+                {
+                    "agent_video_destination": key,
+                    "agent_video_template": template_id,
+                    "agent_video_storyboard": plan["storyboard"],
+                    "agent_video_timeline": plan["timeline"],
+                    "media_duration_asked": False,
+                },
+            )
+            self._record_event(draft_id, "reel_template_planned", template_id)
+            preview = reel_templates_mod.template_preview(
+                template_id,
+                str(record.get("title") or ""),
+                str(record.get("body") or ""),
+            )
+            chat_id = record.get("chat_id")
+            ask_id = record.get("ask_message_id")
+            if ask_id is not None and chat_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"{preview}\n\nLanguage: English narration and on-screen text.",
+                    telegram_mod.ai_video_plan_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, "Reel preview ready.")
             return
         if sub == "ai_render":
             self._start_agent_video_render(draft_id, query_id=query_id)

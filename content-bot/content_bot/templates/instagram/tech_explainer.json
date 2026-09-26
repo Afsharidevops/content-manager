@@ -1,0 +1,114 @@
+{
+  "id": "tech_explainer",
+  "label": "Tech Explainer",
+  "description": "Introduce a concept or technology with a hook, problem, solution, and CTA.",
+  "platform": "instagram",
+  "destination_key": "reel",
+  "total_duration": 30,
+  "story_structure": {
+    "hook": "One bold headline that stops the scroll",
+    "problem": "State the pain point the viewer recognizes",
+    "solution": "Show how this technology solves the problem",
+    "benefits": "Highlight the top 3 advantages",
+    "cta": "Tell the viewer exactly what to do next"
+  },
+  "layout_rules": {
+    "aspect_ratio": "9:16",
+    "resolution": "1080x1920",
+    "fps": 30,
+    "safe_zone_top_px": 120,
+    "safe_zone_bottom_px": 200,
+    "text_area": "center",
+    "background": "dark_gradient"
+  },
+  "text_style": {
+    "headline_font_size": 72,
+    "body_font_size": 40,
+    "font_weight": "bold",
+    "language": "en",
+    "max_words_per_scene": 12
+  },
+  "animation_rules": {
+    "default_in": "slide_up",
+    "default_out": "fade",
+    "headline_in": "scale",
+    "body_in": "typewriter",
+    "icon_in": "card_reveal"
+  },
+  "transition_rules": {
+    "between_scenes": "fade",
+    "duration_ms": 300
+  },
+  "asset_placement": {
+    "icon_position": "top_center",
+    "product_image_position": "center",
+    "logo_position": "bottom_right"
+  },
+  "scenes": [
+    {
+      "id": 1,
+      "label": "Hook",
+      "start_s": 0,
+      "duration": 3,
+      "narration": "{{hook_line}}",
+      "visual": "Bold animated headline on dark gradient. Fast enter animation. High contrast. No clutter.",
+      "emotion": "curiosity",
+      "animation": "scale",
+      "transition": "fade",
+      "text_overlay": "{{hook_line}}",
+      "asset": null
+    },
+    {
+      "id": 2,
+      "label": "Problem",
+      "start_s": 3,
+      "duration": 5,
+      "narration": "{{problem_statement}}",
+      "visual": "Icon or minimal illustration representing the pain point. Dark background with accent color.",
+      "emotion": "tension",
+      "animation": "slide_up",
+      "transition": "fade",
+      "text_overlay": "{{problem_statement}}",
+      "asset": "problem_icon"
+    },
+    {
+      "id": 3,
+      "label": "Solution",
+      "start_s": 8,
+      "duration": 12,
+      "narration": "{{solution_description}}",
+      "visual": "UI screenshot or product visual. Zoom into key interaction. Highlight key element.",
+      "emotion": "relief",
+      "animation": "zoom_in",
+      "transition": "fade",
+      "text_overlay": "{{solution_description}}",
+      "asset": "product_image"
+    },
+    {
+      "id": 4,
+      "label": "Benefits",
+      "start_s": 20,
+      "duration": 7,
+      "narration": "{{benefits_list}}",
+      "visual": "3 feature cards animating in one by one. Clean icons. Short labels.",
+      "emotion": "clear",
+      "animation": "card_reveal",
+      "transition": "fade",
+      "text_overlay": "{{benefits_list}}",
+      "asset": null
+    },
+    {
+      "id": 5,
+      "label": "CTA",
+      "start_s": 27,
+      "duration": 3,
+      "narration": "{{cta_text}}",
+      "visual": "Bold CTA text centered. Brand color background. Simple and direct.",
+      "emotion": "action",
+      "animation": "scale",
+      "transition": "fade",
+      "text_overlay": "{{cta_text}}",
+      "asset": "logo"
+    }
+  ]
+}

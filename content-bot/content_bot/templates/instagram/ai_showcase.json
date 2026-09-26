@@ -1,0 +1,116 @@
+{
+  "id": "ai_showcase",
+  "label": "AI Tool Showcase",
+  "description": "Demonstrate an AI tool: prompt → generation → result reveal.",
+  "platform": "instagram",
+  "destination_key": "reel",
+  "total_duration": 30,
+  "story_structure": {
+    "hook": "The bold claim about what AI can do",
+    "prompt_input": "User types a prompt into the tool",
+    "ai_generation": "Visual representation of AI processing",
+    "result": "The output appears with wow effect",
+    "cta": "Try it yourself"
+  },
+  "layout_rules": {
+    "aspect_ratio": "9:16",
+    "resolution": "1080x1920",
+    "fps": 30,
+    "safe_zone_top_px": 120,
+    "safe_zone_bottom_px": 200,
+    "text_area": "bottom",
+    "background": "dark_tech"
+  },
+  "text_style": {
+    "headline_font_size": 72,
+    "body_font_size": 40,
+    "font_weight": "bold",
+    "language": "en",
+    "max_words_per_scene": 10
+  },
+  "animation_rules": {
+    "default_in": "fade",
+    "default_out": "fade",
+    "headline_in": "scale",
+    "prompt_in": "typewriter",
+    "generation_in": "floating",
+    "result_in": "zoom_in"
+  },
+  "transition_rules": {
+    "between_scenes": "fade",
+    "duration_ms": 250
+  },
+  "asset_placement": {
+    "icon_position": "top_center",
+    "prompt_box_position": "center",
+    "result_position": "center",
+    "logo_position": "bottom_right"
+  },
+  "scenes": [
+    {
+      "id": 1,
+      "label": "Hook Claim",
+      "start_s": 0,
+      "duration": 3,
+      "narration": "{{hook_claim}}",
+      "visual": "Large bold headline on dark background. Particle or glow effect behind text. Instant impact.",
+      "emotion": "awe",
+      "animation": "scale",
+      "transition": "fade",
+      "text_overlay": "{{hook_claim}}",
+      "asset": "ai_icon"
+    },
+    {
+      "id": 2,
+      "label": "Prompt Input",
+      "start_s": 3,
+      "duration": 6,
+      "narration": "{{prompt_being_typed}}",
+      "visual": "AI tool interface. Text cursor blinks. Prompt types in character by character.",
+      "emotion": "anticipation",
+      "animation": "typewriter",
+      "transition": "fade",
+      "text_overlay": "Prompt: {{prompt_being_typed}}",
+      "asset": "tool_screenshot"
+    },
+    {
+      "id": 3,
+      "label": "AI Generation",
+      "start_s": 9,
+      "duration": 8,
+      "narration": "{{generation_description}}",
+      "visual": "Animated loading state, neural network visualization, or progress bar. Floating particles.",
+      "emotion": "wonder",
+      "animation": "floating",
+      "transition": "fade",
+      "text_overlay": "{{generation_description}}",
+      "asset": null
+    },
+    {
+      "id": 4,
+      "label": "Result Reveal",
+      "start_s": 17,
+      "duration": 9,
+      "narration": "{{result_description}}",
+      "visual": "AI output zooms in with a reveal animation. Clean, impressive display. Maybe a before/after split.",
+      "emotion": "delight",
+      "animation": "zoom_in",
+      "transition": "fade",
+      "text_overlay": "{{result_description}}",
+      "asset": "ai_output_image"
+    },
+    {
+      "id": 5,
+      "label": "CTA",
+      "start_s": 26,
+      "duration": 4,
+      "narration": "{{cta_text}}",
+      "visual": "Try it yourself text with link or handle. Brand colors. Bold and centered.",
+      "emotion": "action",
+      "animation": "slide_up",
+      "transition": "fade",
+      "text_overlay": "{{cta_text}}",
+      "asset": "logo"
+    }
+  ]
+}

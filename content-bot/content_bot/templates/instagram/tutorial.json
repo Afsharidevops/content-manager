@@ -1,0 +1,116 @@
+{
+  "id": "tutorial",
+  "label": "How-To / Tutorial",
+  "description": "Step-by-step tutorial with numbered steps, screenshots, and highlights.",
+  "platform": "instagram",
+  "destination_key": "reel",
+  "total_duration": 30,
+  "story_structure": {
+    "intro": "What the viewer will learn",
+    "step_1": "First actionable step",
+    "step_2": "Second actionable step",
+    "step_3": "Third actionable step",
+    "outro": "Recap and next action"
+  },
+  "layout_rules": {
+    "aspect_ratio": "9:16",
+    "resolution": "1080x1920",
+    "fps": 30,
+    "safe_zone_top_px": 120,
+    "safe_zone_bottom_px": 200,
+    "text_area": "bottom_third",
+    "background": "white_clean"
+  },
+  "text_style": {
+    "step_number_size": 96,
+    "title_font_size": 52,
+    "body_font_size": 32,
+    "font_weight": "bold",
+    "language": "en",
+    "max_words_per_scene": 15
+  },
+  "animation_rules": {
+    "default_in": "slide_up",
+    "default_out": "fade",
+    "step_number_in": "scale",
+    "screenshot_in": "card_reveal",
+    "highlight_glow": "pulse"
+  },
+  "transition_rules": {
+    "between_scenes": "slide_up",
+    "duration_ms": 250
+  },
+  "asset_placement": {
+    "step_number": "top_left",
+    "screenshot": "center",
+    "highlight_ring": "overlay",
+    "caption_position": "bottom"
+  },
+  "scenes": [
+    {
+      "id": 1,
+      "label": "Intro",
+      "start_s": 0,
+      "duration": 4,
+      "narration": "{{intro_line}}",
+      "visual": "Hey! Today we learn {{topic}}. Clean title card with a relevant icon. Bright background.",
+      "emotion": "friendly",
+      "animation": "slide_up",
+      "transition": "slide_up",
+      "text_overlay": "{{intro_line}}",
+      "asset": "topic_icon"
+    },
+    {
+      "id": 2,
+      "label": "Step 1",
+      "start_s": 4,
+      "duration": 8,
+      "narration": "{{step_1_text}}",
+      "visual": "Step number 1 on top-left. Screenshot or photo of the action. Highlight ring on key spot. Short caption at bottom.",
+      "emotion": "educational",
+      "animation": "card_reveal",
+      "transition": "slide_up",
+      "text_overlay": "1. {{step_1_text}}",
+      "asset": "screenshot_1"
+    },
+    {
+      "id": 3,
+      "label": "Step 2",
+      "start_s": 12,
+      "duration": 8,
+      "narration": "{{step_2_text}}",
+      "visual": "Step number 2 on top-left. New screenshot. Highlight moves to the relevant area.",
+      "emotion": "educational",
+      "animation": "card_reveal",
+      "transition": "slide_up",
+      "text_overlay": "2. {{step_2_text}}",
+      "asset": "screenshot_2"
+    },
+    {
+      "id": 4,
+      "label": "Step 3",
+      "start_s": 20,
+      "duration": 6,
+      "narration": "{{step_3_text}}",
+      "visual": "Step number 3 on top-left. Final screenshot showing the completed result. Confirmation indicator.",
+      "emotion": "satisfaction",
+      "animation": "card_reveal",
+      "transition": "slide_up",
+      "text_overlay": "3. {{step_3_text}}",
+      "asset": "screenshot_3"
+    },
+    {
+      "id": 5,
+      "label": "Outro",
+      "start_s": 26,
+      "duration": 4,
+      "narration": "{{outro_line}}",
+      "visual": "Recap: 'Follow for more!'. Your face or logo. Friendly wave or exit animation.",
+      "emotion": "encouraging",
+      "animation": "slide_up",
+      "transition": "fade",
+      "text_overlay": "{{outro_line}}",
+      "asset": "logo"
+    }
+  ]
+}

@@ -65,6 +65,28 @@ def video_destination_keyboard(draft_id: str) -> dict:
     rows.append([{"text": "❌ Cancel", "callback_data": f"media:none:{draft_id}"}])
     return {"inline_keyboard": rows}
 
+def instagram_reel_template_keyboard(
+    draft_id: str,
+    templates: list[dict],
+) -> dict:
+    """Choose an Instagram Motion Reel template before rendering."""
+    rows: list[list[dict[str, str]]] = []
+    for item in templates:
+        template_id = str(item.get("id") or "")
+        label = str(item.get("label") or template_id).strip()
+        if not template_id or not label:
+            continue
+        rows.append(
+            [
+                {
+                    "text": label,
+                    "callback_data": f"media:reel_tpl_{template_id}:{draft_id}",
+                }
+            ]
+        )
+    rows.append([{"text": "❌ Cancel", "callback_data": f"media:none:{draft_id}"}])
+    return {"inline_keyboard": rows}
+
 
 class TelegramError(RuntimeError):
     pass

@@ -3522,7 +3522,8 @@ class AgentVideoFlowTests(MediaFlowHarness):
         bot, draft_id = self.start()
         bot._router_content_request = lambda path, payload, timeout=180: self.video_plan()
         self.choose(bot, draft_id, "ai_video")
-        self.choose(bot, draft_id, "vid_dest_reel")
+        # reel now opens template picker; use youtube to keep the agent-plan path
+        self.choose(bot, draft_id, "vid_dest_youtube")
         self.media.validation = {"ok": False, "error": "missing scenes"}
 
         self.choose(bot, draft_id, "ai_render")

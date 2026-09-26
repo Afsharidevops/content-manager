@@ -1,0 +1,121 @@
+{
+  "id": "saas_demo",
+  "label": "SaaS Product Demo",
+  "description": "Show a software product in action: logo, mockup, interaction, features, and CTA.",
+  "platform": "instagram",
+  "destination_key": "reel",
+  "total_duration": 30,
+  "story_structure": {
+    "intro": "Logo and one-line value proposition",
+    "mockup": "Browser or mobile frame with the product",
+    "interaction": "Cursor movement, click highlight, real flow",
+    "features": "Key feature cards appear in sequence",
+    "cta": "Sign up / Try free / Learn more"
+  },
+  "layout_rules": {
+    "aspect_ratio": "9:16",
+    "resolution": "1080x1920",
+    "fps": 30,
+    "safe_zone_top_px": 120,
+    "safe_zone_bottom_px": 200,
+    "text_area": "bottom",
+    "background": "light_clean"
+  },
+  "text_style": {
+    "headline_font_size": 64,
+    "body_font_size": 36,
+    "font_weight": "semibold",
+    "language": "en",
+    "max_words_per_scene": 10
+  },
+  "animation_rules": {
+    "default_in": "fade",
+    "default_out": "fade",
+    "headline_in": "slide_up",
+    "mockup_in": "scale",
+    "cursor_style": "animated_dot",
+    "card_in": "card_reveal"
+  },
+  "transition_rules": {
+    "between_scenes": "cross_dissolve",
+    "duration_ms": 400
+  },
+  "asset_placement": {
+    "logo_position": "top_center",
+    "mockup_position": "center",
+    "cursor_layer": "overlay",
+    "feature_cards_position": "bottom_half"
+  },
+  "frames": {
+    "browser_frame": true,
+    "mobile_frame": false,
+    "dashboard_frame": false
+  },
+  "scenes": [
+    {
+      "id": 1,
+      "label": "Logo + Value Prop",
+      "start_s": 0,
+      "duration": 4,
+      "narration": "{{product_name}}: {{value_proposition}}",
+      "visual": "Product logo animates in center. Value proposition text below. Clean white or brand-color background.",
+      "emotion": "professional",
+      "animation": "slide_up",
+      "transition": "cross_dissolve",
+      "text_overlay": "{{value_proposition}}",
+      "asset": "product_logo"
+    },
+    {
+      "id": 2,
+      "label": "Product Mockup",
+      "start_s": 4,
+      "duration": 5,
+      "narration": "{{mockup_description}}",
+      "visual": "Browser frame containing the product dashboard. Zooms in slowly to show detail.",
+      "emotion": "trust",
+      "animation": "scale",
+      "transition": "cross_dissolve",
+      "text_overlay": "{{mockup_description}}",
+      "asset": "product_screenshot"
+    },
+    {
+      "id": 3,
+      "label": "Interaction Demo",
+      "start_s": 9,
+      "duration": 9,
+      "narration": "{{interaction_description}}",
+      "visual": "Animated cursor moves across UI, clicks key button, result appears with a highlight ring.",
+      "emotion": "engaging",
+      "animation": "cursor_move",
+      "transition": "cross_dissolve",
+      "text_overlay": "{{interaction_description}}",
+      "asset": "interaction_recording"
+    },
+    {
+      "id": 4,
+      "label": "Feature Cards",
+      "start_s": 18,
+      "duration": 8,
+      "narration": "{{features_list}}",
+      "visual": "Three cards slide in one by one from the right. Each has an icon and a short label.",
+      "emotion": "informative",
+      "animation": "card_reveal",
+      "transition": "cross_dissolve",
+      "text_overlay": "{{features_list}}",
+      "asset": null
+    },
+    {
+      "id": 5,
+      "label": "CTA",
+      "start_s": 26,
+      "duration": 4,
+      "narration": "{{cta_text}}",
+      "visual": "Brand-colored background. Bold CTA text centered. URL or handle beneath.",
+      "emotion": "action",
+      "animation": "scale",
+      "transition": "fade",
+      "text_overlay": "{{cta_text}}",
+      "asset": "logo"
+    }
+  ]
+}
