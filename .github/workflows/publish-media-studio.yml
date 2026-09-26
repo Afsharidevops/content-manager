@@ -27,6 +27,8 @@ jobs:
       IMAGE_VERSION: 0.5.1
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Resolve and validate image version
         id: release
@@ -48,16 +50,50 @@ jobs:
           fi
 
           image="${DOCKERHUB_USERNAME}/media-studio"
+          base_image="${DOCKERHUB_USERNAME}/media-studio-base"
           {
             echo "value=$version"
             echo "image=$image"
+            echo "base_image=$base_image"
             echo 'tags<<EOF'
             echo "$image:$version"
             if [[ "$version" != *-* ]]; then
               echo "$image:latest"
             fi
             echo 'EOF'
+            echo 'base_tags<<EOF'
+            echo "$base_image:$version"
+            if [[ "$version" != *-* ]]; then
+              echo "$base_image:latest"
+            fi
+            echo 'EOF'
           } >> "$GITHUB_OUTPUT"
+
+      - name: Detect base image changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "base=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          before="${{ github.event.before }}"
+          if [[ -z "$before" || "$before" == "0000000000000000000000000000000000000000" ]]; then
+            echo "base=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed="$(git diff --name-only "$before" "${{ github.sha }}")"
+          printf '%s\n' "$changed"
+
+          if grep -Eq '^(media-studio/Dockerfile\.base|media-studio/requirements\.txt|\.github/workflows/publish-media-studio\.yml)$' <<<"$changed"; then
+            echo "base=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Test Media Studio
         shell: bash
@@ -77,7 +113,21 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push multi-platform image
+      - name: Build and push multi-platform base image
+        if: steps.changes.outputs.base == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: media-studio/Dockerfile.base
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.release.outputs.base_tags }}
+          cache-from: type=gha,scope=media-studio-base
+          cache-to: type=gha,mode=max,scope=media-studio-base
+
+      - name: Build and push multi-platform app image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -87,6 +137,10 @@ jobs:
           provenance: mode=max
           sbom: true
           tags: ${{ steps.release.outputs.tags }}
+          build-args: |
+            MEDIA_STUDIO_BASE_IMAGE=${{ steps.release.outputs.base_image }}:${{ steps.release.outputs.value }}
+          cache-from: type=gha,scope=media-studio-app
+          cache-to: type=gha,mode=max,scope=media-studio-app
 
       - name: Verify published multi-platform manifest
         shell: bash

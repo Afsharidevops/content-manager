@@ -1,0 +1,25 @@
+FROM python:3.13-slim-bookworm
+
+LABEL org.opencontainers.image.title="Media Studio Base" \
+      org.opencontainers.image.version="0.5.1" \
+      org.opencontainers.image.description="Runtime dependencies for the Media Studio browser automation worker"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    HOME=/tmp \
+    TMPDIR=/tmp \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates fonts-noto-core libraqm0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 10005 mediastudio \
+    && useradd --uid 10005 --gid mediastudio --home-dir /nonexistent --no-create-home mediastudio
+
+WORKDIR /app
+COPY media-studio/requirements.txt ./media-studio/requirements.txt
+RUN pip install --no-cache-dir -r media-studio/requirements.txt \
+    && playwright install --with-deps chromium \
+    && rm -rf /root/.cache/pip
