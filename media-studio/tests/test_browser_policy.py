@@ -109,3 +109,13 @@ class ExtensionProvisionTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"MEDIA_STUDIO_EXTENSION_PATH": "/nonexistent/ext"}, clear=False):
             args = _extension_args(None)
         self.assertEqual([], args)
+
+
+class PersistentLaunchArgsTests(unittest.TestCase):
+    """Document the extension-compatible launch policy."""
+
+    def test_source_removes_playwright_disable_extensions_arg(self):
+        from pathlib import Path
+        source = Path("media_studio/browser.py").read_text()
+        self.assertIn('"--disable-extensions"', source)
+        self.assertIn('"--enable-automation"', source)

@@ -120,7 +120,7 @@ def _persistent_page(settings):
             user_data_dir=profile_dir,
             headless=settings.headless,
             args=args,
-            ignore_default_args=["--enable-automation"],
+            ignore_default_args=["--enable-automation", "--disable-extensions"],
             viewport={"width": 1440, "height": 900},
             locale=settings.locale,
             timezone_id=settings.timezone_id,
