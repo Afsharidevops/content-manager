@@ -10,6 +10,8 @@ class SettingsTests(unittest.TestCase):
         settings = Settings.from_env()
         self.assertIn("api-image", settings.drivers)
         self.assertTrue(settings.block_geo_redirect)
+        self.assertEqual(settings.session_mode, "persistent")
+        self.assertFalse(settings.headless)
 
     def test_env_parsing(self):
         with patch.dict(

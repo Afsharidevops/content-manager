@@ -59,9 +59,9 @@ class Settings:
     video_edit_timeout_seconds: int = 900
     timeline_timeout_seconds: int = 1800
     upload_ttl_seconds: int = 86400
-    session_mode: str = "cdp"
+    session_mode: str = "persistent"
     cdp_url: str = "http://127.0.0.1:9222"
-    headless: bool = True
+    headless: bool = False
     block_geo_redirect: bool = True
     freeze_on_ready: bool = True
     job_timeout_seconds: int = 900
@@ -123,9 +123,9 @@ class Settings:
                 "MEDIA_STUDIO_TIMELINE_TIMEOUT_SECONDS", 1800
             ),
             upload_ttl_seconds=_env_int("MEDIA_STUDIO_UPLOAD_TTL_SECONDS", 86400),
-            session_mode=_env("MEDIA_STUDIO_SESSION_MODE", "cdp").lower(),
+            session_mode=_env("MEDIA_STUDIO_SESSION_MODE", "persistent").lower(),
             cdp_url=_env("MEDIA_STUDIO_CDP_URL", "http://127.0.0.1:9222"),
-            headless=_env_bool("MEDIA_STUDIO_HEADLESS", True),
+            headless=_env_bool("MEDIA_STUDIO_HEADLESS", False),
             block_geo_redirect=_env_bool("MEDIA_STUDIO_BLOCK_GEO_REDIRECT", True),
             freeze_on_ready=_env_bool("MEDIA_STUDIO_FREEZE_ON_READY", True),
             job_timeout_seconds=_env_int("MEDIA_STUDIO_JOB_TIMEOUT_SECONDS", 900),

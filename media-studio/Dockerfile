@@ -10,4 +10,4 @@ COPY media-studio/media_studio ./media_studio
 COPY extensions ./extensions
 
 USER 10005:10005
-CMD ["python", "-m", "media_studio"]
+CMD ["xvfb-run", "-a", "--server-args=-screen 0 1920x1080x24", "python", "-m", "media_studio"]

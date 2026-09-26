@@ -93,11 +93,13 @@ class FlowVideoDriver(Driver):
                     except Exception:  # noqa: BLE001
                         pass
             for candidate in (
+                'button:has-text("\u0627\u062f\u0627\u0645\u0647")',
                 'button:has-text("\u0628\u0639\u062f\u06cc")',
                 'button:has-text("Next")',
                 'button:has-text("Continue")',
                 'button:has-text("Agree")',
                 'button:has-text("Accept")',
+                '[role="button"]:has-text("\u0627\u062f\u0627\u0645\u0647")',
                 '[role="button"]:has-text("\u0628\u0639\u062f\u06cc")',
             ):
                 try:
