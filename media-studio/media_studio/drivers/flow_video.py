@@ -39,12 +39,31 @@ class FlowVideoDriver(Driver):
     def _check_geo_block(self, page, ctx) -> None:
         marker = body_contains(
             page,
-            ("not available in your country", "unsupported country", "region", "in your area"),
+            (
+                "not available in your country",
+                "unsupported country",
+                "region",
+                "in your area",
+                "unsupported-country",
+                "\u06a9\u0634\u0648\u0631",
+                "\u0645\u0646\u0637\u0642\u0647",
+            ),
             timeout_s=4.0,
         )
-        if marker:
+        current_url = page.url or ""
+        is_on_unsupported = "unsupported-country" in current_url.lower()
+        if marker or is_on_unsupported:
+            ctx.log(f"flow-video: unsupported-country detected (url={current_url!r}, marker={marker!r}); attempting consent dismiss.")
+            dismissed = self._dismiss_consent_page(page, ctx)
+            if dismissed:
+                ctx.log("flow-video: consent dismissed; re-checking URL.")
+                time.sleep(3)
+                current_url = page.url or ""
+                if "unsupported-country" not in current_url.lower():
+                    ctx.log(f"flow-video: recovered from unsupported-country to {current_url!r}.")
+                    return
             raise DriverError(
-                "Google Flow still reports an unsupported region.",
+                f"Google Flow is in an unsupported region (url={current_url!r}).",
                 step="geo",
                 hint="Confirm MEDIA_STUDIO_BLOCK_GEO_REDIRECT=true and that the session browser can reach flow.google.com.",
             )
@@ -59,6 +78,39 @@ class FlowVideoDriver(Driver):
         wait_s = float(os.environ.get("MEDIA_STUDIO_FLOW_READY_WAIT_SECONDS", "5"))
         time.sleep(wait_s)
         ctx.log(f"flow-video: waited {wait_s:.0f}s for the project dashboard.")
+
+    def _dismiss_consent_page(self, page, ctx) -> bool:
+        """Accept all checkboxes on the Flow consent/terms page and click Next."""
+        try:
+            checkboxes = page.locator("input[type='checkbox']")
+            count = checkboxes.count()
+            if count:
+                for i in range(count):
+                    cb = checkboxes.nth(i)
+                    try:
+                        if cb.is_visible(timeout=800) and not cb.is_checked(timeout=500):
+                            cb.click()
+                    except Exception:  # noqa: BLE001
+                        pass
+            for candidate in (
+                'button:has-text("\u0628\u0639\u062f\u06cc")',
+                'button:has-text("Next")',
+                'button:has-text("Continue")',
+                'button:has-text("Agree")',
+                'button:has-text("Accept")',
+                '[role="button"]:has-text("\u0628\u0639\u062f\u06cc")',
+            ):
+                try:
+                    btn = page.locator(candidate).first
+                    if btn.is_visible(timeout=1200):
+                        btn.click()
+                        ctx.log(f"flow-video: dismissed consent via {candidate!r}.")
+                        return True
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+        return False
 
     def _create_project(self, page, ctx) -> None:
         candidates = env_candidates(

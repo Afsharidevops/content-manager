@@ -34,3 +34,48 @@ class GeoPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+from unittest import mock
+
+from media_studio.drivers.base import DriverError
+from media_studio.drivers.flow_video import FlowVideoDriver
+
+class _Ctx:
+    def __init__(self):
+        self.messages = []
+
+    def log(self, message):
+        self.messages.append(message)
+
+class _Page:
+    def __init__(self, url):
+        self.url = url
+
+class FlowVideoGeoRecoveryTests(unittest.TestCase):
+    def test_unsupported_country_consent_recovery_continues_when_url_changes(self):
+        driver = FlowVideoDriver()
+        ctx = _Ctx()
+        page = _Page("https://flow.google.com/unsupported-country")
+
+        def dismiss(_page, _ctx):
+            page.url = "https://flow.google.com/"
+            return True
+
+        with mock.patch("media_studio.drivers.flow_video.body_contains", return_value=None), \
+             mock.patch.object(driver, "_dismiss_consent_page", side_effect=dismiss), \
+             mock.patch("media_studio.drivers.flow_video.time.sleep", return_value=None):
+            driver._check_geo_block(page, ctx)
+
+        self.assertIn("recovered from unsupported-country", "\n".join(ctx.messages))
+
+    def test_unsupported_country_still_fails_when_consent_cannot_recover(self):
+        driver = FlowVideoDriver()
+        page = _Page("https://flow.google.com/unsupported-country")
+
+        with mock.patch("media_studio.drivers.flow_video.body_contains", return_value=None), \
+             mock.patch.object(driver, "_dismiss_consent_page", return_value=False):
+            with self.assertRaises(DriverError) as caught:
+                driver._check_geo_block(page, _Ctx())
+
+        self.assertEqual("geo", caught.exception.step)
+        self.assertIn("unsupported region", str(caught.exception))
