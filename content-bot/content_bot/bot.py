@@ -2809,6 +2809,15 @@ class ContentBot:
         if record is None:
             self._safe_answer(query_id, "This draft is no longer active.")
             return
+        template_id = str(record.get("agent_video_template") or "").strip()
+        if template_id:
+            self._start_reel_template_render(
+                draft_id,
+                record,
+                template_id,
+                query_id=query_id,
+            )
+            return
         timeline = record.get("agent_video_timeline")
         if not isinstance(timeline, dict):
             self._safe_answer(query_id, "No video plan found. Generate a plan first.")
@@ -2883,6 +2892,75 @@ class ContentBot:
             },
         )
         self._record_event(draft_id, "agent_video_render_started", job_id)
+        if ask_id is not None and chat_id is not None:
+            self._edit_safe(
+                chat_id,
+                int(ask_id),
+                "🎬 Rendering video… I'll send it when it's ready.",
+            )
+        self._safe_answer(query_id, "Rendering started.")
+
+    def _start_reel_template_render(
+        self,
+        draft_id: str,
+        record: dict,
+        template_id: str,
+        *,
+        query_id: str = "",
+    ) -> None:
+        """Submit an Instagram reel template to the Flow video driver."""
+        try:
+            prompt = reel_templates_mod.template_to_flow_prompt(
+                template_id,
+                str(record.get("title") or ""),
+                str(record.get("body") or ""),
+                str(record.get("source_url") or ""),
+            )
+            job_id = self.media.submit(
+                "flow-video",
+                prompt,
+                params={
+                    "template_id": template_id,
+                    "destination": "reel",
+                    "aspect_ratio": "9:16",
+                    "resolution": "1080x1920",
+                    "fps": 30,
+                    "language": "en",
+                },
+            )
+        except (ValueError, media_mod.MediaStudioError) as error:
+            log.warning("reel template render submit failed for draft %s: %s", draft_id, error)
+            chat_id = record.get("chat_id")
+            ask_id = record.get("ask_message_id")
+            if ask_id is not None and chat_id is not None:
+                self._edit_safe(
+                    chat_id,
+                    int(ask_id),
+                    f"Render could not start: {error}",
+                    telegram_mod.ai_video_plan_keyboard(draft_id),
+                )
+            self._safe_answer(query_id, f"Render failed: {error}")
+            return
+        self.state.update_draft(
+            draft_id,
+            {
+                "status": "media_running",
+                "media_duration_asked": False,
+                "media": {
+                    "kind": "video",
+                    "driver": "flow-video",
+                    "job_id": job_id,
+                    "status": "running",
+                    "artifact": "",
+                    "local_path": "",
+                    "duration": "",
+                    "created_at": self.now_fn().isoformat(),
+                },
+            },
+        )
+        self._record_event(draft_id, "reel_template_render_started", job_id)
+        chat_id = record.get("chat_id")
+        ask_id = record.get("ask_message_id")
         if ask_id is not None and chat_id is not None:
             self._edit_safe(
                 chat_id,

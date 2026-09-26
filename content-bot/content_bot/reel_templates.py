@@ -36,12 +36,13 @@ _VISUAL_ANIMATION_MAP = {
 }
 
 _LATIN_RE = re.compile(r"[A-Za-z]")
+_ARABIC_SCRIPT_RE = re.compile(r"[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]")
 
 
 def _english_or(default: str, value: str = "") -> str:
     """Return value only when it already contains Latin text."""
     text = " ".join(str(value or "").split()).strip()
-    if text and _LATIN_RE.search(text):
+    if text and _LATIN_RE.search(text) and not _ARABIC_SCRIPT_RE.search(text):
         return text
     return default
 
@@ -239,6 +240,89 @@ def template_to_plan(
     }
 
     return {"storyboard": storyboard, "timeline": timeline}
+
+
+def template_to_flow_prompt(
+    template_id: str,
+    title: str = "",
+    body: str = "",
+    source_url: str = "",
+) -> str:
+    """Convert one Instagram template into a Google Flow prompt."""
+    entry = get_template(template_id)
+    if entry is None:
+        raise ValueError(f"unknown template: {template_id}")
+
+    template = entry["template"]
+    placeholder_values = _derive_placeholder_values(title, body, source_url)
+    filled = _fill_placeholders(template, placeholder_values)
+    scenes: list[dict] = filled.get("scenes") or []
+    layout = filled.get("layout_rules") if isinstance(filled.get("layout_rules"), dict) else {}
+    text_style = filled.get("text_style") if isinstance(filled.get("text_style"), dict) else {}
+    animation_rules = filled.get("animation_rules") if isinstance(filled.get("animation_rules"), dict) else {}
+    transition_rules = filled.get("transition_rules") if isinstance(filled.get("transition_rules"), dict) else {}
+    asset_placement = filled.get("asset_placement") if isinstance(filled.get("asset_placement"), dict) else {}
+
+    reel_title = _english_or(str(entry["label"]), title)[:90]
+    total = _pick_duration(filled)
+    lines: list[str] = [
+        f"Create a {total}-second vertical Instagram motion reel in English only.",
+        f"Template: {entry['label']}.",
+        f"Topic: {reel_title}.",
+        "Visual style: premium animated infographic reel, dark modern tech background, neon accent highlights, kinetic typography, clean icons, smooth camera motion, polished social media pacing.",
+        "Format: 9:16 vertical video, 1080x1920, 30 fps, safe margins for Instagram UI.",
+        "Do not use static title cards. Every scene must include motion, layered depth, animated text, and dynamic transitions.",
+        "Use short English on-screen text only. Keep text readable and high contrast.",
+    ]
+    if body:
+        source_body = writer_mod.Writer._strip_source_url(body, source_url) if source_url else body
+        lines.append(
+            "Content context: "
+            + _english_or(
+                "Explain the topic clearly with a premium product-demo feel.",
+                source_body,
+            )[:900]
+        )
+    lines.extend(
+        [
+            "",
+            "Global rules:",
+            f"- Layout: {json.dumps(layout, ensure_ascii=False)}",
+            f"- Text style: {json.dumps(text_style, ensure_ascii=False)}",
+            f"- Animation rules: {json.dumps(animation_rules, ensure_ascii=False)}",
+            f"- Transition rules: {json.dumps(transition_rules, ensure_ascii=False)}",
+            f"- Asset placement: {json.dumps(asset_placement, ensure_ascii=False)}",
+            "- Use animated backgrounds, floating elements, parallax, card reveals, zoom highlights, and subtle glow effects.",
+            "- Add browser, mobile, dashboard, icon, or product mockups when the scene calls for it.",
+            "",
+            "Scene timeline:",
+        ]
+    )
+    for index, scene in enumerate(scenes, 1):
+        label = str(scene.get("label") or f"Scene {index}").strip()
+        duration = int(scene.get("duration") or 4)
+        narration = _english_or("", str(scene.get("narration") or ""))
+        visual = str(scene.get("visual") or "").strip()
+        overlay = _english_or(narration, str(scene.get("text_overlay") or narration))
+        animation = str(scene.get("animation") or animation_rules.get("default_in") or "fade")
+        transition = str(scene.get("transition") or transition_rules.get("between_scenes") or "fade")
+        asset = str(scene.get("asset") or "none")
+        lines.extend(
+            [
+                f"{index}. {label} ({duration}s)",
+                f"   On-screen text: {overlay[:140]}",
+                f"   Voiceover idea: {narration[:220]}",
+                f"   Visual direction: {visual}",
+                f"   Animation: {animation}; transition: {transition}; asset: {asset}.",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Final quality target: match premium short-form animated explainer reels, with energetic pacing, modern typography, clean UI mockups, and no low-effort slideshow look.",
+        ]
+    )
+    return "\n".join(lines).strip()
 
 
 def apply_destination_meta(timeline: dict, destination: dict) -> dict:

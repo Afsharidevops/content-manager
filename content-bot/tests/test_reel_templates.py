@@ -446,3 +446,208 @@ class ReelCallbackBotTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TemplateToFlowPromptTests(unittest.TestCase):
+    """Tests for template_to_flow_prompt()."""
+
+    def _prompt(self, template_id: str, **kwargs) -> str:
+        return reel_templates.template_to_flow_prompt(template_id, **kwargs)
+
+    def test_raises_for_unknown_template(self):
+        with self.assertRaises(ValueError):
+            self._prompt("does_not_exist")
+
+    def test_returns_non_empty_string_for_all_templates(self):
+        for entry in reel_templates.available_templates():
+            with self.subTest(tid=entry["id"]):
+                result = self._prompt(
+                    entry["id"],
+                    title="My Product",
+                    body="This product helps developers build faster.",
+                    source_url="",
+                )
+                self.assertIsInstance(result, str)
+                self.assertGreater(len(result.strip()), 50)
+
+    def test_prompt_contains_english_instructions(self):
+        result = self._prompt(
+            "tech_explainer",
+            title="Container Images",
+            body="Containers reuse layers to speed up builds.",
+            source_url="",
+        )
+        self.assertIn("English", result)
+        self.assertIn("9:16", result)
+        self.assertIn("motion", result.lower())
+
+    def test_prompt_contains_scene_timeline_section(self):
+        result = self._prompt(
+            "tech_explainer",
+            title="Test",
+            body="Short body.",
+            source_url="",
+        )
+        self.assertIn("Scene timeline:", result)
+        self.assertIn("On-screen text:", result)
+        self.assertIn("Visual direction:", result)
+
+    def test_prompt_does_not_contain_persian(self):
+        result = self._prompt(
+            "tech_explainer",
+            title="Test",
+            body="Persian body: این یک متن فارسی است.",
+            source_url="",
+        )
+        # Persian Unicode range check (basic)
+        import unicodedata
+        for char in result:
+            block = unicodedata.name(char, "").upper()
+            self.assertNotIn("ARABIC", block, f"Persian/Arabic char found: {char!r}")
+
+    def test_prompt_total_duration_present(self):
+        result = self._prompt("tech_explainer", title="T", body="B")
+        self.assertIn("-second", result)
+
+    def test_prompt_all_five_templates_have_scenes(self):
+        for entry in reel_templates.available_templates():
+            with self.subTest(tid=entry["id"]):
+                result = self._prompt(entry["id"], title="T", body="B")
+                self.assertIn("1.", result)
+
+
+class ReelRenderViaFlowTests(unittest.TestCase):
+    """Bot dispatches reel template render to flow-video driver."""
+
+    def setUp(self):
+        import tempfile, datetime, secrets
+        from content_bot.bot import ContentBot
+        from content_bot.config import BotSettings
+        from tests.test_bot import FakeApi, FakeMedia
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.api = FakeApi()
+        self.media = FakeMedia(artifact=("flow_video.mp4", "video"))
+        settings = BotSettings(
+            bot_token="123:TESTTOKENABCDEFGHIJKLMN",
+            telegram_channel="@ch",
+            telegram_users=frozenset({11}),
+            data_dir=self.tmp.name,
+            scheduler_enabled=False,
+        )
+        self.bot = ContentBot(
+            settings,
+            api=self.api,
+            media=self.media,
+            now_fn=lambda: datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+        )
+        draft_id = secrets.token_hex(4)
+        self.bot.state.add_draft(
+            draft_id,
+            {
+                "id": draft_id,
+                "chat_id": 11,
+                "ask_message_id": 103,
+                "title": "Container images explained",
+                "body": "Container images are built from ordered layers.",
+                "source_url": "https://example.com/layers",
+                "status": "media_running",
+                "agent_video_template": "tech_explainer",
+                "agent_video_storyboard": {"title": "t", "scenes": []},
+                "agent_video_timeline": {"version": 1, "meta": {}, "scenes": []},
+                "history": [],
+            },
+        )
+        self.draft_id = draft_id
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _trigger_render(self):
+        self.bot.handle_callback(
+            {
+                "id": "q-render",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 103},
+                "data": f"media:ai_render:{self.draft_id}",
+            }
+        )
+
+    def test_reel_render_uses_flow_video_driver(self):
+        self._trigger_render()
+        self.assertEqual(1, len(self.media.submits))
+        driver, prompt, params = self.media.submits[0]
+        self.assertEqual("flow-video", driver)
+
+    def test_reel_render_prompt_contains_motion_reel(self):
+        self._trigger_render()
+        _driver, prompt, _params = self.media.submits[0]
+        self.assertIn("reel", prompt.lower())
+        self.assertIn("English", prompt)
+
+    def test_reel_render_params_include_aspect_ratio(self):
+        self._trigger_render()
+        _driver, _prompt, params = self.media.submits[0]
+        self.assertEqual("9:16", params.get("aspect_ratio"))
+        self.assertEqual("en", params.get("language"))
+
+    def test_reel_render_stores_flow_video_driver_in_state(self):
+        self._trigger_render()
+        record = self.bot.state.get_draft(self.draft_id)
+        self.assertEqual("flow-video", record["media"]["driver"])
+
+    def test_reel_render_unknown_template_does_not_submit(self):
+        self.bot.state.update_draft(
+            self.draft_id, {"agent_video_template": "does_not_exist"}
+        )
+        self._trigger_render()
+        self.assertEqual(0, len(self.media.submits))
+
+    def test_reel_render_media_error_is_graceful(self):
+        from content_bot.mediastudio import MediaStudioError
+
+        def _fail(*args, **kwargs):
+            raise MediaStudioError("quota exceeded")
+
+        self.media.submit = _fail
+        # start from a non-running status to verify no change
+        self.bot.state.update_draft(self.draft_id, {"status": "media_ask"})
+        self._trigger_render()
+        record = self.bot.state.get_draft(self.draft_id)
+        self.assertEqual("media_ask", record.get("status"))
+        self.assertEqual(0, len(self.media.submits))
+
+    def test_non_reel_draft_still_uses_timeline_video(self):
+        """Drafts without agent_video_template go through timeline-video."""
+        import secrets
+        draft_id2 = secrets.token_hex(4)
+        self.bot.state.add_draft(
+            draft_id2,
+            {
+                "id": draft_id2,
+                "chat_id": 11,
+                "ask_message_id": 103,
+                "title": "Timeline draft",
+                "body": "Some content.",
+                "source_url": "",
+                "status": "media_ask",
+                "agent_video_storyboard": {"title": "t", "scenes": []},
+                "agent_video_timeline": {
+                    "version": 1,
+                    "meta": {"aspect_ratio": "16:9", "resolution": "1920x1080", "fps": 30},
+                    "scenes": [{"duration": 4, "text": "Hello"}],
+                },
+                "history": [],
+            },
+        )
+        self.bot.handle_callback(
+            {
+                "id": "q-tl",
+                "from": {"id": 11},
+                "message": {"chat": {"id": 11}, "message_id": 104},
+                "data": f"media:ai_render:{draft_id2}",
+            }
+        )
+        self.assertEqual(1, len(self.media.submits))
+        driver, _, _ = self.media.submits[0]
+        self.assertEqual("timeline-video", driver)
