@@ -115,7 +115,7 @@ class PersistentLaunchArgsTests(unittest.TestCase):
     """Document the extension-compatible launch policy."""
 
     def test_source_removes_playwright_disable_extensions_arg(self):
-        from pathlib import Path
-        source = Path("media_studio/browser.py").read_text()
+        import media_studio.browser as _m
+        source = open(_m.__file__).read()
         self.assertIn('"--disable-extensions"', source)
         self.assertIn('"--enable-automation"', source)
